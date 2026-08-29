@@ -611,6 +611,33 @@ final class PlannerController extends Notifier<PlannerState> {
     }
   }
 
+  Future<TaskHardDeleteOutcome> hardDeleteTask(String taskId) async {
+    try {
+      final outcome = await _repository.hardDeleteTask(
+        profileId: _profileId,
+        taskId: taskId,
+      );
+      if (outcome == TaskHardDeleteOutcome.deleted) {
+        await _load(state.selectedDate, invalidateCache: true);
+      }
+      state = state.copyWith(
+        message: outcome == TaskHardDeleteOutcome.integrityFailure
+            ? 'Task deletion was rolled back because its ownership could not be proven.'
+            : null,
+        clearMessage: outcome != TaskHardDeleteOutcome.integrityFailure,
+      );
+      return outcome;
+    } on TaskHardDeleteIntegrityException catch (error) {
+      state = state.copyWith(message: error.message);
+      return TaskHardDeleteOutcome.integrityFailure;
+    } on Object {
+      state = state.copyWith(
+        message: 'Task could not be deleted. Your data was not changed.',
+      );
+      return TaskHardDeleteOutcome.integrityFailure;
+    }
+  }
+
   void clearMessage() {
     state = state.copyWith(clearMessage: true);
   }

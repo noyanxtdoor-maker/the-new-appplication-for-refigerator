@@ -215,6 +215,13 @@ abstract interface class ContactRepository {
     required PlannerDate today,
   });
 
+  Future<List<EventParticipantPresentation>> readEventParticipantPresentation({
+    required String profileId,
+    required String eventId,
+    required String occurrenceId,
+    required bool historical,
+  });
+
   Future<void> setTaskContacts({
     required String profileId,
     required String taskId,

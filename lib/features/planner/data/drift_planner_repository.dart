@@ -5,6 +5,7 @@ import 'package:rmplanner/core/database/app_database.dart';
 import 'package:rmplanner/core/time/app_clock.dart';
 import 'package:rmplanner/features/planner/application/planner_repository.dart';
 import 'package:rmplanner/features/planner/data/task_goal_contribution_engine.dart';
+import 'package:rmplanner/features/planner/domain/outcome_reporting.dart';
 import 'package:rmplanner/features/planner/domain/planner_date.dart';
 import 'package:rmplanner/features/planner/domain/planner_day.dart';
 import 'package:rmplanner/features/planner/domain/planner_task.dart';
@@ -139,6 +140,142 @@ final class DriftPlannerRepository implements PlannerRepository {
   }
 
   @override
+  Future<TaskHardDeleteOutcome> hardDeleteTask({
+    required String profileId,
+    required String taskId,
+  }) async {
+    return database.transaction(() async {
+      final task =
+          await (database.select(database.plannerTasks)
+                ..where(
+                  (table) =>
+                      table.profileId.equals(profileId) &
+                      table.id.equals(taskId),
+                )
+                ..limit(1))
+              .getSingleOrNull();
+      if (task == null) return TaskHardDeleteOutcome.notFound;
+
+      final taskLinks =
+          await (database.select(database.taskEventLinks)..where(
+                (table) =>
+                    table.profileId.equals(profileId) &
+                    table.taskId.equals(taskId),
+              ))
+              .get();
+      final taskLinkIds = taskLinks.map((row) => row.id).toSet();
+
+      // Task-source rows are the sole ownership root. Corrections form a
+      // closure so a historical descendant is removed only when it explicitly
+      // corrects a proven Task-owned report.
+      final allProfileReports = await (database.select(
+        database.outcomeReports,
+      )..where((table) => table.profileId.equals(profileId))).get();
+      final ownedReportIds = allProfileReports
+          .where(
+            (row) =>
+                row.sourceType == OutcomeSourceType.task.name &&
+                row.sourceId == taskId,
+          )
+          .map((row) => row.id)
+          .toSet();
+      var expanded = true;
+      while (expanded) {
+        expanded = false;
+        for (final row in allProfileReports) {
+          final corrects = row.correctsReportId;
+          if (corrects != null &&
+              ownedReportIds.contains(corrects) &&
+              ownedReportIds.add(row.id)) {
+            expanded = true;
+          }
+        }
+      }
+
+      final allProfileLedgerRows = await (database.select(
+        database.activityLedgerEntries,
+      )..where((table) => table.profileId.equals(profileId))).get();
+      final ownedLedgerRows = allProfileLedgerRows
+          .where((row) => ownedReportIds.contains(row.sourceReportId))
+          .toList(growable: false);
+      final ownedLedgerIds = ownedLedgerRows.map((row) => row.id).toSet();
+      for (final row in ownedLedgerRows) {
+        final referencedIds = <String>{
+          if (row.reversalOfEntryId != null) row.reversalOfEntryId!,
+          if (row.replacesEntryId != null) row.replacesEntryId!,
+        };
+        if (referencedIds.any((id) => !ownedLedgerIds.contains(id))) {
+          throw TaskHardDeleteIntegrityException(
+            'Task $taskId has a ledger reference outside its proven report closure.',
+          );
+        }
+      }
+
+      if (ownedLedgerIds.isNotEmpty) {
+        await (database.delete(database.activityLedgerEntries)..where(
+              (table) =>
+                  table.profileId.equals(profileId) &
+                  table.id.isIn(ownedLedgerIds),
+            ))
+            .go();
+      }
+      if (ownedReportIds.isNotEmpty) {
+        await (database.delete(
+          database.outcomeReportContributionDrafts,
+        )..where((table) => table.reportId.isIn(ownedReportIds))).go();
+        await (database.delete(database.outcomeReports)..where(
+              (table) =>
+                  table.profileId.equals(profileId) &
+                  table.id.isIn(ownedReportIds),
+            ))
+            .go();
+      }
+      if (taskLinkIds.isNotEmpty) {
+        await (database.delete(database.taskEventLinkHistory)..where(
+              (table) =>
+                  table.profileId.equals(profileId) &
+                  (table.linkId.isIn(taskLinkIds) |
+                      table.relatedLinkId.isIn(taskLinkIds)),
+            ))
+            .go();
+      }
+      await (database.delete(database.taskEventLinks)..where(
+            (table) =>
+                table.profileId.equals(profileId) & table.taskId.equals(taskId),
+          ))
+          .go();
+      await (database.delete(database.taskContactLinks)..where(
+            (table) =>
+                table.profileId.equals(profileId) & table.taskId.equals(taskId),
+          ))
+          .go();
+      await (database.delete(database.taskGoalContributions)..where(
+            (table) =>
+                table.profileId.equals(profileId) & table.taskId.equals(taskId),
+          ))
+          .go();
+      await (database.delete(database.taskStatusChanges)..where(
+            (table) =>
+                table.profileId.equals(profileId) & table.taskId.equals(taskId),
+          ))
+          .go();
+      final deleted =
+          await (database.delete(database.plannerTasks)..where(
+                (table) =>
+                    table.profileId.equals(profileId) & table.id.equals(taskId),
+              ))
+              .go();
+      if (deleted != 1) {
+        throw TaskHardDeleteIntegrityException(
+          'Task $taskId disappeared before hard delete completed.',
+        );
+      }
+      await writeGuard.beforeCommit();
+      return TaskHardDeleteOutcome.deleted;
+    });
+  }
+
+  @override
   Future<PlannerDay> readDay({
     required String profileId,
     required PlannerDate selectedDate,
@@ -171,9 +308,17 @@ final class DriftPlannerRepository implements PlannerRepository {
             for (final row in taskRows)
               row.id: batchContexts[row.id] ?? const PlannerTaskContext(),
           };
+    final outcomesByTask = await _readEffectiveTaskOutcomes(
+      profileId: profileId,
+      taskIds: taskRows.map((row) => row.id),
+    );
     final allTasks = await Future.wait(
       taskRows.map(
-        (row) => _mapTask(row, preloadedContext: contextsByTask?[row.id]),
+        (row) => _mapTask(
+          row,
+          preloadedContext: contextsByTask?[row.id],
+          reportedOutcome: outcomesByTask[row.id],
+        ),
       ),
     );
     final calendarItems = await calendarSource.readDay(
@@ -186,17 +331,19 @@ final class DriftPlannerRepository implements PlannerRepository {
         .toList(growable: false);
 
     final tasks = allTasks
-        .where((task) {
-          if (task.status != PlannerTaskStatus.incomplete) {
-            return false;
-          }
-          final dueDate = task.dueDate;
-          return dueDate == selectedDate ||
-              (dueDate == null && selectedDate == today);
-        })
+        .where(
+          (task) =>
+              task.projectsOn(selectedDate) ||
+              (task.status == PlannerTaskStatus.incomplete &&
+                  task.dueDate == null &&
+                  selectedDate == today),
+        )
         .toList(growable: false);
     final overdueTasks = allTasks
-        .where((task) => task.isOverdueOn(selectedDate))
+        .where(
+          (task) =>
+              task.isOverdueOn(selectedDate) && !task.projectsOn(selectedDate),
+        )
         .toList(growable: false);
     final completedTasks = allTasks
         .where(
@@ -421,6 +568,7 @@ final class DriftPlannerRepository implements PlannerRepository {
   Future<PlannerTask> _mapTask(
     PlannerTaskRow row, {
     PlannerTaskContext? preloadedContext,
+    OutcomeKind? reportedOutcome,
   }) async {
     final context =
         preloadedContext ?? await taskContextSource.readContext(row.id);
@@ -444,7 +592,35 @@ final class DriftPlannerRepository implements PlannerRepository {
       linkedActivityTypeStableKey: row.linkedActivityTypeStableKey,
       linkedActivityTypeLabelSnapshot: row.linkedActivityTypeLabelSnapshot,
       goalId: row.goalId,
+      reportedOutcome: reportedOutcome,
     );
+  }
+
+  /// Reads the one effective canonical outcome per Task slot in one bounded
+  /// query. Historical/superseded reports intentionally do not affect the
+  /// Day block's factual status symbol.
+  Future<Map<String, OutcomeKind>> _readEffectiveTaskOutcomes({
+    required String profileId,
+    required Iterable<String> taskIds,
+  }) async {
+    final ids = taskIds.toList(growable: false);
+    if (ids.isEmpty) {
+      return const <String, OutcomeKind>{};
+    }
+    final rows = await (database.select(database.outcomeReports)
+          ..where(
+            (table) =>
+                table.profileId.equals(profileId) &
+                table.sourceType.equals(OutcomeSourceType.task.name) &
+                table.sourceId.isIn(ids) &
+                table.status.equals(OutcomeReportStatus.submitted.name) &
+                table.effectiveSlotKey.isNotNull() &
+                table.outcome.isNotNull(),
+          ))
+        .get();
+    return <String, OutcomeKind>{
+      for (final row in rows) row.sourceId: OutcomeKind.values.byName(row.outcome!),
+    };
   }
 
   Future<TaskGoalContributionLink?> _resolveTaskLink({

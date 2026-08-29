@@ -1,11 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
-import 'package:rmplanner/app/router/route_names.dart';
-import 'package:rmplanner/app/theme/internal_screen.dart';
-import 'package:rmplanner/features/planner/application/planner_providers.dart';
-import 'package:rmplanner/features/planner/domain/planner_task.dart';
-import 'package:rmplanner/features/planner/presentation/calendar_event_creation.dart';
+import 'package:rmplanner/features/planner/presentation/task_preview_sheet.dart';
 
 final class TaskDetailScreen extends ConsumerStatefulWidget {
   const TaskDetailScreen({required this.taskId, super.key});
@@ -17,25 +12,16 @@ final class TaskDetailScreen extends ConsumerStatefulWidget {
 }
 
 final class _TaskDetailScreenState extends ConsumerState<TaskDetailScreen> {
-  late Future<PlannerTask?> _task;
-
-  @override
-  void initState() {
-    super.initState();
-    _reload();
-  }
-
-  void _reload() {
-    _task = ref
-        .read(plannerControllerProvider.notifier)
-        .readTask(widget.taskId);
-  }
-
   @override
   Widget build(BuildContext context) {
+    return TaskPreviewSheet(taskId: widget.taskId);
+    /*
     return Scaffold(
       appBar: InternalAppBar(
-        title: const Text('Task'),
+        title: FutureBuilder<PlannerTask?>(
+          future: _task,
+          builder: (context, snapshot) => Text(snapshot.data?.title ?? 'Task'),
+        ),
         actions: <Widget>[
           IconButton(
             tooltip: 'Edit Task',
@@ -58,109 +44,88 @@ final class _TaskDetailScreenState extends ConsumerState<TaskDetailScreen> {
             return ListView(
               padding: const EdgeInsets.all(16),
               children: <Widget>[
-                Text(
-                  task.title,
-                  key: const Key('task-detail-title'),
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontSize: 24,
-                    height: 30 / 24,
-                    fontWeight: FontWeight.w700,
-                  ),
+                FutureBuilder<_TaskReportingSnapshot>(
+                  future: _reporting,
+                  builder: (context, reporting) {
+                    final data = reporting.data ?? const _TaskReportingSnapshot.empty();
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        _TaskDetailSection(
+                          title: 'Current Status',
+                          child: Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: <Widget>[
+                              _statusButton(null, 'Unreported', data.currentOutcome),
+                              _statusButton(OutcomeKind.didNotHappen, 'Did Not Attempt', data.currentOutcome),
+                              _statusButton(OutcomeKind.partiallyCompleted, 'Missed', data.currentOutcome),
+                              _statusButton(OutcomeKind.completedHappened, 'Completed', data.currentOutcome),
+                            ],
+                          ),
+                        ),
+                        const Divider(height: 1),
+                        const SizedBox(height: 12),
+                      ],
+                    );
+                  },
                 ),
-                const SizedBox(height: 4),
-                Text(_statusLabel(task.status)),
-                const SizedBox(height: 14),
-                _DetailRow(
-                  icon: Icons.event_outlined,
-                  label: task.dueDate == null
-                      ? 'No due date'
-                      : 'Due ${task.dueDate!.iso8601}',
+                PlannerDetailField(
+                  key: const Key('task-detail-title'),
+                  icon: Icons.title_outlined,
+                  label: 'Title',
+                  value: task.title,
+                ),
+                PlannerDetailField(
+                  icon: Icons.calendar_today_outlined,
+                  label: 'Date',
+                  value: task.dueDate?.iso8601 ?? 'No due date',
+                ),
+                if (task.dueMinute != null)
+                  PlannerDetailField(
+                    icon: Icons.schedule,
+                    label: 'Time',
+                    value: _time(task.dueMinute!),
+                  ),
+                PlannerDetailField(
+                  icon: Icons.repeat,
+                  label: 'Repeats',
+                  value: _recurrenceLabel(task.recurrence),
                 ),
                 if (task.notes != null)
-                  _DetailRow(icon: Icons.notes, label: task.notes!),
-                _DetailRow(
-                  icon: Icons.assignment_outlined,
-                  label: task.requiresReport
-                      ? 'Status tracking enabled'
-                      : 'No status tracking requirement',
+                  PlannerDetailRow(icon: Icons.notes, label: task.notes!),
+                PlannerDetailField(
+                  icon: Icons.people_outline,
+                  label: 'Contacts',
+                  value: task.people.isEmpty ? 'None' : task.people.join(', '),
                 ),
-                if (task.linkedEventIds.isNotEmpty)
-                  _DetailRow(
-                    icon: Icons.event_note_outlined,
-                    label:
-                        '${task.linkedEventIds.length} linked Calendar Event(s)',
+                if (task.goalId != null)
+                  const PlannerDetailField(
+                    icon: Icons.flag_outlined,
+                    label: 'Life Goal',
+                    value: 'Linked for completion reporting',
                   ),
                 if (task.pathwayContextLabels.isNotEmpty)
-                  _DetailRow(
+                  PlannerDetailRow(
                     icon: Icons.layers_outlined,
                     label: task.pathwayContextLabels.join(', '),
                   ),
-                const SizedBox(height: 16),
-                Text(
-                  'Calendar Event links',
-                  style: InternalScreen.sectionHeading.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                FilledButton.tonalIcon(
-                  key: const Key('manage-task-event-links'),
-                  onPressed: _manageLinks,
-                  icon: const Icon(Icons.link),
-                  label: const Text('Link or manage Calendar Events'),
-                ),
-                OutlinedButton.icon(
-                  key: const Key('create-event-from-task'),
-                  onPressed: () => _createEvent(task),
-                  icon: const Icon(Icons.event_available_outlined),
-                  label: const Text('Create Calendar Event from Task'),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Task status',
-                  style: InternalScreen.sectionHeading.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                if (task.status == PlannerTaskStatus.incomplete) ...<Widget>[
-                  FilledButton.tonalIcon(
-                    key: const Key('complete-task-button'),
-                    onPressed: () => _changeStatus(PlannerTaskStatus.completed),
-                    icon: const Icon(Icons.check),
-                    label: const Text('Mark Completed'),
-                  ),
-                  OutlinedButton.icon(
-                    key: const Key('skip-task-button'),
-                    onPressed: () => _changeStatus(PlannerTaskStatus.skipped),
-                    icon: const Icon(Icons.fast_forward_outlined),
-                    label: const Text('Mark Skipped'),
-                  ),
-                  OutlinedButton.icon(
-                    key: const Key('cancel-task-button'),
-                    onPressed: () => _changeStatus(PlannerTaskStatus.cancelled),
-                    icon: const Icon(Icons.cancel_outlined),
-                    label: const Text('Mark Cancelled'),
-                  ),
-                ] else
-                  OutlinedButton.icon(
-                    key: const Key('reopen-task-button'),
-                    onPressed: () =>
-                        _changeStatus(PlannerTaskStatus.incomplete),
-                    icon: const Icon(Icons.undo),
-                    label: const Text('Reopen Task'),
-                  ),
-                const SizedBox(height: 8),
-                TextButton.icon(
-                  key: const Key('task-activity-history-button'),
-                  onPressed: () => context.push(RoutePaths.activityHistory),
-                  icon: const Icon(Icons.history),
-                  label: const Text('View Activity History'),
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'Changing a Task status never completes a linked Calendar '
-                  'Event and never directly changes Actual.',
+                FutureBuilder<_TaskReportingSnapshot>(
+                  future: _reporting,
+                  builder: (context, reporting) {
+                    final history =
+                        reporting.data?.history ?? const <OutcomeReport>[];
+                    if (history.isEmpty) return const SizedBox.shrink();
+                    return _TaskDetailSection(
+                      title: 'Activity History',
+                      child: Column(
+                        children: <Widget>[
+                          for (final report in history)
+                            _TaskScopedHistoryRow(report: report),
+                        ],
+                      ),
+                    );
+                  },
                 ),
               ],
             );
@@ -168,98 +133,7 @@ final class _TaskDetailScreenState extends ConsumerState<TaskDetailScreen> {
         ),
       ),
     );
+    */
   }
 
-  Future<void> _edit() async {
-    final changed = await context.push<bool>(
-      '${RoutePaths.tasks}/${widget.taskId}/edit',
-    );
-    if (changed == true && mounted) {
-      setState(_reload);
-    }
-  }
-
-  Future<void> _manageLinks() async {
-    await context.push<bool>('${RoutePaths.tasks}/${widget.taskId}/link-event');
-    if (mounted) {
-      setState(_reload);
-    }
-  }
-
-  Future<void> _createEvent(PlannerTask task) async {
-    final date =
-        task.dueDate ?? ref.read(plannerControllerProvider).selectedDate;
-    final changed = await launchCalendarEventCreation<bool>(
-      context,
-      ref,
-      CalendarEventCreationContext(
-        source: 'task',
-        destinationPath: '${RoutePaths.tasks}/${widget.taskId}/create-event',
-        date: date,
-        sourceTaskId: widget.taskId,
-      ),
-    );
-    if (changed == true && mounted) {
-      setState(_reload);
-    }
-  }
-
-  Future<void> _changeStatus(PlannerTaskStatus target) async {
-    final operationId = ref.read(plannerIdentifierSourceProvider).nextUuid();
-    final outcome = await ref
-        .read(plannerControllerProvider.notifier)
-        .changeStatus(
-          taskId: widget.taskId,
-          target: target,
-          operationId: operationId,
-        );
-    if (!mounted) {
-      return;
-    }
-    final message = switch (outcome) {
-      TaskStatusChangeOutcome.reportRequired =>
-        'This Task status could not be changed.',
-      TaskStatusChangeOutcome.correctionRequired =>
-        'A correction is required because this status has historical effects.',
-      TaskStatusChangeOutcome.unchanged => 'Task status was unchanged.',
-      TaskStatusChangeOutcome.changed => null,
-    };
-    if (message != null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(message)));
-    }
-    setState(_reload);
-  }
-
-  static String _statusLabel(PlannerTaskStatus status) {
-    return switch (status) {
-      PlannerTaskStatus.incomplete => 'Incomplete',
-      PlannerTaskStatus.completed => 'Completed',
-      PlannerTaskStatus.skipped => 'Skipped',
-      PlannerTaskStatus.cancelled => 'Cancelled',
-    };
-  }
-}
-
-final class _DetailRow extends StatelessWidget {
-  const _DetailRow({required this.icon, required this.label});
-
-  final IconData icon;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 7),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Icon(icon, size: 20),
-          const SizedBox(width: 10),
-          Expanded(child: Text(label)),
-        ],
-      ),
-    );
-  }
 }

@@ -86,7 +86,9 @@ final class PlannerEventBlockContentView extends StatelessWidget {
       color: textColor,
       fontWeight: FontWeight.w500,
       fontSize: PlannerEventBlockLayoutPolicy.titleFontSize(density),
-      height: density == Density.veryShort ? 1.0 : 1.1,
+      height: PlannerEventBlockLayoutPolicy.titleLineHeightForHeight(
+        content.liveHeight,
+      ),
     );
     final timeStyle = TextStyle(
       color: textColor.withValues(alpha: 0.92),
@@ -125,7 +127,10 @@ final class PlannerEventBlockContentView extends StatelessWidget {
         ),
       );
     }
-    final verticalPadding = density == Density.veryShort ? 0.0 : 4.0;
+    final verticalPadding =
+        PlannerEventBlockLayoutPolicy.verticalPaddingForHeight(
+          content.liveHeight,
+        );
     // The trailing report-status badge reserves its own right gutter so the
     // title/time never run underneath it. The gutter covers the badge
     // diameter (15) plus its right inset per the combined delta PMG target
@@ -160,7 +165,10 @@ final class PlannerEventBlockContentView extends StatelessWidget {
     // indicator beside the title/time. In very-short blocks it shrinks
     // further so the block's hard edge never clips it while it stays
     // vertically centered.
-    final badgeDiameter = density == Density.veryShort ? 11.0 : 15.0;
+    final badgeDiameter =
+        PlannerEventBlockLayoutPolicy.statusBadgeDiameterForHeight(
+          content.liveHeight,
+        );
     final nonReportText = switch (reportStatusKind) {
       PlannerReportStatusKind.backup when content.showStatusIcons => 'Backup',
       PlannerReportStatusKind.linked when content.showStatusIcons =>
@@ -298,12 +306,14 @@ final class PlannerEventBlockContentView extends StatelessWidget {
             if (event.isRecurring && content.showRecurrence)
               Positioned(
                 key: recurrenceKey,
-                top: density == Density.veryShort ? 1 : 3,
+                top: PlannerEventBlockLayoutPolicy.recurrenceTopForHeight(
+                  content.liveHeight,
+                ),
                 right: PlannerEventBlockLayoutPolicy.recurrenceRightInset,
                 child: Icon(
                   Icons.repeat,
-                  size: PlannerEventBlockLayoutPolicy.recurrenceIconSizeFor(
-                    density,
+                  size: PlannerEventBlockLayoutPolicy.recurrenceIconSizeForHeight(
+                    content.liveHeight,
                   ),
                   color: accent.withValues(alpha: 0.92),
                 ),
@@ -322,6 +332,137 @@ final class PlannerEventBlockContentView extends StatelessWidget {
                   ),
                 ),
               ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// Domain-neutral Task content rendered with the Event-family Day-block
+/// density, padding, typography, truncation, and status-gutter rules.
+///
+/// It deliberately accepts presentation facts rather than a Calendar Event or
+/// a Task domain object. The Task wrapper remains the sole owner of Task tap,
+/// drag, recurrence, status, and no-resize behavior; this primitive owns only
+/// the visual content that must stay in parity with Event-family blocks.
+final class PlannerTaskEventFamilyBlockContentView extends StatelessWidget {
+  const PlannerTaskEventFamilyBlockContentView({
+    super.key,
+    required this.title,
+    required this.time,
+    required this.textColor,
+    required this.status,
+    required this.content,
+    this.contentKey,
+    this.titleKey,
+    this.timeKey,
+    this.statusKey,
+  });
+
+  final String title;
+  final String time;
+  final Color textColor;
+  final PlannerReportStatusKind status;
+  final PlannerEventBlockContent content;
+  final Key? contentKey;
+  final Key? titleKey;
+  final Key? timeKey;
+  final Key? statusKey;
+
+  @override
+  Widget build(BuildContext context) {
+    final density = content.density;
+    final titleStyle = TextStyle(
+      color: textColor,
+      fontWeight: FontWeight.w500,
+      fontSize: PlannerEventBlockLayoutPolicy.titleFontSize(density),
+      height: PlannerEventBlockLayoutPolicy.titleLineHeightForHeight(
+        content.liveHeight,
+      ),
+    );
+    final timeStyle = TextStyle(
+      color: textColor.withValues(alpha: 0.92),
+      fontWeight: FontWeight.w400,
+      fontSize: PlannerEventBlockLayoutPolicy.timeFontSize(density),
+      height: 1.1,
+    );
+    final inlineText = '$title  $time';
+    const statusBadgeGutter = 19.0;
+    final badgeDiameter =
+        PlannerEventBlockLayoutPolicy.statusBadgeDiameterForHeight(
+          content.liveHeight,
+        );
+    final verticalPadding =
+        PlannerEventBlockLayoutPolicy.verticalPaddingForHeight(
+          content.liveHeight,
+        );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final availableWidth = constraints.maxWidth.isFinite
+            ? constraints.maxWidth
+            : double.infinity;
+        final horizontalPadding = availableWidth < 48
+            ? 4.0
+            : PlannerEventBlockLayoutPolicy.contentHorizontalPadding;
+        return Stack(
+          clipBehavior: Clip.hardEdge,
+          children: <Widget>[
+            Positioned.fill(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  horizontalPadding,
+                  verticalPadding,
+                  statusBadgeGutter,
+                  verticalPadding,
+                ),
+                child: Column(
+                  key: contentKey,
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: density == Density.tall
+                      ? MainAxisAlignment.start
+                      : MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    if (content.showTitle)
+                      Text(
+                        content.showTimeInline ? inlineText : title,
+                        key: titleKey,
+                        style: titleStyle,
+                        maxLines: content.titleMaxLines,
+                        overflow: TextOverflow.ellipsis,
+                        softWrap: false,
+                      ),
+                    if (content.showTime && !content.showTimeInline)
+                      Padding(
+                        padding: EdgeInsets.only(
+                          top: density == Density.tall ? 2 : 1,
+                        ),
+                        child: Text(
+                          time,
+                          key: timeKey,
+                          style: timeStyle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          softWrap: false,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            Positioned(
+              key: statusKey,
+              top: 0,
+              bottom: 0,
+              right: (statusBadgeGutter - badgeDiameter) / 2,
+              child: Center(
+                child: PlannerEventStatusBadge(
+                  kind: status,
+                  diameter: badgeDiameter,
+                ),
+              ),
+            ),
           ],
         );
       },

@@ -21,6 +21,18 @@ final calendarEventControllerProvider =
       CalendarEventController.new,
     );
 
+/// Distinguishes a durable Event cancellation from the separate Planner
+/// refresh confirmation.  A committed cancellation is never retried merely
+/// because the visible Planner projection is temporarily stale.
+enum CalendarEventCancellationResult {
+  deleted,
+  deletedAwaitingPlannerRefresh,
+  deletionStateUncertain,
+  notDeleted;
+
+  bool get closesDetail => this != notDeleted;
+}
+
 final class CalendarEventController extends Notifier<String?> {
   CalendarEventRepository get _repository =>
       ref.read(calendarEventRepositoryProvider);
@@ -95,7 +107,7 @@ final class CalendarEventController extends Notifier<String?> {
     );
   }
 
-  Future<bool> cancelEvent({
+  Future<CalendarEventCancellationResult> cancelEvent({
     required String eventId,
     required PlannerDate originalDate,
     required CalendarEventEditScope scope,
@@ -133,30 +145,68 @@ final class CalendarEventController extends Notifier<String?> {
         scope: scope,
         operationId: operationId,
       );
-      if (managePendingDeletion) {
-        final confirmed = await planner.confirmPendingEventDeletion(targets);
-        if (!confirmed) {
-          state = 'Calendar Event was not changed. You can safely retry.';
-          return false;
-        }
-      } else if (refreshPlanner) {
-        await _refreshPlanner();
-      }
-      state = null;
-      return true;
     } on CalendarEventValidationException catch (error) {
       if (managePendingDeletion) {
         planner.rollbackPendingEventDeletion(targets);
       }
       state = error.message;
-      return false;
+      return CalendarEventCancellationResult.notDeleted;
     } on Object {
       if (managePendingDeletion) {
         planner.rollbackPendingEventDeletion(targets);
       }
-      state = 'Calendar Event was not changed. You can safely retry.';
-      return false;
+      state = 'Event was not deleted. Try again.';
+      return CalendarEventCancellationResult.notDeleted;
     }
+
+    if (managePendingDeletion) {
+      final confirmed = await planner.confirmPendingEventDeletion(targets);
+      if (!confirmed) {
+        final canonical = await _readCancellationState(
+          eventId: eventId,
+          originalDate: originalDate,
+        );
+        if (canonical == CalendarEventStatus.cancelled) {
+          _refreshPlannerInBackground();
+          state = null;
+          return CalendarEventCancellationResult.deletedAwaitingPlannerRefresh;
+        }
+        _refreshPlannerInBackground();
+        state = null;
+        return CalendarEventCancellationResult.deletionStateUncertain;
+      }
+    } else if (refreshPlanner) {
+      try {
+        await _refreshPlanner();
+      } on Object {
+        // The durable repository cancellation is already complete.  The
+        // caller receives a committed result and Planner keeps refreshing.
+        _refreshPlannerInBackground();
+        state = null;
+        return CalendarEventCancellationResult.deletedAwaitingPlannerRefresh;
+      }
+    }
+    state = null;
+    return CalendarEventCancellationResult.deleted;
+  }
+
+  Future<CalendarEventStatus?> _readCancellationState({
+    required String eventId,
+    required PlannerDate originalDate,
+  }) async {
+    try {
+      return (await _repository.readOccurrence(
+        profileId: _profileId,
+        eventId: eventId,
+        originalDate: originalDate,
+      ))?.status;
+    } on Object {
+      return null;
+    }
+  }
+
+  void _refreshPlannerInBackground() {
+    unawaited(_refreshPlanner().catchError((Object _) {}));
   }
 
   Future<bool> rescheduleEvent({

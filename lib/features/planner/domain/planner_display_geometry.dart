@@ -6,38 +6,29 @@ import 'package:rmplanner/features/planner/domain/planner_day.dart';
 import 'package:rmplanner/features/planner/domain/planner_timeline_layout.dart';
 import 'package:rmplanner/features/planner/domain/planner_view.dart';
 
-/// Delta 4.2R R10: longest logical duration that may receive the display-only
-/// readability floor. 15/30/45-minute Events are exactly the short
-/// blocks that collapse to unusable slivers at wide zoom-out. The floor is
+/// Longest factual duration that receives the shared display-only short-block
+/// zoom presentation. Every factual sub-hour item follows the same law. The
+/// projection is
+///
+/// * H <= 44: 60 visual minutes;
+/// * 44 < H < 60: continuous interpolation from 60 to factual duration;
+/// * H >= 60: factual duration.
+///
+/// The law is
 /// PRESENTATION ONLY: stored duration, drag/resize math, overlap, reporting,
 /// and recurrence all keep the exact canonical minutes.
-const int kPlannerMaxZoomReadabilityDurationMinutes = 45;
+const int kPlannerMaxZoomReadabilityDurationMinutes = 59;
 
-/// Delta 4.2R2 R2-06 (R3-04 corrected): the READABILITY PIXEL THRESHOLD.
-/// When a short Event's canonical rendered height (exact duration x
-/// pixels-per-minute) drops below this value it switches from EXACT MODE to
-/// OVERVIEW MODE (its whole hour row), so there is no intermediate-zoom dead
-/// zone where a 15/30/45-minute Event becomes a useless tiny strip. The
-/// transition is a pure function of the rendered height, so crossing it
-/// during pinch is deterministic (one layout per frame) and never touches
-/// stored/logical intervals.
-///
-/// Delta 4.2R3 R3-04: the owner confirmed the inherited 15px value was
-/// physically too low (15/30/45-minute Events still collapsed to tiny strips
-/// at intermediate ~80% zoom-out AND at extreme/max zoom). The value is
-/// derived from the actual production event-block typography: title 14px /
-/// line-height 1.1 (~15.4px), time 13px / 1.1 (~14.3px), inner vertical
-/// padding 11px, and the existing density taxonomy that treats <=24px as
-/// "veryShort" (title-only). 28px is the smallest stable threshold that:
-///   - floors a 15-minute Event at normal zoom (15px) and everywhere below;
-///   - floors a 30-minute Event at ~80% zoom-out (24px) and at compact/max
-///     zoom-out (22px / ~14.6px);
-///   - floors a 45-minute Event at the runtime max zoom-out (~21.75px on a
-///     700dp / 24h window);
-///   - keeps a 30-minute Event EXACT at normal zoom (30px >= 28) and a
-///     45-minute Event EXACT at normal/intermediate zoom (45px / 36px),
-///     so the default-zoom look of normal-length blocks is unchanged.
-const double kPlannerReadableEventHeightThreshold = 28;
+@immutable
+final class _PlannerDisplayInterval {
+  const _PlannerDisplayInterval({
+    required this.startMinute,
+    required this.endMinute,
+  });
+
+  final double startMinute;
+  final double endMinute;
+}
 
 /// Exact display placement derived from the Planner's canonical minute grid.
 ///
@@ -141,27 +132,19 @@ abstract final class PlannerDisplayGeometry {
           endMinute: previewEndMinutes?[event.id],
         ),
     ];
-    // The display list is a separate, presentation-only projection. It may
-    // enlarge a short block to its readable hour footprint, but its minutes
-    // are used only for y/height and contiguous-corner painting below.
-    //
-    // R3 (owner override 2026-08-16, FINAL): the hour-row readability floor
-    // is UNCONDITIONAL for short Events in overview — a neighbor must never
-    // shrink a 15/30/45-minute Event into a strip (the rejected collision
-    // gate produced exactly that neighbor-dependent height). Collision
-    // safety is instead solved by OVERVIEW DISPLAY-LANE PACKING below:
-    // same-canonical-lane Events whose enlarged display bands overlap are
-    // packed into additional horizontal display columns, so expanded cards
-    // never cover one another and isolated cards keep full width.
-    final displayEvents = <PlannerCalendarItem>[
+    // The display map is a separate, presentation-only projection. It keeps
+    // the factual top anchored to the current logical/preview start, while
+    // resolving a fractional visual end from the live hour height. It never
+    // rewrites a CalendarItem or DateTime, so drag, resize, recurrence,
+    // reporting, and canonical lane ownership retain their exact minutes.
+    final displayById = <String, _PlannerDisplayInterval>{
       for (final event in layoutEvents)
-        _withDisplayInterval(
-          event,
+        event.id: _displayInterval(
           startMinute: event.startLocal!.hour * 60 + event.startLocal!.minute,
           endMinute: plannerEndMinuteOfDay(event.startLocal!, event.endLocal!),
           hourHeight: hourHeight,
         ),
-    ];
+    };
     final originalById = <String, PlannerCalendarItem>{
       for (final event in timed) event.id: event,
     };
@@ -173,9 +156,6 @@ abstract final class PlannerDisplayGeometry {
       return const <PlannerDisplayPlacement>[];
     }
 
-    final displayById = <String, PlannerCalendarItem>{
-      for (final event in displayEvents) event.id: event,
-    };
     // R3 display-lane packing: resolve per-event widthFactor/offsetFactor for
     // same-lane display-band collisions (see class doc). The result is a map
     // of event id -> (subColumn, subCount) for packed events only.
@@ -183,22 +163,10 @@ abstract final class PlannerDisplayGeometry {
       canonical: canonical,
       displayById: displayById,
     );
-    final geometry = <String, PlannerTimelineEventGeometry>{};
-    for (final event in displayEvents) {
-      final startMinute =
-          event.startLocal!.hour * 60 + event.startLocal!.minute;
-      final endMinute = plannerEndMinuteOfDay(
-        event.startLocal!,
-        event.endLocal!,
-      );
-      geometry[event.id] = PlannerTimelineGeometry.event(
-        startMinute: startMinute,
-        endMinute: endMinute,
-        visibleStartMinute: kPlannerCivilDayStartMinute,
-        visibleEndMinute: kPlannerCivilDayEndMinute,
-        hourHeight: hourHeight,
-      );
-    }
+    final geometry = <String, ({double top, double height})>{
+      for (final entry in displayById.entries)
+        entry.key: _displayGeometry(entry.value, hourHeight: hourHeight),
+    };
 
     // Delta 4.2R R12: detect truly contiguous rendered boundaries
     // (A.end == B.start on the display grid, with horizontally overlapping
@@ -207,20 +175,13 @@ abstract final class PlannerDisplayGeometry {
     final squareTopOf = <String, bool>{};
     final squareBottomOf = <String, bool>{};
     for (final placement in canonical) {
-      final displayEvent = displayById[placement.event.id]!;
-      final endMinute = plannerEndMinuteOfDay(
-        displayEvent.startLocal!,
-        displayEvent.endLocal!,
-      );
+      final endMinute = displayById[placement.event.id]!.endMinute;
       for (final other in canonical) {
         if (identical(placement, other)) {
           continue;
         }
-        final otherDisplayEvent = displayById[other.event.id]!;
-        final otherStartMinute =
-            otherDisplayEvent.startLocal!.hour * 60 +
-            otherDisplayEvent.startLocal!.minute;
-        if (endMinute == otherStartMinute &&
+        final otherStartMinute = displayById[other.event.id]!.startMinute;
+        if ((endMinute - otherStartMinute).abs() < 0.000001 &&
             _horizontallyOverlapping(placement, other)) {
           squareBottomOf[placement.event.id] = true;
           squareTopOf[other.event.id] = true;
@@ -298,7 +259,7 @@ abstract final class PlannerDisplayGeometry {
     return leftStart(left) < leftEnd(right) && leftStart(right) < leftEnd(left);
   }
 
-  /// R3 overview display-lane packing (owner override 2026-08-16, FINAL).
+  /// Display-lane packing for the shared fractional short-block projection.
   ///
   /// Returns event id -> (offsetFactor, widthFactor) for every Event whose
   /// ENLARGED display band collides with another Event in the SAME canonical
@@ -321,15 +282,13 @@ abstract final class PlannerDisplayGeometry {
   static Map<String, ({double offsetFactor, double widthFactor})>
       _resolveDisplayLanePacking({
     required List<PlannerTimelinePlacement> canonical,
-    required Map<String, PlannerCalendarItem> displayById,
+    required Map<String, _PlannerDisplayInterval> displayById,
   }) {
-    final displayStartOf = <String, int>{};
-    final displayEndOf = <String, int>{};
-    for (final event in displayById.values) {
-      final start = event.startLocal!.hour * 60 + event.startLocal!.minute;
-      final end = plannerEndMinuteOfDay(event.startLocal!, event.endLocal!);
-      displayStartOf[event.id] = start;
-      displayEndOf[event.id] = end;
+    final displayStartOf = <String, double>{};
+    final displayEndOf = <String, double>{};
+    for (final entry in displayById.entries) {
+      displayStartOf[entry.key] = entry.value.startMinute;
+      displayEndOf[entry.key] = entry.value.endMinute;
     }
     final byColumn = <int, List<PlannerTimelinePlacement>>{};
     for (final placement in canonical) {
@@ -355,7 +314,7 @@ abstract final class PlannerDisplayGeometry {
       // display start, so an entry joins the current component iff it starts
       // before the component's current maximum display end (transitive).
       var component = <PlannerTimelinePlacement>[];
-      var componentMaxEnd = 0;
+      var componentMaxEnd = 0.0;
       void flush() {
         if (component.length >= 2) {
           _packComponent(
@@ -391,14 +350,14 @@ abstract final class PlannerDisplayGeometry {
 
   static void _packComponent(
     List<PlannerTimelinePlacement> component, {
-    required Map<String, int> displayStartOf,
-    required Map<String, int> displayEndOf,
+    required Map<String, double> displayStartOf,
+    required Map<String, double> displayEndOf,
     required Map<String, ({double offsetFactor, double widthFactor})> packed,
   }) {
     // Greedy interval-column partition: each Event takes the first display
     // column whose last display end does not overlap it; otherwise a new
     // column opens.
-    final lastEndByColumn = <int>[];
+    final lastEndByColumn = <double>[];
     final columnOf = <String, int>{};
     for (final placement in component) {
       final start = displayStartOf[placement.event.id]!;
@@ -412,7 +371,7 @@ abstract final class PlannerDisplayGeometry {
       }
       if (assigned == -1) {
         assigned = lastEndByColumn.length;
-        lastEndByColumn.add(0);
+        lastEndByColumn.add(0.0);
       }
       lastEndByColumn[assigned] = end;
       columnOf[placement.event.id] = assigned;
@@ -439,53 +398,52 @@ abstract final class PlannerDisplayGeometry {
     }
   }
 
-  static PlannerCalendarItem _withDisplayInterval(
-    PlannerCalendarItem event, {
+  static _PlannerDisplayInterval _displayInterval({
     required int startMinute,
     required int endMinute,
     required double hourHeight,
   }) {
-    var displayStart = startMinute;
-    var displayEnd = endMinute;
-    // R3 (owner override 2026-08-16, FINAL): OVERVIEW MODE — the short Event
-    // occupies its whole hour row (start-of-hour .. start-of-hour + 60) — is
-    // engaged for every 15/30/45-minute Event whenever its canonical rendered
-    // height drops below the readability pixel threshold (no intermediate-
-    // zoom dead zone), OR whenever the current zoom is at/under the compact
-    // overview band (the owner's max-zoom-out rule: at zoom-out, 15/30/45m
-    // Events are ALWAYS one-hour visual cards — including a 45-minute Event
-    // whose 33 px canonical height at 44 px/hr is still readable, but which
-    // the owner requires to read as a one-hour overview card). There is NO
-    // collision gate: a neighbor never shrinks a short Event into a strip;
-    // same-band collisions are resolved by display-lane packing in [resolve].
-    // EXACT MODE keeps the canonical interval whenever enough pixels exist
-    // (normal/intermediate zoom). The stored/logical interval is never
-    // changed: this clone is a strict display/lane input only.
-    final canonicalHeight =
-        (endMinute - startMinute) *
-        PlannerTimelineGeometry.pixelsPerMinute(hourHeight);
-    final overviewByHeight =
-        canonicalHeight < kPlannerReadableEventHeightThreshold;
-    final overviewByZoom = hourHeight <= PlannerZoomPolicy.compactHourHeight;
-    if (endMinute - startMinute <= kPlannerMaxZoomReadabilityDurationMinutes &&
-        (overviewByHeight || overviewByZoom)) {
-      displayStart = (startMinute ~/ 60) * 60;
-      displayEnd = displayStart + 60;
+    final factualDuration = endMinute - startMinute;
+    var displayDuration = factualDuration.toDouble();
+    if (factualDuration <= kPlannerMaxZoomReadabilityDurationMinutes) {
+      if (hourHeight <= PlannerZoomPolicy.compactHourHeight) {
+        displayDuration = 60;
+      } else if (hourHeight < PlannerZoomPolicy.normalHourHeight) {
+        final transition = ((hourHeight - PlannerZoomPolicy.compactHourHeight) /
+                (PlannerZoomPolicy.normalHourHeight -
+                    PlannerZoomPolicy.compactHourHeight))
+            .clamp(0.0, 1.0);
+        displayDuration = 60 + (factualDuration - 60) * transition;
+      }
     }
-    // Clone whenever the resolved (preview / floor) interval differs from the
-    // Event's stored minutes: a live drag/resize preview must ALWAYS carry
-    // its preview endpoints into the layout pass, even when the floor is
-    // inactive. The clone stays a strict layout input and is mapped back to
-    // the original domain item before any callback can see it.
-    final eventStart = event.startLocal!.hour * 60 + event.startLocal!.minute;
-    final eventEnd = plannerEndMinuteOfDay(event.startLocal!, event.endLocal!);
-    if (displayStart == eventStart && displayEnd == eventEnd) {
-      return event;
-    }
-    return _withMinutes(
-      event,
-      startMinute: displayStart,
-      endMinute: displayEnd,
+    // The factual visual top never moves. The civil-day clip is presentation
+    // only and avoids a late short block painting beyond the day canvas.
+    return _PlannerDisplayInterval(
+      startMinute: startMinute.toDouble(),
+      endMinute: math.min(
+        kPlannerCivilDayEndMinute.toDouble(),
+        startMinute + displayDuration,
+      ),
+    );
+  }
+
+  static ({double top, double height}) _displayGeometry(
+    _PlannerDisplayInterval interval, {
+    required double hourHeight,
+  }) {
+    final start = interval.startMinute
+        .clamp(
+          kPlannerCivilDayStartMinute.toDouble(),
+          kPlannerCivilDayEndMinute.toDouble(),
+        )
+        .toDouble();
+    final end = interval.endMinute
+        .clamp(start, kPlannerCivilDayEndMinute.toDouble())
+        .toDouble();
+    final pixelsPerMinute = hourHeight / 60;
+    return (
+      top: (start - kPlannerCivilDayStartMinute) * pixelsPerMinute,
+      height: (end - start) * pixelsPerMinute,
     );
   }
 

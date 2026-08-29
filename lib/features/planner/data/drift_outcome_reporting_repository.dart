@@ -667,6 +667,74 @@ final class DriftOutcomeReportingRepository
   }
 
   @override
+  Future<bool> clearSubmittedStatus({
+    required String profileId,
+    required OutcomeReportSource source,
+    required String operationId,
+    required String correctionReason,
+  }) async {
+    _validateUuid(operationId, 'status-clear operation');
+    final canonicalSource = await _validateAndCanonicalizeSource(
+      profileId,
+      source,
+    );
+    return database.transaction(() async {
+      final current =
+          await (database.select(database.outcomeReports)
+                ..where(
+                  (table) =>
+                      table.profileId.equals(profileId) &
+                      table.effectiveSlotKey.equals(canonicalSource.slotKey),
+                )
+                ..limit(1))
+              .getSingleOrNull();
+      if (current == null) return false;
+
+      final currentEntries = await _effectiveContributionRows(current.id);
+      await writeGuard.beforeCommit();
+      final now = clock.nowUtc();
+      await (database.update(
+        database.outcomeReports,
+      )..where((table) => table.id.equals(current.id))).write(
+        OutcomeReportsCompanion(
+          status: Value<String>(OutcomeReportStatus.superseded.name),
+          effectiveSlotKey: const Value<String?>(null),
+          correctionReason: Value<String>(correctionReason),
+          operationId: Value<String>(operationId),
+          updatedAtUtc: Value<DateTime>(now),
+        ),
+      );
+      for (final entry in currentEntries) {
+        final reversalId = OutcomeReportIdentity.reversalEntry(
+          reportId: current.id,
+          originalEntryId: entry.id,
+        );
+        await database
+            .into(database.activityLedgerEntries)
+            .insert(
+              ActivityLedgerEntriesCompanion.insert(
+                id: reversalId,
+                profileId: profileId,
+                sourceReportId: current.id,
+                entryType: ActivityLedgerEntryType.reversal.name,
+                indicatorKey: entry.indicatorKey,
+                valueScaled: -entry.valueScaled,
+                valueScale: entry.valueScale,
+                unit: entry.unit,
+                activityDate: entry.activityDate,
+                ruleKey: entry.ruleKey,
+                idempotencyKey: reversalId,
+                reversalOfEntryId: Value<String>(entry.id),
+                recordedAtUtc: now,
+              ),
+              mode: InsertMode.insertOrIgnore,
+            );
+      }
+      return true;
+    });
+  }
+
+  @override
   Future<IndicatorActual> readActual({
     required String profileId,
     required String indicatorKey,
@@ -855,7 +923,10 @@ final class DriftOutcomeReportingRepository
               )
               ..limit(1))
             .getSingleOrNull();
-    if (task == null || !task.requiresReport) {
+    // Every Task is intrinsically reportable. The persisted legacy flag stays
+    // schema-compatible but cannot suppress the canonical Task report/status
+    // lifecycle for older owner data.
+    if (task == null) {
       return;
     }
     final target = outcome == OutcomeKind.completedHappened

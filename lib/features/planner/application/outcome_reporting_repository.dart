@@ -60,6 +60,16 @@ abstract interface class OutcomeReportingRepository {
     required String operationId,
   });
 
+  /// Removes the current effective status while preserving the submitted
+  /// report as superseded factual history and reversing only its effective
+  /// ledger entries.  The source remains the canonical owner of the slot.
+  Future<bool> clearSubmittedStatus({
+    required String profileId,
+    required OutcomeReportSource source,
+    required String operationId,
+    required String correctionReason,
+  });
+
   Future<IndicatorActual> readActual({
     required String profileId,
     required String indicatorKey,

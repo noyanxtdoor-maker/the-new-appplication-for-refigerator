@@ -2234,6 +2234,88 @@ final class DriftContactRepository implements ContactRepository {
   }
 
   @override
+  Future<List<EventParticipantPresentation>> readEventParticipantPresentation({
+    required String profileId,
+    required String eventId,
+    required String occurrenceId,
+    required bool historical,
+  }) async {
+    if (historical) {
+      final snapshots =
+          await (database.select(database.eventOccurrenceParticipants)
+                ..where(
+                  (table) =>
+                      table.profileId.equals(profileId) &
+                      table.eventId.equals(eventId) &
+                      table.occurrenceId.equals(occurrenceId),
+                )
+                ..orderBy(<OrderingTerm Function(EventOccurrenceParticipants)>[
+                  (table) => OrderingTerm.asc(table.displayNameSnapshot),
+                  (table) => OrderingTerm.asc(table.contactId),
+                ]))
+              .get();
+      if (snapshots.isNotEmpty) {
+        return List<EventParticipantPresentation>.unmodifiable(
+          <EventParticipantPresentation>[
+            for (final snapshot in snapshots)
+              EventParticipantPresentation(
+                contactId: snapshot.contactId,
+                displayName: snapshot.displayNameSnapshot,
+                isSnapshot: true,
+              ),
+          ],
+        );
+      }
+      // A historical occurrence with no frozen participants still has no
+      // immutable relationship to protect. Fall through to the canonical
+      // Event-contact links so Add People projects truthfully after save.
+    }
+    var links =
+        await (database.select(database.eventContactLinks)..where(
+              (table) =>
+                  table.profileId.equals(profileId) &
+                  table.eventId.equals(eventId) &
+                  table.occurrenceId.equals(occurrenceId) &
+                  table.status.equals('active'),
+            ))
+            .get();
+    // Series links are the live owner for an occurrence unless an explicit
+    // occurrence-level link exists.
+    if (links.isEmpty && occurrenceId != seriesOccurrenceId) {
+      links =
+          await (database.select(database.eventContactLinks)..where(
+                (table) =>
+                    table.profileId.equals(profileId) &
+                    table.eventId.equals(eventId) &
+                    table.occurrenceId.equals(seriesOccurrenceId) &
+                    table.status.equals('active'),
+              ))
+              .get();
+    }
+    if (links.isEmpty) return const <EventParticipantPresentation>[];
+    final rows =
+        await (database.select(database.contacts)..where(
+              (table) =>
+                  table.id.isIn(links.map((link) => link.contactId).toList()),
+            ))
+            .get();
+    final names = <String, String>{
+      for (final row in rows) row.id: row.displayName,
+    };
+    return List<EventParticipantPresentation>.unmodifiable(
+      <EventParticipantPresentation>[
+        for (final link in links)
+          if (names[link.contactId] case final displayName?)
+            EventParticipantPresentation(
+              contactId: link.contactId,
+              displayName: displayName,
+              isSnapshot: false,
+            ),
+      ],
+    );
+  }
+
+  @override
   Future<void> setTaskContacts({
     required String profileId,
     required String taskId,

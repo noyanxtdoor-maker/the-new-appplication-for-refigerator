@@ -265,7 +265,11 @@ abstract final class PlannerTimelineLayout {
             continue;
           }
           unavailable.add(entry.value);
-          if (laneClassOf(other).index < eventClass.index) {
+          if ((_isTaskPresentationItem(other) &&
+                  !_isTaskPresentationItem(event)) ||
+              (!_isTaskPresentationItem(other) &&
+                  !_isTaskPresentationItem(event) &&
+                  laneClassOf(other).index < eventClass.index)) {
             minimumColumn = math.max(minimumColumn, entry.value + 1);
           }
         }
@@ -446,6 +450,11 @@ abstract final class PlannerTimelineLayout {
     List<PlannerCalendarItem> group,
   ) {
     return group.toList(growable: false)..sort((left, right) {
+      final leftIsTask = _isTaskPresentationItem(left);
+      final rightIsTask = _isTaskPresentationItem(right);
+      if (leftIsTask != rightIsTask) {
+        return leftIsTask ? -1 : 1;
+      }
       final classOrder = laneClassOf(
         left,
       ).index.compareTo(laneClassOf(right).index);
@@ -453,6 +462,13 @@ abstract final class PlannerTimelineLayout {
           ? classOrder
           : _compareCanonicalInterval(left, right);
     });
+  }
+
+  /// Task footprints and Task creation drafts are presentation projections;
+  /// their stable prefixes deliberately sit outside persisted Event identity.
+  static bool _isTaskPresentationItem(PlannerCalendarItem item) {
+    return item.id.startsWith('task-footprint:') ||
+        item.id.startsWith('task-draft:');
   }
 
   /// Derives the R5 lane class from canonical logical facts only.

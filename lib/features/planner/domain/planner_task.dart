@@ -1,3 +1,5 @@
+import 'package:rmplanner/features/planner/domain/calendar_event.dart';
+import 'package:rmplanner/features/planner/domain/outcome_reporting.dart';
 import 'package:rmplanner/features/planner/domain/planner_date.dart';
 
 enum PlannerTaskStatus { incomplete, completed, skipped, cancelled }
@@ -77,7 +79,10 @@ final class PlannerTaskDraft {
       title: normalizedTitle,
       notes: _normalizeOptional(notes),
       dueDate: dueDate,
-      requiresReport: requiresReport,
+      // Universal Task reporting is a runtime product law.  Preserve the
+      // legacy field for schema compatibility, but a false persisted value
+      // can never create a non-reportable Task.
+      requiresReport: true,
       contributionRuleKey: _normalizeOptional(contributionRuleKey),
       dueMinute: normalizedDueMinute,
       recurrence: normalizedRecurrence,
@@ -120,6 +125,7 @@ final class PlannerTask {
     this.linkedActivityTypeStableKey,
     this.linkedActivityTypeLabelSnapshot,
     this.goalId,
+    this.reportedOutcome,
   });
 
   final String id;
@@ -144,11 +150,38 @@ final class PlannerTask {
   /// B3.2 (D2): the explicit DIRECT Life Goal link for this Task.
   final String? goalId;
 
+  /// The current factual Task outcome comes from the canonical outcome-report
+  /// slot. It deliberately remains separate from [status]: clearing a report
+  /// must not rewrite lifecycle state merely to change a presentation badge.
+  final OutcomeKind? reportedOutcome;
+
   bool isOverdueOn(PlannerDate date) {
     final due = dueDate;
     return status == PlannerTaskStatus.incomplete &&
         due != null &&
         due.compareTo(date) < 0;
+  }
+
+  /// Returns whether this Task is scheduled on [date] without creating an
+  /// occurrence row.  Tasks intentionally reuse the established Calendar
+  /// recurrence arithmetic so month-end and leap-year behavior stays
+  /// consistent across Planner surfaces.
+  bool projectsOn(PlannerDate date) {
+    final anchor = dueDate;
+    if (status != PlannerTaskStatus.incomplete || anchor == null) {
+      return false;
+    }
+    final frequency = switch (recurrence) {
+      PlannerTaskRecurrence.none => CalendarRecurrenceFrequency.none,
+      PlannerTaskRecurrence.daily => CalendarRecurrenceFrequency.daily,
+      PlannerTaskRecurrence.weekly => CalendarRecurrenceFrequency.weekly,
+      PlannerTaskRecurrence.monthly => CalendarRecurrenceFrequency.monthly,
+      PlannerTaskRecurrence.yearly => CalendarRecurrenceFrequency.yearly,
+    };
+    return CalendarRecurrenceRule(
+          frequency: frequency,
+        ).occurrenceIndexOn(startDate: anchor, targetDate: date) !=
+        null;
   }
 
   bool get isHistorical => status != PlannerTaskStatus.incomplete;

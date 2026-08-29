@@ -29,10 +29,12 @@ import 'package:rmplanner/features/planner/application/task_event_link_providers
 import 'package:rmplanner/features/planner/data/calendar_event_time_zones.dart';
 import 'package:rmplanner/features/planner/domain/calendar_event.dart';
 import 'package:rmplanner/features/planner/domain/event_type.dart';
+import 'package:rmplanner/features/planner/domain/outcome_reporting.dart';
 import 'package:rmplanner/features/planner/domain/planner_date.dart';
 import 'package:rmplanner/features/planner/domain/task_event_link.dart';
 import 'package:rmplanner/features/planner/presentation/calendar_event_custom_repeat_screen.dart';
 import 'package:rmplanner/features/planner/presentation/event_type_picker_dialog.dart';
+import 'package:rmplanner/features/planner/presentation/widgets/event_current_status_controls.dart';
 import 'package:rmplanner/features/planner/presentation/widgets/planner_slide_down_date_picker.dart';
 import 'package:rmplanner/features/planner/presentation/widgets/repeating_event_scope_choices.dart';
 
@@ -64,7 +66,8 @@ final class CalendarEventFormScreen extends ConsumerStatefulWidget {
        deferRecurrenceScopeToSave = false,
        sourceTaskId = null,
        initialTitle = null,
-       initialEventTypeLabel = null;
+       initialEventTypeLabel = null,
+       initialStatusIntent = null;
 
   const CalendarEventFormScreen.createFromTask({
     required this.sourceTaskId,
@@ -89,7 +92,8 @@ final class CalendarEventFormScreen extends ConsumerStatefulWidget {
        initialDurationMinutes = null,
        onClose = null,
        initialTitle = null,
-       initialEventTypeLabel = null;
+       initialEventTypeLabel = null,
+       initialStatusIntent = null;
 
   const CalendarEventFormScreen.edit({
     required this.eventId,
@@ -106,6 +110,7 @@ final class CalendarEventFormScreen extends ConsumerStatefulWidget {
     // 'Edit <label> Event' heading + seeded title instead of a blank pause.
     this.initialTitle,
     this.initialEventTypeLabel,
+    this.initialStatusIntent,
     super.key,
   }) : mode = CalendarEventFormMode.edit,
        initialDate = null,
@@ -142,7 +147,8 @@ final class CalendarEventFormScreen extends ConsumerStatefulWidget {
        deferRecurrenceScopeToSave = false,
        initialContactIds = const <String>[],
        initialTitle = null,
-       initialEventTypeLabel = null;
+       initialEventTypeLabel = null,
+       initialStatusIntent = null;
 
   final CalendarEventFormMode mode;
   final PlannerDate? initialDate;
@@ -176,6 +182,10 @@ final class CalendarEventFormScreen extends ConsumerStatefulWidget {
   /// for deep-link/direct edit entries.
   final String? initialTitle;
   final String? initialEventTypeLabel;
+
+  /// A Current Status choice is merely staged when Event Detail opens Edit.
+  /// The canonical occurrence report is written only by this form's Save.
+  final CalendarEventStatus? initialStatusIntent;
   final bool sheetPresentation;
   final ScrollController? sheetScrollController;
   final DraggableScrollableController? sheetController;
@@ -203,9 +213,13 @@ final class _CalendarEventFormScreenState
   late PlannerDate _date;
   CalendarEventTiming _timing = CalendarEventTiming.timed;
   CalendarEventStatus _currentStatus = CalendarEventStatus.scheduled;
+  CalendarEventStatus _loadedReportStatus = CalendarEventStatus.scheduled;
+  bool _reportEligible = false;
   TimeOfDay _localStart = const TimeOfDay(hour: 9, minute: 0);
   TimeOfDay _localEnd = const TimeOfDay(hour: 10, minute: 0);
   bool _requiresReport = false;
+  String? _loadedEventTypeStableKey;
+  String? _loadedEventTypeLabel;
   bool _isBackupAppointment = false;
   String? _backupForEventId;
   String? _backupRelationshipProvenance;
@@ -293,7 +307,9 @@ final class _CalendarEventFormScreenState
       // provided (timeline creation) so the form never flashes a different
       // duration than the placeholder/draft before configuration loads.
       final initialDuration =
-          widget.initialDurationMinutes ?? widget.initialEventType?.defaultDurationMinutes ?? 60;
+          widget.initialDurationMinutes ??
+          widget.initialEventType?.defaultDurationMinutes ??
+          60;
       _end = _timeFromMinute(
         (initialStartMinute + initialDuration).clamp(1, 1439),
       );
@@ -613,13 +629,14 @@ final class _CalendarEventFormScreenState
       initialValue: _repeatChoice,
       isExpanded: true,
       icon: const Icon(Icons.keyboard_arrow_down, size: 24),
-      decoration: _measuredInputDecoration(context, labelText: 'Repeat').copyWith(
-        border: InputBorder.none,
-        enabledBorder: InputBorder.none,
-        focusedBorder: InputBorder.none,
-        filled: false,
-        contentPadding: EdgeInsets.zero,
-      ),
+      decoration: _measuredInputDecoration(context, labelText: 'Repeat')
+          .copyWith(
+            border: InputBorder.none,
+            enabledBorder: InputBorder.none,
+            focusedBorder: InputBorder.none,
+            filled: false,
+            contentPadding: EdgeInsets.zero,
+          ),
       items: <DropdownMenuItem<_CalendarEventRepeatChoice>>[
         for (final value in _CalendarEventRepeatChoice.values)
           DropdownMenuItem<_CalendarEventRepeatChoice>(
@@ -768,6 +785,7 @@ final class _CalendarEventFormScreenState
             : draft.startDate);
     _timing = draft.timing;
     _currentStatus = occurrence?.status ?? draft.status;
+    _loadedReportStatus = _currentStatus;
     final startWall = occurrenceStart ?? occurrence?.startDisplay;
     final endWall = occurrenceEnd ?? occurrence?.endDisplay;
     _start = startWall == null
@@ -784,6 +802,11 @@ final class _CalendarEventFormScreenState
         : TimeOfDay.fromDateTime(endWall);
     _durationWasEntered = true;
     _requiresReport = draft.requiresReport;
+    _loadedEventTypeStableKey =
+        occurrence?.activityTypeStableKey ??
+        draft.activityTypeStableKeySnapshot;
+    _loadedEventTypeLabel =
+        occurrence?.activityTypeLabel ?? draft.activityTypeLabelSnapshot;
     // Owner fix: prefill Backup from the effective occurrence (which merges
     // occurrence-scoped overrides) so a Backup set via "This event only" —
     // or by an earlier edit — still shows ON when the form is reopened.
@@ -795,6 +818,18 @@ final class _CalendarEventFormScreenState
     _backupRelationshipProvenance =
         occurrence?.backupRelationshipProvenance ??
         draft.backupRelationshipProvenance;
+    _reportEligible =
+        widget.mode == CalendarEventFormMode.edit &&
+        occurrence != null &&
+        _requiresReport &&
+        !_isFutureOccurrence(occurrence) &&
+        !_isBackupAppointment;
+    final statusIntent = widget.initialStatusIntent;
+    if (_reportEligible &&
+        statusIntent != null &&
+        _isSelectableStatus(statusIntent)) {
+      _currentStatus = statusIntent;
+    }
     _frequency =
         widget.mode == CalendarEventFormMode.reschedule &&
             widget.scope == CalendarEventEditScope.occurrence
@@ -855,6 +890,14 @@ final class _CalendarEventFormScreenState
     final contactMandatory =
         _selectedEventType?.stableKey == SystemEventTypeKeys.contact;
     final reportingLocked = lifeIndicatorLinked || contactMandatory;
+    // The pencil opens an ordinary Event edit.  Only the explicit Current
+    // Status action carries a reporting intent and exposes the staged status
+    // controls in this form.
+    final showStatusSection =
+        widget.initialStatusIntent != null &&
+        widget.mode == CalendarEventFormMode.edit &&
+        _reportEligible &&
+        _requiresReport;
     final bottomPadding = widget.sheetPresentation
         ? 24.0 + MediaQuery.of(context).viewInsets.bottom
         : 120.0;
@@ -862,9 +905,13 @@ final class _CalendarEventFormScreenState
         ? _loadingShell(context)
         : SafeArea(
             top: !widget.sheetPresentation,
-            child: Form(
-              key: _formKey,
-              child: ListView(
+            child: GestureDetector(
+              key: const Key('event-form-blank-space-dismiss'),
+              behavior: HitTestBehavior.translucent,
+              onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
+              child: Form(
+                key: _formKey,
+                child: ListView(
                 key: const Key('calendar-event-form-scroll'),
                 controller: widget.sheetScrollController,
                 padding: EdgeInsets.fromLTRB(
@@ -915,6 +962,10 @@ final class _CalendarEventFormScreenState
                     _ErrorBanner(message: message),
                     const SizedBox(height: 16),
                   ],
+                  if (showStatusSection) ...<Widget>[
+                    _buildCurrentStatusSection(),
+                    const SizedBox(height: 22),
+                  ],
                   _buildEventTypeField(),
                   const SizedBox(height: 22),
                   TextFormField(
@@ -934,14 +985,20 @@ final class _CalendarEventFormScreenState
                     focusNode: _notesFocusNode,
                     decoration: _measuredInputDecoration(
                       context,
-                      labelText: 'Notes',
-                      hintText: _notesFocusNode.hasFocus
-                          ? 'What do you need to remember about this?'
-                          : null,
+                      hintText: _notesPromptText,
+                      hintMaxLines: _usesNormalNotesBodyHint ? 3 : null,
                       alignLabelWithHint: true,
                     ),
-                    minLines: _notesFocusNode.hasFocus ? 4 : 1,
-                    maxLines: _notesFocusNode.hasFocus ? 6 : 1,
+                    minLines: _usesNormalNotesBodyHint
+                        ? 4
+                        : _notesFocusNode.hasFocus
+                        ? 4
+                        : 1,
+                    maxLines: _usesNormalNotesBodyHint
+                        ? 6
+                        : _notesFocusNode.hasFocus
+                        ? 6
+                        : 1,
                   ),
                   const SizedBox(height: 12),
                   const _MeasuredFormSeparator(
@@ -1121,9 +1178,9 @@ final class _CalendarEventFormScreenState
                       color: reportingLocked
                           ? (Theme.of(context).brightness == Brightness.dark
                                 ? const Color(0xFF26282A)
-                                : Theme.of(context)
-                                      .colorScheme
-                                      .surfaceContainerHighest)
+                                : Theme.of(
+                                    context,
+                                  ).colorScheme.surfaceContainerHighest)
                           : Colors.transparent,
                     ),
                     child: SwitchListTile(
@@ -1139,9 +1196,7 @@ final class _CalendarEventFormScreenState
                       activeTrackColor: reportingLocked
                           ? (Theme.of(context).brightness == Brightness.dark
                                 ? const Color(0xFF4B4F52)
-                                : Theme.of(
-                                    context,
-                                  ).colorScheme.outlineVariant)
+                                : Theme.of(context).colorScheme.outlineVariant)
                           : null,
                       inactiveThumbColor: reportingLocked
                           ? (Theme.of(context).brightness == Brightness.dark
@@ -1182,6 +1237,7 @@ final class _CalendarEventFormScreenState
                   ),
                   const SizedBox(height: 16),
                 ],
+                ),
               ),
             ),
           );
@@ -1270,6 +1326,24 @@ final class _CalendarEventFormScreenState
     }
   }
 
+  String get _notesPromptText {
+    // Status-tap navigation marks the canonical staged Event reporting flow.
+    // Normal Event create/edit retains its general Notes prompt even though an
+    // ordinary edit may display the status section for context.
+    if (widget.initialStatusIntent == null) {
+      return 'Notes: What do you need to remember about this?';
+    }
+    return switch (_currentStatus) {
+      CalendarEventStatus.didNotHappen => "Notes: Why wasn't this attempted?",
+      CalendarEventStatus.partiallyCompleted => 'Notes: Why was this missed?',
+      CalendarEventStatus.completedHappened =>
+        'Notes: What happened? What went well?',
+      _ => 'Notes: What do you need to remember about this?',
+    };
+  }
+
+  bool get _usesNormalNotesBodyHint => widget.initialStatusIntent == null;
+
   Widget _buildSaveButton() {
     final colorScheme = Theme.of(context).colorScheme;
     return Tooltip(
@@ -1279,16 +1353,18 @@ final class _CalendarEventFormScreenState
         label: 'Save event',
         child: FilledButton(
           key: const Key('save-event-button'),
-          onPressed:
-              _saving || _loading || _configurationLoading ? null : _save,
+          onPressed: _saving || _loading || _configurationLoading
+              ? null
+              : _save,
           style: FilledButton.styleFrom(
             minimumSize: const Size(48, 48),
             padding: EdgeInsets.zero,
             shape: const CircleBorder(),
             backgroundColor: colorScheme.primary,
             foregroundColor: colorScheme.onPrimary,
-            disabledBackgroundColor:
-                colorScheme.primary.withValues(alpha: 0.35),
+            disabledBackgroundColor: colorScheme.primary.withValues(
+              alpha: 0.35,
+            ),
           ),
           child: _saving
               ? SizedBox.square(
@@ -1305,52 +1381,34 @@ final class _CalendarEventFormScreenState
   }
 
   Widget _buildAddressLocationSection() {
-    final expanded = _addressExpanded || _locationExpanded;
     return Column(
       key: const Key('event-address-location-section'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        if (!expanded)
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton.icon(
-                  key: const Key('add-address-button'),
-                  onPressed: () => setState(() {
-                    _addressExpanded = true;
-                    _locationExpanded = false;
-                  }),
-                  style: _compactFormActionStyle(),
-                  icon: const Icon(Icons.add, size: 24),
-                  label: const Text('Address'),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton.icon(
-                  key: const Key('add-location-button'),
-                  onPressed: () => setState(() {
-                    _locationExpanded = true;
-                    _addressExpanded = false;
-                  }),
-                  style: _compactFormActionStyle(),
-                  icon: const Icon(Icons.add, size: 24),
-                  label: const Text('Location'),
-                ),
-              ),
-            ],
+        const Text(
+          'Address',
+          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 8),
+        if (!_addressExpanded)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              key: const Key('add-address-button'),
+              onPressed: () => setState(() {
+                _addressExpanded = true;
+                _locationExpanded = false;
+              }),
+              style: _compactFormActionStyle(),
+              icon: const Icon(Icons.add, size: 24),
+              label: const Text('Address'),
+            ),
           )
         else ...<Widget>[
           TextFormField(
             key: const Key('event-location-field'),
             controller: _locationController,
-            decoration: _measuredInputDecoration(
-              context,
-              labelText: _addressExpanded ? 'Address' : 'Location',
-            ),
+            decoration: _measuredInputDecoration(context, labelText: 'Address'),
             textInputAction: TextInputAction.next,
           ),
           Align(
@@ -1368,16 +1426,62 @@ final class _CalendarEventFormScreenState
             ),
           ),
         ],
-        const SizedBox(height: 12),
-        MapPinSection(
-          displayName: _titleController.text.trim().isEmpty
-              ? 'Event'
-              : _titleController.text.trim(),
-          coordinate: _mapCoordinate,
-          onChanged: (value) => setState(() => _mapCoordinate = value),
+        const SizedBox(height: 16),
+        const Text(
+          'Map',
+          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
         ),
+        const SizedBox(height: 8),
+        if (_mapCoordinate == null)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              key: const Key('add-map-button'),
+              onPressed: _openEventMapPicker,
+              style: _compactFormActionStyle(),
+              icon: const Icon(Icons.add, size: 24),
+              label: const Text('Map'),
+            ),
+          )
+        else ...<Widget>[
+          InkWell(
+            key: const Key('event-map-preview'),
+            onTap: _openEventMapPicker,
+            borderRadius: BorderRadius.circular(8),
+            child: Semantics(
+              button: true,
+              label: 'Change map location',
+              child: ContactLocationPreview(coordinate: _mapCoordinate!),
+            ),
+          ),
+          const SizedBox(height: 2),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              key: const Key('event-map-remove'),
+              onPressed: () => setState(() => _mapCoordinate = null),
+              style: _compactFormActionStyle(),
+              child: const Text('Remove map'),
+            ),
+          ),
+        ],
       ],
     );
+  }
+
+  Future<void> _openEventMapPicker() async {
+    final result = await context.push<MapCoordinate>(
+      RoutePaths.mapPicker,
+      extra: MapPickerArgs(
+        displayName: _titleController.text.trim().isEmpty
+            ? 'Event'
+            : _titleController.text.trim(),
+        initialCoordinate: _mapCoordinate,
+      ),
+    );
+    if (result != null && mounted) {
+      setState(() => _mapCoordinate = result);
+    }
   }
 
   Widget _buildPeopleSection() {
@@ -1568,90 +1672,90 @@ final class _CalendarEventFormScreenState
                     ),
                   ),
                 ),
-              Flexible(
-                child: ListView.builder(
-                  key: const Key('life-indicator-picker'),
-                  shrinkWrap: true,
-                  itemCount: goals.length,
-                  itemBuilder: (context, index) {
-                    final goal = goals[index];
-                    final isSelected = goal.id == linkedId;
-                    return Container(
-                      margin: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
+                Flexible(
+                  child: ListView.builder(
+                    key: const Key('life-indicator-picker'),
+                    shrinkWrap: true,
+                    itemCount: goals.length,
+                    itemBuilder: (context, index) {
+                      final goal = goals[index];
+                      final isSelected = goal.id == linkedId;
+                      return Container(
+                        margin: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: isSelected
+                                ? colorScheme.primary
+                                : Colors.transparent,
+                          ),
+                        ),
+                        child: Material(
                           color: isSelected
-                              ? colorScheme.primary
+                              ? colorScheme.primaryContainer
                               : Colors.transparent,
-                        ),
-                      ),
-                      child: Material(
-                        color: isSelected
-                            ? colorScheme.primaryContainer
-                            : Colors.transparent,
-                        borderRadius: BorderRadius.circular(12),
-                        child: ListTile(
-                          key: Key('life-indicator-option-${goal.id}'),
-                          leading: GoalIcon(
-                            iconId: goal.iconId,
-                            // GI-02: exactly 2x (24 -> 48).
-                            size: 48,
-                            semanticLabel: goal.title,
-                            // POLISH-05: fallback icon follows the active
-                            // Theme Color (no Rose in Blue mode).
-                            color: colorScheme.primary,
+                          borderRadius: BorderRadius.circular(12),
+                          child: ListTile(
+                            key: Key('life-indicator-option-${goal.id}'),
+                            leading: GoalIcon(
+                              iconId: goal.iconId,
+                              // GI-02: exactly 2x (24 -> 48).
+                              size: 48,
+                              semanticLabel: goal.title,
+                              // POLISH-05: fallback icon follows the active
+                              // Theme Color (no Rose in Blue mode).
+                              color: colorScheme.primary,
+                            ),
+                            title: Text(
+                              goal.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            trailing: isSelected
+                                ? Icon(
+                                    Icons.check,
+                                    color: colorScheme.primary,
+                                    size: 20,
+                                  )
+                                : null,
+                            onTap: fixed
+                                ? null
+                                : () => Navigator.of(sheetContext).pop(goal.id),
                           ),
-                          title: Text(
-                            goal.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          trailing: isSelected
-                              ? Icon(
-                                  Icons.check,
-                                  color: colorScheme.primary,
-                                  size: 20,
-                                )
-                              : null,
-                          onTap: fixed
-                              ? null
-                              : () => Navigator.of(sheetContext).pop(goal.id),
                         ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-              if (!fixed && linkedId != null) ...<Widget>[
-                const Divider(height: 1),
-                ListTile(
-                  key: const Key('life-indicator-remove-link'),
-                  leading: Icon(
-                    Icons.delete_outline,
-                    color: colorScheme.primary,
-                    size: 20,
-                  ),
-                  title: Text(
-                    'Remove Life Goal link',
-                    style: TextStyle(color: colorScheme.primary),
-                  ),
-                  onTap: () => Navigator.of(sheetContext).pop('__none__'),
-                ),
-              ],
-              Padding(
-                padding: const EdgeInsets.all(12),
-                child: Center(
-                  child: TextButton(
-                    key: const Key('life-indicator-picker-cancel'),
-                    onPressed: () => Navigator.of(sheetContext).pop(),
-                    child: const Text('Cancel'),
+                      );
+                    },
                   ),
                 ),
-              ),
+                if (!fixed && linkedId != null) ...<Widget>[
+                  const Divider(height: 1),
+                  ListTile(
+                    key: const Key('life-indicator-remove-link'),
+                    leading: Icon(
+                      Icons.delete_outline,
+                      color: colorScheme.primary,
+                      size: 20,
+                    ),
+                    title: Text(
+                      'Remove Life Goal link',
+                      style: TextStyle(color: colorScheme.primary),
+                    ),
+                    onTap: () => Navigator.of(sheetContext).pop('__none__'),
+                  ),
+                ],
+                Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Center(
+                    child: TextButton(
+                      key: const Key('life-indicator-picker-cancel'),
+                      onPressed: () => Navigator.of(sheetContext).pop(),
+                      child: const Text('Cancel'),
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
@@ -1811,14 +1915,56 @@ final class _CalendarEventFormScreenState
   }
 
   bool get _isContactEvent {
-    if (_selectedEventType?.stableKey ==
-        SystemEventTypeKeys.meaningfulConnection) {
+    final stableKey =
+        _loadedEventTypeStableKey ?? _selectedEventType?.stableKey;
+    if (stableKey == SystemEventTypeKeys.meaningfulConnection ||
+        stableKey == SystemEventTypeKeys.contact) {
       return true;
     }
-    final value = _selectedEventType?.label;
+    final value =
+        _loadedEventTypeLabel ??
+        _selectedEventType?.label ??
+        widget.initialEventTypeLabel;
     final normalized = value?.trim().toLowerCase();
     return normalized != null && normalized.contains('contact');
   }
+
+  static bool _isFutureOccurrence(CalendarEventOccurrence occurrence) {
+    final nowUtc = DateTime.now().toUtc();
+    final today = PlannerDate.fromDateTime(DateTime.now());
+    return occurrence.timing == CalendarEventTiming.allDay
+        ? occurrence.displayDate.compareTo(today) > 0
+        : occurrence.startUtc?.isAfter(nowUtc) ?? false;
+  }
+
+  bool _isSelectableStatus(CalendarEventStatus status) =>
+      switch (status) {
+        CalendarEventStatus.scheduled ||
+        CalendarEventStatus.didNotHappen ||
+        CalendarEventStatus.partiallyCompleted ||
+        CalendarEventStatus.completedHappened => true,
+        CalendarEventStatus.cancelled || CalendarEventStatus.rescheduled =>
+          false,
+      };
+
+  Widget _buildCurrentStatusSection() => Column(
+    key: const Key('event-status-section'),
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: <Widget>[
+      EventCurrentStatusControlRow(
+        currentStatus: _currentStatus,
+        isContactEvent: _isContactEvent,
+        saving: _saving,
+        onSelect: (status) {
+          FocusScope.of(context).unfocus();
+          if (!_isSelectableStatus(status)) {
+            return;
+          }
+          setState(() => _currentStatus = status);
+        },
+      ),
+    ],
+  );
 
   String get _formHeading => switch (widget.mode) {
     CalendarEventFormMode.create when widget.sourceTaskId != null =>
@@ -1958,13 +2104,20 @@ final class _CalendarEventFormScreenState
       return;
     }
     setState(() => _saving = true);
+    final showStatusSection =
+        widget.initialStatusIntent != null &&
+        widget.mode == CalendarEventFormMode.edit &&
+        _reportEligible &&
+        _requiresReport;
     final draft = CalendarEventDraft(
       id: _draftId,
       title: _titleController.text,
       notes: _notesController.text,
       timing: _timing,
       startDate: _date,
-      status: _currentStatus,
+      status: showStatusSection
+          ? CalendarEventStatus.scheduled
+          : _currentStatus,
       startMinute: _timing == CalendarEventTiming.timed ? startMinute : null,
       endMinute: _timing == CalendarEventTiming.timed ? endMinute : null,
       timeZoneId: _timing == CalendarEventTiming.timed
@@ -2026,6 +2179,48 @@ final class _CalendarEventFormScreenState
     if (saved) {
       if (!mounted) {
         return;
+      }
+      // The Event field write retains the lifecycle status as `scheduled`.
+      // A changed staged outcome is committed only after that canonical edit
+      // succeeds, through the existing outcome-reporting transaction.
+      if (showStatusSection &&
+          _currentStatus != CalendarEventStatus.scheduled &&
+          _currentStatus != _loadedReportStatus) {
+        final outcome = switch (_currentStatus) {
+          CalendarEventStatus.completedHappened =>
+            OutcomeKind.completedHappened,
+          CalendarEventStatus.partiallyCompleted =>
+            OutcomeKind.partiallyCompleted,
+          CalendarEventStatus.didNotHappen => OutcomeKind.didNotHappen,
+          _ => null,
+        };
+        if (outcome != null) {
+          final reported = await ref
+              .read(outcomeReportingControllerProvider.notifier)
+              .submitEventStatus(
+                eventId: widget.eventId!,
+                originalDate: widget.originalDate!,
+                outcome: outcome,
+                operationId: ref
+                    .read(plannerIdentifierSourceProvider)
+                    .nextUuid(),
+                contributionRuleKey: _scheduledPotentialRule(),
+              );
+          if (reported == null) {
+            if (mounted) {
+              setState(() => _saving = false);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    ref.read(outcomeReportingControllerProvider) ??
+                        'Event status could not be saved.',
+                  ),
+                ),
+              );
+            }
+            return;
+          }
+        }
       }
       // Persist the People links.  Series-level removal freezes past
       // occurrence participant snapshots before erasing links, so historical
@@ -2643,22 +2838,21 @@ final class _PeopleChip extends StatelessWidget {
 
 InputDecoration _measuredInputDecoration(
   BuildContext context, {
-  required String labelText,
+  String? labelText,
   Widget? prefixIcon,
   Widget? suffixIcon,
   String? hintText,
+  int? hintMaxLines,
   bool? alignLabelWithHint,
 }) {
   final border = OutlineInputBorder(
     borderRadius: BorderRadius.circular(4),
-    borderSide: BorderSide(
-      color: AppTheme.outlineOf(context),
-      width: 1,
-    ),
+    borderSide: BorderSide(color: AppTheme.outlineOf(context), width: 1),
   );
   return InputDecoration(
     labelText: labelText,
     hintText: hintText,
+    hintMaxLines: hintMaxLines,
     prefixIcon: prefixIcon,
     suffixIcon: suffixIcon,
     alignLabelWithHint: alignLabelWithHint,

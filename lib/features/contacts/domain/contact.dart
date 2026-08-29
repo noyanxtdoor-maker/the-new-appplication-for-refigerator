@@ -1033,6 +1033,22 @@ final class ContactDetail {
   }
 }
 
+/// A truthful Event Detail participant label. Historical occurrences use the
+/// immutable display-name snapshot; current and future occurrences use a live
+/// Event-to-Contact link. The presentation never substitutes one for the
+/// other.
+final class EventParticipantPresentation {
+  const EventParticipantPresentation({
+    required this.contactId,
+    required this.displayName,
+    required this.isSnapshot,
+  });
+
+  final String contactId;
+  final String displayName;
+  final bool isSnapshot;
+}
+
 /// Draft used for both create and update. [id] is a fresh UUID on create and
 /// the stable Contact ID on update. Legacy drafts retain their historical
 /// shape; C4 manual creates opt into stricter validation explicitly.

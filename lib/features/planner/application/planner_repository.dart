@@ -50,6 +50,17 @@ final class EmptyPlannerTaskContextSource implements PlannerTaskContextSource {
   }
 }
 
+enum TaskHardDeleteOutcome { deleted, notFound, integrityFailure }
+
+final class TaskHardDeleteIntegrityException implements Exception {
+  const TaskHardDeleteIntegrityException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 abstract interface class TaskHistoricalEffectReader {
   Future<bool> hasReportOrLedgerEffect(String taskId);
 }
@@ -87,4 +98,13 @@ abstract interface class PlannerRepository {
     String? reason,
     bool confirmLinkedTypeTransfer = false,
   });
+
+  /// Deletes only a Task and data proven to be owned by that Task.
+  ///
+  /// Test implementations retain a conservative default; the production Drift
+  /// repository provides the profile-scoped transaction and integrity checks.
+  Future<TaskHardDeleteOutcome> hardDeleteTask({
+    required String profileId,
+    required String taskId,
+  }) async => TaskHardDeleteOutcome.notFound;
 }

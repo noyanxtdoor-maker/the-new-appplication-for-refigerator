@@ -15,8 +15,10 @@ import 'package:rmplanner/features/planner/application/calendar_event_providers.
 import 'package:rmplanner/features/planner/application/event_type_providers.dart';
 import 'package:rmplanner/features/planner/application/planner_providers.dart';
 import 'package:rmplanner/features/planner/application/planner_tap_marker_provider.dart';
+import 'package:rmplanner/features/planner/application/planner_task_creation_draft_provider.dart';
 import 'package:rmplanner/features/planner/domain/calendar_event.dart';
 import 'package:rmplanner/features/planner/domain/event_color_preferences.dart';
+import 'package:rmplanner/features/planner/domain/outcome_reporting.dart';
 import 'package:rmplanner/features/planner/domain/planner_date.dart';
 import 'package:rmplanner/features/planner/domain/planner_day.dart';
 import 'package:rmplanner/features/planner/domain/planner_display_geometry.dart';
@@ -27,12 +29,15 @@ import 'package:rmplanner/features/planner/domain/planner_view.dart';
 import 'package:rmplanner/features/planner/presentation/calendar_event_creation.dart';
 import 'package:rmplanner/features/planner/presentation/calendar_event_detail_screen.dart';
 import 'package:rmplanner/features/planner/presentation/contextual_create_fab.dart';
+import 'package:rmplanner/features/planner/presentation/task_creation.dart';
+import 'package:rmplanner/features/planner/presentation/task_preview_sheet.dart';
 import 'package:rmplanner/features/planner/presentation/widgets/anchored_top_bar_popup.dart';
 import 'package:rmplanner/features/planner/presentation/widgets/planner_calendar_icon.dart';
 import 'package:rmplanner/features/planner/presentation/widgets/planner_date_strip.dart';
 import 'package:rmplanner/features/planner/presentation/widgets/planner_event_block_content.dart';
 import 'package:rmplanner/features/planner/presentation/widgets/planner_event_block_layout_policy.dart';
 import 'package:rmplanner/features/planner/presentation/widgets/planner_event_color_resolver.dart';
+import 'package:rmplanner/features/planner/presentation/widgets/planner_event_report_status.dart';
 import 'package:rmplanner/features/planner/presentation/widgets/planner_interactive_day_pager.dart'
     show
         PlannerCurrentTimeHorizontalGeometry,
@@ -115,6 +120,8 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
       PlannerDateStripController();
   String? _initialScrollSignature;
   bool _initialScrollPerformed = false;
+  String? _taskDraftRevealSignature;
+  bool _taskDraftRevealPending = false;
   PlannerPresentation? _presentation;
   final Set<PlannerSelectionId> _selectedItems = <PlannerSelectionId>{};
   Future<List<PlannerDay>>? _rangeLoad;
@@ -361,7 +368,16 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
     final controller = ref.read(plannerControllerProvider.notifier);
     final eventTypeState = ref.watch(eventTypeControllerProvider);
     final plannerSettings = eventTypeState.settings;
-    final eventColorsByTypeId = eventTypeState.resolvedEventColorsByTypeId;
+    // The Task color is an existing Color Settings preference keyed by the
+    // canonical task identity.  Keep it in the presentation map so a timed
+    // Task footprint resolves through the same Light/Dark color pipeline as
+    // Event blocks without borrowing a linked Event Type's color.
+    final eventColorsByTypeId = <String, EventColorPreference>{
+      ...eventTypeState.resolvedEventColorsByTypeId,
+      PlannerEventColorResolver.taskStableKey:
+          eventTypeState.eventColors[PlannerEventColorResolver.taskStableKey] ??
+          PlannerEventColorDefaults.task,
+    };
     _presentation ??= plannerSettings.preferredPresentation;
     // Delta 4.1 D4.1-05: the "+" FAB is a normal-Planner affordance only.
     // It is hidden while a creation session is engaged (generic Event
@@ -370,7 +386,8 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
     // after Save/Cancel clears the session.
     final creationSessionActive =
         ref.watch(plannerTapMarkerProvider) != null ||
-        ref.watch(plannerEventCreationDraftProvider) != null;
+        ref.watch(plannerEventCreationDraftProvider) != null ||
+        ref.watch(plannerTaskCreationDraftProvider) != null;
 
     final scaffold = Scaffold(
       appBar: _buildAppBar(context, ref, state, plannerSettings, controller),
@@ -842,8 +859,17 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
         );
         return;
       case ContextualCreateAction.task:
+        final now = DateTime.now();
         unawaited(
-          context.push('${RoutePaths.taskCreate}?date=${selectedDate.iso8601}'),
+          launchTaskCreation(
+            context,
+            ref,
+            TaskCreationContext(
+              source: 'planner-fab',
+              date: selectedDate,
+              minute: now.hour * 60 + now.minute,
+            ),
+          ),
         );
         return;
     }
@@ -1073,6 +1099,7 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
   ) {
     final day = state.day;
     final provisionalDraft = ref.watch(plannerEventCreationDraftProvider);
+    final taskDraft = ref.watch(plannerTaskCreationDraftProvider);
     final tapMarker = ref.watch(plannerTapMarkerProvider);
     if (_lastObservedEventDeletionRevision != state.eventDeletionRevision) {
       // R6-08: the screen owns an additional retained preview cache beyond the
@@ -1108,6 +1135,11 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
       selectedDate: state.selectedDate,
       settings: settings,
       timedEvents: day.timedEvents,
+    );
+    _scheduleTaskDraftReveal(
+      draft: taskDraft,
+      selectedDate: state.selectedDate,
+      settings: settings,
     );
 
     // Invalidate the preview window only when the authoritative selected
@@ -1432,6 +1464,8 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
                                       _provisionalPlannerItem(
                                         provisionalDraft!,
                                       ),
+                                    if (taskDraft?.date == state.selectedDate)
+                                      _provisionalTaskPlannerItem(taskDraft!),
                                   ],
                                   selectedDate: state.selectedDate,
                                   settings: settings,
@@ -1485,6 +1519,15 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
                                       _activeCurrentTimeListenable,
                                   tapMarker: tapMarker,
                                   timelineKey: _timelineKey,
+                                  tasks: _visibleTimelineTasks(day, settings),
+                                  taskDraft:
+                                      taskDraft?.date == state.selectedDate
+                                      ? taskDraft
+                                      : null,
+                                  onTaskTap: (task) => showTaskPreview<void>(
+                                    context: context,
+                                    taskId: task.id,
+                                  ),
                                 ),
                               ),
                             );
@@ -1498,6 +1541,17 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
                   key: Key('planner-timeline-bottom-boundary'),
                   height: kPlannerTimelineBottomBoundaryExtent,
                 ),
+                // The form is an overlay, not a replacement Planner route.
+                // While its one B7 Task draft exists, reserve only enough
+                // trailing scroll extent to reveal a late fixed-height draft
+                // above that form. The reserve is cleared with the draft and
+                // never changes the civil-day geometry, saved Tasks, or Event
+                // resize behavior.
+                if (taskDraft?.date == state.selectedDate)
+                  const SizedBox(
+                    key: Key('planner-task-draft-visibility-reserve'),
+                    height: 96,
+                  ),
               ],
             ),
           ),
@@ -1635,6 +1689,36 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
               event.isBackupAppointment ? filters.backupEvents : filters.events,
         )
         .toList(growable: false);
+  }
+
+  /// Timed Tasks have one scheduled minute rather than an Event duration.
+  /// This returns only the factual, filter-eligible Task rows that may be
+  /// represented by a presentation-only 15-minute footprint in Day mode.
+  /// No Task record, recurrence projection, or Contact link is changed here.
+  List<PlannerTask> _visibleTimelineTasks(
+    PlannerDay day,
+    PlannerSettings settings,
+  ) {
+    final filters = settings.contentFilters;
+    if (!filters.tasks) {
+      return const <PlannerTask>[];
+    }
+    final tasks = <PlannerTask>[
+      ...day.tasks.where(
+        (task) =>
+            task.status == PlannerTaskStatus.incomplete &&
+            task.dueMinute != null,
+      ),
+      if (filters.completedTasks)
+        ...day.completedTasks.where(
+          (task) =>
+              task.status == PlannerTaskStatus.completed &&
+              task.dueMinute != null,
+        ),
+    ];
+    return <String, PlannerTask>{
+      for (final task in tasks) task.id: task,
+    }.values.toList(growable: false);
   }
 
   static List<PlannerDate> _weekDates(PlannerDate date, int weekStartDay) {
@@ -1804,8 +1888,9 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
             refreshPlanner: false,
             managePendingDeletion: false,
           );
-      (success ? successfulOccurrenceIds : failedOccurrenceIds).add(event.id);
-      if (!success) {
+      (success.closesDetail ? successfulOccurrenceIds : failedOccurrenceIds)
+          .add(event.id);
+      if (!success.closesDetail) {
         failed += 1;
       }
     }
@@ -1954,6 +2039,62 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
     });
   }
 
+  /// B7 owner-physical restoration: the draft was inserted into the real
+  /// timeline but a late due time sat behind the open Task form. Reveal that
+  /// same canvas position without creating a second overlay, changing the
+  /// fixed 15-minute geometry, or touching saved/Event viewport rules.
+  void _scheduleTaskDraftReveal({
+    required PlannerTaskCreationDraft? draft,
+    required PlannerDate selectedDate,
+    required PlannerSettings settings,
+  }) {
+    if (draft == null || draft.date != selectedDate) {
+      _taskDraftRevealSignature = null;
+      return;
+    }
+    final hourHeight =
+        _liveTimelineHourHeight.value ?? settings.timelineHourHeight;
+    final signature = '${draft.id}:${draft.date.iso8601}:${draft.minute}:'
+        '$hourHeight';
+    if (_taskDraftRevealPending || _taskDraftRevealSignature == signature) {
+      return;
+    }
+    _taskDraftRevealSignature = signature;
+    _taskDraftRevealPending = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _taskDraftRevealPending = false;
+      if (!mounted || !_dayScrollController.hasClients) {
+        return;
+      }
+      final current = ref.read(plannerTaskCreationDraftProvider);
+      if (current == null ||
+          current.id != draft.id ||
+          current.date != selectedDate ||
+          current.minute != draft.minute) {
+        return;
+      }
+      final timelineBox =
+          _timelineKey.currentContext?.findRenderObject() as RenderBox?;
+      final scrollBox =
+          _dayScrollKey.currentContext?.findRenderObject() as RenderBox?;
+      if (timelineBox == null || scrollBox == null) {
+        return;
+      }
+      final timelineTop =
+          timelineBox.localToGlobal(Offset.zero).dy -
+          scrollBox.localToGlobal(Offset.zero).dy +
+          _dayScrollController.offset;
+      final pixelsPerMinute = PlannerTimelineGeometry.pixelsPerMinute(
+        hourHeight,
+      );
+      // Keep the small 15-minute card wholly above the open form, including
+      // at high zoom where its visual center otherwise clips the sheet edge.
+      final desired = (timelineTop + current.minute * pixelsPerMinute - 200)
+          .clamp(0.0, _dayScrollController.position.maxScrollExtent);
+      _dayScrollController.jumpTo(desired);
+    });
+  }
+
   void _createTimedEvent(
     BuildContext context,
     WidgetRef ref,
@@ -2013,7 +2154,11 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
     int snapMinutes,
     double hourHeight,
   ) {
-    if (event.eventId == null || event.id.startsWith('provisional:')) {
+    // A Task footprint has no Calendar Event ID by design. It is nevertheless
+    // a real saved Planner item for the shared drag session, so allow it
+    // through while retaining the provisional-Event exclusion.
+    if ((event.eventId == null && !event.id.startsWith('task-footprint:')) ||
+        event.id.startsWith('provisional:')) {
       return;
     }
     final current = _crossDateDrag;
@@ -2271,16 +2416,22 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
     // commit completes. The projection is removed once the canonical refresh
     // lands (success) or rolled back (failure).
     _savedDragFrameNotifier.value = null;
+    final isTaskFootprint = session.event.id.startsWith('task-footprint:');
     setState(() {
       _crossDateDrag = null;
       _savedMoveCompletionRevision += 1;
-      _pendingMoveProjection = _PendingMoveProjection(
-        event: session.event,
-        sourceDate: session.sourceDate,
-        targetDate: session.targetDate,
-        startMinute: candidateStart,
-        endMinute: candidateEnd,
-      );
+      // The generic optimistic projection renderer is Event-only. A Task
+      // waits for its canonical repository refresh instead of ever becoming
+      // a transient Event-looking block during a drag commit.
+      _pendingMoveProjection = isTaskFootprint
+          ? null
+          : _PendingMoveProjection(
+              event: session.event,
+              sourceDate: session.sourceDate,
+              targetDate: session.targetDate,
+              startMinute: candidateStart,
+              endMinute: candidateEnd,
+            );
     });
     final commit = await _moveEvent(
       ref,
@@ -2374,6 +2525,75 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
     PlannerDate targetDate,
     int startMinute,
   ) async {
+    if (event.id.startsWith('task-draft:')) {
+      final draftId = event.id.substring('task-draft:'.length);
+      final draft = ref.read(plannerTaskCreationDraftProvider);
+      if (draft == null || draft.id != draftId) {
+        return null;
+      }
+      final controller = ref.read(plannerTaskCreationDraftProvider.notifier);
+      controller.updateDate(targetDate);
+      controller.updateMinute(startMinute);
+      return _TimelineMoveCommit(undo: () async => false);
+    }
+    // A Task footprint is a presentation-only item.  Re-read the real Task
+    // before saving so the drag changes only its schedule and preserves the
+    // current Task's stable identity, status, content, recurrence, and links.
+    if (event.id.startsWith('task-footprint:')) {
+      final taskId = event.id.substring('task-footprint:'.length);
+      final controller = ref.read(plannerControllerProvider.notifier);
+      final task = await controller.readTask(taskId);
+      if (task == null || task.recurrence != PlannerTaskRecurrence.none) {
+        return null;
+      }
+      final previousDate = task.dueDate;
+      final previousMinute = task.dueMinute;
+      final saved = await controller.saveTask(
+        PlannerTaskDraft(
+          id: task.id,
+          title: task.title,
+          notes: task.notes,
+          dueDate: targetDate,
+          dueMinute: startMinute,
+          recurrence: task.recurrence,
+          requiresReport: task.requiresReport,
+          contributionRuleKey: task.contributionRuleKey,
+          people: task.people,
+          linkedActivityTypeId: task.linkedActivityTypeId,
+          linkedActivityTypeStableKey: task.linkedActivityTypeStableKey,
+          linkedActivityTypeLabelSnapshot: task.linkedActivityTypeLabelSnapshot,
+          goalId: task.goalId,
+        ),
+      );
+      if (!saved) {
+        return null;
+      }
+      return _TimelineMoveCommit(
+        undo: () async {
+          if (previousDate == null) {
+            return false;
+          }
+          return controller.saveTask(
+            PlannerTaskDraft(
+              id: task.id,
+              title: task.title,
+              notes: task.notes,
+              dueDate: previousDate,
+              dueMinute: previousMinute,
+              recurrence: task.recurrence,
+              requiresReport: task.requiresReport,
+              contributionRuleKey: task.contributionRuleKey,
+              people: task.people,
+              linkedActivityTypeId: task.linkedActivityTypeId,
+              linkedActivityTypeStableKey: task.linkedActivityTypeStableKey,
+              linkedActivityTypeLabelSnapshot:
+                  task.linkedActivityTypeLabelSnapshot,
+              goalId: task.goalId,
+            ),
+          );
+        },
+      );
+    }
     if (event.eventId == null && event.id.startsWith('provisional:')) {
       final draft = ref.read(plannerEventCreationDraftProvider);
       final start = event.startLocal;
@@ -3109,6 +3329,32 @@ PlannerCalendarItem _provisionalPlannerItem(PlannerEventCreationDraft draft) {
   );
 }
 
+PlannerCalendarItem _provisionalTaskPlannerItem(
+  PlannerTaskCreationDraft draft,
+) {
+  final midnight = DateTime(draft.date.year, draft.date.month, draft.date.day);
+  return PlannerCalendarItem(
+    id: 'task-draft:${draft.id}',
+    title: draft.title,
+    date: draft.date,
+    timing: PlannerEventTiming.timed,
+    state: PlannerEventState.scheduled,
+    requiresReport: false,
+    hasOutcomeReport: false,
+    startLocal: midnight.add(Duration(minutes: draft.minute)),
+    endLocal: midnight.add(
+      Duration(
+        minutes:
+            draft.minute +
+            _TimedEventTimelineState._taskDisplayFootprintMinutes,
+      ),
+    ),
+    originalDate: draft.date,
+    activityTypeId: PlannerEventColorResolver.taskStableKey,
+    activityTypeColorValue: PlannerEventColorDefaults.task.accentArgb,
+  );
+}
+
 enum _PlannerOverflowAction { search, schedule, day, week, tasks }
 
 enum _TimelineResizeEdge { top, bottom }
@@ -3631,6 +3877,9 @@ final class _TimedEventTimeline extends StatefulWidget {
     required this.currentTimeListenable,
     required this.tapMarker,
     required this.timelineKey,
+    required this.tasks,
+    required this.taskDraft,
+    required this.onTaskTap,
   });
 
   final List<PlannerCalendarItem> events;
@@ -3714,6 +3963,14 @@ final class _TimedEventTimeline extends StatefulWidget {
   // selection. Only rendered when it belongs to the selected day.
   final PlannerTapMarker? tapMarker;
 
+  /// Filter-resolved Task rows rendered as presentation-only footprints.
+  final List<PlannerTask> tasks;
+
+  /// Planner-local unsaved Task draft. It is intentionally distinct from the
+  /// accepted Event provisional provider and has no end-time/resize state.
+  final PlannerTaskCreationDraft? taskDraft;
+  final ValueChanged<PlannerTask> onTaskTap;
+
   @override
   State<_TimedEventTimeline> createState() => _TimedEventTimelineState();
 }
@@ -3731,6 +3988,13 @@ final class _TimedEventTimelineState extends State<_TimedEventTimeline> {
   /// very short blocks at wide zoom-out remain tappable without any
   /// visible minimum-height inflation.
   static const double kPlannerEventMinimumTouchHeight = 24;
+
+  /// A timed Task is a real [PlannerTask] projected into the Day canvas. Its
+  /// 15-minute footprint is presentation-only: it never creates an Event row
+  /// or a persisted Task-duration field.  Keeping the logical end here means
+  /// the shared collision allocator and normal/high zoom geometry stay
+  /// factual rather than being distorted by a Task-only visual height floor.
+  static const int _taskDisplayFootprintMinutes = 15;
   // R7-06: the external free-space gap between touching Event rectangles is
   // zero; the R6-05 one-pixel inner border is the only separator. Keeping
   // this as a named constant preserves the R5 lane-width math structurally —
@@ -3854,7 +4118,7 @@ final class _TimedEventTimelineState extends State<_TimedEventTimeline> {
       _previewStartMinutes.clear();
       _previewEndMinutes.clear();
     } else if (_directManipulationEventId case final selectedId?
-        when !widget.events.any((event) => event.id == selectedId)) {
+        when !_hasTimelineItem(selectedId)) {
       _directManipulationEventId = null;
       _movePointerGlobals.remove(selectedId);
       _moveGrabOffsets.remove(selectedId);
@@ -3873,7 +4137,52 @@ final class _TimedEventTimelineState extends State<_TimedEventTimeline> {
   }
 
   bool _isProvisionalEvent(PlannerCalendarItem event) =>
-      event.eventId == null && event.id.startsWith('provisional:');
+      (event.eventId == null && event.id.startsWith('provisional:')) ||
+      _isTaskDraft(event);
+
+  bool _isTaskFootprint(PlannerCalendarItem event) =>
+      event.id.startsWith('task-footprint:');
+
+  bool _isTaskDraft(PlannerCalendarItem event) =>
+      event.id.startsWith('task-draft:');
+
+  bool _hasTimelineItem(String id) =>
+      widget.events.any((event) => event.id == id) ||
+      widget.tasks.any((task) => id == 'task-footprint:${task.id}') ||
+      id == 'task-draft:${widget.taskDraft?.id}';
+
+  List<PlannerCalendarItem> _taskFootprints() {
+    final midnight = DateTime(
+      widget.selectedDate.year,
+      widget.selectedDate.month,
+      widget.selectedDate.day,
+    );
+    return widget.tasks
+        .where((task) => task.dueMinute != null)
+        .map((task) {
+          final minute = task.dueMinute!;
+          return PlannerCalendarItem(
+            id: 'task-footprint:${task.id}',
+            title: task.title,
+            date: widget.selectedDate,
+            timing: PlannerEventTiming.timed,
+            state: PlannerEventState.scheduled,
+            requiresReport: false,
+            hasOutcomeReport: false,
+            startLocal: midnight.add(Duration(minutes: minute)),
+            // The allocator retains the locked presentation-only interval.
+            // The shared allocator receives the owner-locked 15-minute Task
+            // footprint. It is independent of the persisted due minute.
+            endLocal: midnight.add(
+              Duration(minutes: minute + _taskDisplayFootprintMinutes),
+            ),
+            // This stable key is deliberately not a linked Event Type.
+            activityTypeId: PlannerEventColorResolver.taskStableKey,
+            activityTypeColorValue: PlannerEventColorDefaults.task.accentArgb,
+          );
+        })
+        .toList(growable: false);
+  }
 
   bool _isDirectlySelected(PlannerCalendarItem event) =>
       _isProvisionalEvent(event) || _directManipulationEventId == event.id;
@@ -3909,6 +4218,14 @@ final class _TimedEventTimelineState extends State<_TimedEventTimeline> {
 
   void _handleEventTap(PlannerCalendarItem event) {
     if (_suppressOneFingerInteractions || _isProvisionalEvent(event)) {
+      return;
+    }
+    if (_isTaskFootprint(event)) {
+      final taskId = event.id.substring('task-footprint:'.length);
+      final task = widget.tasks.where((task) => task.id == taskId).firstOrNull;
+      if (task != null) {
+        widget.onTaskTap(task);
+      }
       return;
     }
     if (widget.selectionMode) {
@@ -4101,8 +4418,9 @@ final class _TimedEventTimelineState extends State<_TimedEventTimeline> {
     // geometry. Zoom changes pixels-per-minute only; it never adds a visual
     // height floor or a second set of display-only overlap lanes.
     final viewportHeight = _safeViewportHeight();
+    final taskFootprints = _taskFootprints();
     final placements = PlannerDisplayGeometry.resolve(
-      events: widget.events,
+      events: <PlannerCalendarItem>[...widget.events, ...taskFootprints],
       hourHeight: _hourHeight,
       viewportHeight: viewportHeight,
       configuredHours: _planWindowLastHour - _planWindowFirstHour,
@@ -4416,7 +4734,9 @@ final class _TimedEventTimelineState extends State<_TimedEventTimeline> {
                         ),
                       ),
                     ],
-                    if (widget.events.isEmpty && widget.tapMarker == null)
+                    if (widget.events.isEmpty &&
+                        widget.tasks.isEmpty &&
+                        widget.tapMarker == null)
                       const Positioned(
                         top: 18,
                         left: _timeColumnWidth + 14,
@@ -4433,24 +4753,16 @@ final class _TimedEventTimelineState extends State<_TimedEventTimeline> {
                         widget.tapMarker!.date == widget.selectedDate)
                       Builder(
                         builder: (context) {
-                          // Delta 4.2R R10 + 4.2R2 R2-06: the pre-type
-                          // placeholder shares the adaptive readability floor
-                          // with saved Events and the provisional draft, so the
-                          // generic block never collapses to an unreadable
-                          // sliver at any zoom-out level (no intermediate-zoom
-                          // dead zone). The floor is display-only (logical
-                          // start/end untouched).
+                          // Phase B mixed correction: the pre-type marker
+                          // shares the one explicit far-compact floor with
+                          // saved Events and Task footprints. Intermediate
+                          // zooms keep its truthful minute geometry.
                           final placeholderStart =
                               widget.tapMarker!.startMinute;
                           final placeholderEnd = widget.tapMarker!.endMinute;
-                          final placeholderCanonicalHeight =
-                              (placeholderEnd - placeholderStart) *
-                              PlannerTimelineGeometry.pixelsPerMinute(
-                                _hourHeight,
-                              );
                           final floorActive =
-                              placeholderCanonicalHeight <
-                                  kPlannerReadableEventHeightThreshold &&
+                              _hourHeight <=
+                                  PlannerZoomPolicy.compactHourHeight &&
                               placeholderEnd - placeholderStart <=
                                   kPlannerMaxZoomReadabilityDurationMinutes;
                           final displayStart = floorActive
@@ -4581,8 +4893,7 @@ final class _TimedEventTimelineState extends State<_TimedEventTimeline> {
                                                           .capsuleHeight,
                                                   alignment: Alignment.center,
                                                   padding:
-                                                      const EdgeInsets
-                                                          .symmetric(
+                                                      const EdgeInsets.symmetric(
                                                         horizontal: 4,
                                                       ),
                                                   child: Text(
@@ -4676,16 +4987,33 @@ final class _TimedEventTimelineState extends State<_TimedEventTimeline> {
                     // selected/draft endpoint handles paint last above both
                     // layers.
                     for (final placement in placements.where(
-                      (placement) => !_isProvisionalEvent(placement.event),
+                      (placement) =>
+                          !_isProvisionalEvent(placement.event) &&
+                          !_isTaskFootprint(placement.event) &&
+                          !_isTaskDraft(placement.event),
                     ))
                       _positionedEvent(placement, constraints.maxWidth),
                     for (final placement in placements.where(
-                      (placement) => _isProvisionalEvent(placement.event),
+                      (placement) =>
+                          _isProvisionalEvent(placement.event) &&
+                          !_isTaskFootprint(placement.event),
                     ))
                       _positionedEvent(placement, constraints.maxWidth),
+                    for (final task in widget.tasks)
+                      for (final placement in placements.where(
+                        (placement) =>
+                            placement.event.id == 'task-footprint:${task.id}',
+                      ))
+                        _positionedTimelineTask(
+                          task,
+                          placement,
+                          constraints.maxWidth,
+                        ),
                     ...placements
                         .where(
                           (placement) =>
+                              !_isTaskFootprint(placement.event) &&
+                              !_isTaskDraft(placement.event) &&
                               _isDirectlySelected(placement.event) &&
                               widget.activeMoveEventId != placement.event.id &&
                               !widget.selectionMode &&
@@ -4713,6 +5041,7 @@ final class _TimedEventTimelineState extends State<_TimedEventTimeline> {
     double totalWidth,
   ) {
     final event = placement.event;
+    final isTaskDraft = _isTaskDraft(event);
     final originalStart = event.startLocal!;
     final originalEnd = event.endLocal!;
     final originalStartMinute = originalStart.hour * 60 + originalStart.minute;
@@ -4746,7 +5075,9 @@ final class _TimedEventTimelineState extends State<_TimedEventTimeline> {
         !_persisting.contains(event.id);
     return Positioned(
       key: Key(
-        provisional
+        isTaskDraft
+            ? 'task-draft:${event.id.substring('task-draft:'.length)}'
+            : provisional
             ? 'planner-provisional-event-block'
             : 'planner-timed-event-${event.id}',
       ),
@@ -4776,7 +5107,74 @@ final class _TimedEventTimelineState extends State<_TimedEventTimeline> {
             height: placement.height,
             child: Opacity(
               opacity: isSavedDragOrigin ? 0.45 : 1,
-              child: _TimelineEventBlock(
+            child: isTaskDraft
+                ? KeyedSubtree(
+                    key: const Key('planner-task-draft-block'),
+                    child: _TimelineEventBlock(
+                      event: event,
+                      provisional: provisional,
+                      eventColorsByTypeId: widget.eventColorsByTypeId,
+                      use24HourTime: widget.settings.use24HourTime,
+                      displayStartMinute: startMinute,
+                      displayEndMinute: endMinute,
+                      awaitingReport: event.isAwaitingReport(DateTime.now()),
+                      selectionMode: widget.selectionMode,
+                      selected: widget.selectedItems.contains(
+                        PlannerSelectionId(
+                          kind: PlannerSelectionKind.event,
+                          id: event.id,
+                        ),
+                      ),
+                      selectedForDirectManipulation: _isDirectlySelected(event),
+                      onToggleSelection: () => widget.onToggleSelection(event),
+                      interactive: interactive,
+                      onTap: () => _handleEventTap(event),
+                      onDirectPointerDown: (pointer) {
+                        _movePointerIds[event.id] = pointer.pointer;
+                        if (_isDirectlySelected(event)) {
+                          widget.daySwipeCoordinator.preclaimPointerDown();
+                        }
+                      },
+                      onMoveStart: (globalPosition) => _beginMove(
+                        event,
+                        globalPosition,
+                        eventLocalLeft: horizontal.left + horizontalDragOffset,
+                        eventLocalTop: placement.top,
+                        ghostSize: Size(horizontal.width, placement.height),
+                      ),
+                      onMoveUpdate: (globalPosition) => _updateMoveFromGlobal(
+                        event,
+                        originalStartMinute,
+                        originalEndMinute,
+                        globalPosition,
+                      ),
+                      onLongPressMoveUpdate: (globalPosition) =>
+                          _updateMoveFromGlobal(
+                            event,
+                            originalStartMinute,
+                            originalEndMinute,
+                            globalPosition,
+                          ),
+                      onMoveEnd: () {
+                        if (_suppressOneFingerInteractions) {
+                          _clearPreview(event.id);
+                          widget.onMoveSessionCancel();
+                          return;
+                        }
+                        if (provisional) {
+                          unawaited(_finishMove(event, originalStartMinute));
+                        }
+                      },
+                      onMoveCancel: () {
+                        if (provisional) {
+                          _clearPreview(event.id);
+                        }
+                      },
+                      squareTop: placement.squareTop,
+                      squareBottom: placement.squareBottom,
+                    ),
+                  )
+                : _TimelineEventBlock(
                 event: event,
                 provisional: provisional,
                 eventColorsByTypeId: widget.eventColorsByTypeId,
@@ -4842,6 +5240,60 @@ final class _TimedEventTimelineState extends State<_TimedEventTimeline> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// Renders a real [PlannerTask] through a presentation-only timeline
+  /// footprint.  The footprint participates in the shared Event collision
+  /// allocator above, but this widget intentionally owns no Event resize path.
+  Widget _positionedTimelineTask(
+    PlannerTask task,
+    PlannerDisplayPlacement placement,
+    double totalWidth,
+  ) {
+    final footprint = placement.event;
+    final horizontal = _horizontalGeometry(placement, totalWidth);
+    final startMinute = task.dueMinute!;
+    final endMinute = startMinute + _taskDisplayFootprintMinutes;
+    final dragEnabled =
+        task.recurrence == PlannerTaskRecurrence.none &&
+        !widget.selectionMode &&
+        widget.settings.quickEditEnabled &&
+        !_persisting.contains(footprint.id);
+    return Positioned(
+      key: Key('task-footprint:${task.id}'),
+      top: placement.top,
+      left: horizontal.left,
+      width: horizontal.width,
+      // Event and Task blocks use the same temporal scale. The Event content
+      // policy handles compact readability without falsifying Task overlap
+      // geometry through a permanent Task-only minimum height.
+      height: placement.height,
+      child: _TimelineTaskBlock(
+        key: Key('planner-task-block-${task.id}'),
+        task: task,
+        footprint: footprint,
+        eventColorsByTypeId: widget.eventColorsByTypeId,
+        use24HourTime: widget.settings.use24HourTime,
+        startMinute: startMinute,
+        endMinute: endMinute,
+        dragEnabled: dragEnabled,
+        onTap: () => _handleEventTap(footprint),
+        onPointerDown: (event) {
+          _movePointerIds[footprint.id] = event.pointer;
+        },
+        onMoveStart: (position) => _beginMove(
+          footprint,
+          position,
+          eventLocalLeft: horizontal.left,
+          eventLocalTop: placement.top,
+          ghostSize: Size(horizontal.width, placement.height),
+        ),
+        onMoveCancel: () {
+          _clearPreview(footprint.id);
+          widget.onMoveSessionCancel();
+        },
       ),
     );
   }
@@ -5586,6 +6038,139 @@ final class _MoveUndoSnackBarContentState
   }
 }
 
+/// Task-specific Day block.  It deliberately does not reuse Event report,
+/// recurrence, selection, or resize affordances.  Its [footprint] exists only
+/// in presentation so the shared timeline allocator can safely place it.
+final class _TimelineTaskBlock extends StatelessWidget {
+  const _TimelineTaskBlock({
+    super.key,
+    required this.task,
+    required this.footprint,
+    required this.eventColorsByTypeId,
+    required this.use24HourTime,
+    required this.startMinute,
+    required this.endMinute,
+    required this.dragEnabled,
+    required this.onTap,
+    required this.onPointerDown,
+    required this.onMoveStart,
+    required this.onMoveCancel,
+  });
+
+  final PlannerTask task;
+  final PlannerCalendarItem footprint;
+  final Map<String, EventColorPreference> eventColorsByTypeId;
+  final bool use24HourTime;
+  final int startMinute;
+  final int endMinute;
+  final bool dragEnabled;
+  final VoidCallback onTap;
+  final ValueChanged<PointerDownEvent> onPointerDown;
+  final ValueChanged<Offset> onMoveStart;
+  final VoidCallback onMoveCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    final baseFill = PlannerEventColorResolver.surfaceColor(
+      context,
+      footprint,
+      eventColorsByTypeId,
+    );
+    final accent = PlannerEventColorResolver.accentColor(
+      context,
+      footprint,
+      eventColorsByTypeId,
+    );
+    final time = formatPlannerEventMinute(startMinute, use24HourTime);
+    final reportStatus = switch (task.reportedOutcome) {
+      null => PlannerReportStatusKind.unreported,
+      OutcomeKind.didNotHappen => PlannerReportStatusKind.didNotAttempt,
+      OutcomeKind.partiallyCompleted => PlannerReportStatusKind.missedAttempted,
+      OutcomeKind.completedHappened => PlannerReportStatusKind.completed,
+    };
+    // Report state is expressed by the compact canonical badge only.  A Task
+    // block retains its original Task/Event-family surface regardless of
+    // outcome so type recognition and collision geometry never flicker.
+    final fill = baseFill;
+    final textColor = PlannerEventBlockColorPolicy.textColor(
+      fill,
+      Theme.of(context).brightness,
+    );
+    final hint = task.recurrence == PlannerTaskRecurrence.none
+        ? 'Tap for details. Long-press and drag to reschedule.'
+        : 'Tap for details. Recurring Tasks cannot be moved here.';
+    return Semantics(
+      button: true,
+      label:
+          '${task.title}, ${PlannerEventReportStatus.labelFor(reportStatus)}, $time',
+      hint: hint,
+      child: Listener(
+        onPointerDown: onPointerDown,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onTap,
+          // Saved Tasks retain their established long-press route. Task
+          // creation drafts are rendered through the Event provisional path.
+          onLongPressStart: dragEnabled
+              ? (details) => onMoveStart(details.globalPosition)
+              : null,
+          onLongPressCancel: dragEnabled ? onMoveCancel : null,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final availableHeight = constraints.maxHeight.isFinite
+                  ? constraints.maxHeight
+                  : PlannerEventBlockLayoutPolicy.mediumThreshold + 1;
+              final content = PlannerEventBlockContent.forHeight(
+                availableHeight,
+                interactive: false,
+              );
+              return Material(
+                color: fill,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(
+                    PlannerEventBlockLayoutPolicy.effectiveRadiusFor(
+                      availableHeight,
+                    ),
+                  ),
+                  // Match the Event-family separation outline without
+                  // changing Task geometry or hit area.
+                  side: BorderSide(
+                    color: AppTheme.background.withValues(alpha: 0.72),
+                    width: 1,
+                  ),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: DecoratedBox(
+                  key: Key('planner-task-block-accent-${task.id}'),
+                  decoration: BoxDecoration(
+                    border: Border(
+                      left: BorderSide(
+                        color: accent,
+                        width: PlannerEventBlockLayoutPolicy.eventAccentWidth,
+                      ),
+                    ),
+                  ),
+                  child: PlannerTaskEventFamilyBlockContentView(
+                    title: task.title,
+                    time: time,
+                    textColor: textColor,
+                    status: reportStatus,
+                    content: content,
+                    contentKey: Key('planner-task-block-content-${task.id}'),
+                    titleKey: Key('planner-task-block-title-${task.id}'),
+                    timeKey: Key('planner-task-block-time-${task.id}'),
+                    statusKey: Key('planner-task-block-status-${task.id}'),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 final class _TimelineEventBlock extends StatefulWidget {
   const _TimelineEventBlock({
     required this.event,
@@ -5643,10 +6228,9 @@ final class _TimelineEventBlock extends StatefulWidget {
 
 /// S2B-02: stable Event content subtrees. The heavy presentation subtree
 /// ([PlannerEventBlockContentView]: title/time/status/recurrence/colors) is
-/// scale-invariant for an ordinary pinch — only the rectangle changes. This
-/// State reuses the exact content widget instance while a COMPLETE render
-/// fingerprint (Event facts + content density tier + resolved colors) is
-/// unchanged, so same-tier pinch frames construct ~0 content widgets.
+/// responds to the exact live compact height during an ordinary pinch. This
+/// State reuses the content widget only while a COMPLETE render fingerprint
+/// (Event facts + content metrics + resolved colors) is unchanged.
 /// The gesture/semantics wrapper still rebuilds each frame (its callbacks
 /// capture per-frame geometry), and any fact change or density-tier crossing
 /// rebuilds the content exactly once (pack 10/12).
@@ -5656,10 +6240,12 @@ final class _TimelineEventBlockState extends State<_TimelineEventBlock> {
 
   /// Resolve the scale-invariant content subtree, reusing the exact cached
   /// widget instance while the COMPLETE render fingerprint is unchanged.
-  /// [content] is derived from the live available height (the density tier),
-  /// so a pinch that stays in the same tier reuses the instance; a tier
-  /// crossing rebuilds exactly once. All other inputs are the widget facts
-  /// (title/time/status/recurrence/colors) that never change mid-pinch.
+  /// [content] is derived from the exact live available height. Its compact
+  /// metrics vary fractionally inside a density tier during the frozen Luna
+  /// transition, so the live height is part of the fingerprint. Omitting it
+  /// retained stale Event padding/line metrics after the card had shrunk and
+  /// produced the owner-observed transient bottom overflow. All other inputs
+  /// are stable Event facts (title/time/status/recurrence/colors).
   Widget _resolveContent({
     required PlannerEventBlockContent content,
     required Color accent,
@@ -5690,6 +6276,7 @@ final class _TimelineEventBlockState extends State<_TimelineEventBlock> {
       content.showStatusIcons,
       content.showResizeHandle,
       content.showTimeOnly,
+      content.visibleHeight,
       accent,
       fill,
       textColorOverride,
@@ -5708,12 +6295,8 @@ final class _TimelineEventBlockState extends State<_TimelineEventBlock> {
         content: content,
         titleKey: const Key('planner-event-block-title'),
         timeKey: const Key('planner-event-block-time'),
-        recurrenceKey: Key(
-          'planner-event-recurring-${widget.event.id}',
-        ),
-        statusKey: Key(
-          'planner-event-block-status-${widget.event.id}',
-        ),
+        recurrenceKey: Key('planner-event-recurring-${widget.event.id}'),
+        statusKey: Key('planner-event-block-status-${widget.event.id}'),
       );
     }
     return _cachedContent!;
@@ -5730,8 +6313,7 @@ final class _TimelineEventBlockState extends State<_TimelineEventBlock> {
     final awaitingReport = widget.awaitingReport;
     final selectionMode = widget.selectionMode;
     final selected = widget.selected;
-    final selectedForDirectManipulation =
-        widget.selectedForDirectManipulation;
+    final selectedForDirectManipulation = widget.selectedForDirectManipulation;
     final interactive = widget.interactive;
     final squareTop = widget.squareTop;
     final squareBottom = widget.squareBottom;
@@ -5768,9 +6350,10 @@ final class _TimelineEventBlockState extends State<_TimelineEventBlock> {
     // in every appearance (contrast contract).
     final colorScheme = Theme.of(context).colorScheme;
     final accent = provisional ? colorScheme.primary : resolvedAccent;
-    final fill = provisional
-        ? colorScheme.primaryContainer
-        : resolvedFill;
+    // Saved Event blocks retain their Event Type surface.  The status badge is
+    // the sole outcome treatment; provisional drafts keep their established
+    // theme-family surface.
+    final fill = provisional ? colorScheme.primaryContainer : resolvedFill;
     final textColorOverride = provisional
         ? colorScheme.onPrimaryContainer
         : null;
@@ -6090,15 +6673,14 @@ final class _TaskTile extends StatelessWidget {
         trailing: const Icon(Icons.chevron_right),
         onTap: selectionMode
             ? onToggleSelection
-            : () => context.push('${RoutePaths.tasks}/${task.id}'),
+            : () => showTaskPreview<void>(context: context, taskId: task.id),
       ),
     );
   }
 
   static String _taskSubtitle(PlannerTask task) {
     final due = task.dueDate;
-    final dueText = due == null ? 'No due date' : 'Due ${due.iso8601}';
-    return task.requiresReport ? '$dueText · Report required' : dueText;
+    return due == null ? 'No due date' : 'Due ${due.iso8601}';
   }
 }
 
@@ -6630,12 +7212,8 @@ final class _PlannerNotice extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Theme.of(
-          context,
-        ).colorScheme.primary.withValues(alpha: 0.12),
-        border: Border.all(
-          color: Theme.of(context).colorScheme.primary,
-        ),
+        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.12),
+        border: Border.all(color: Theme.of(context).colorScheme.primary),
         borderRadius: BorderRadius.circular(10),
       ),
       child: Text(message),

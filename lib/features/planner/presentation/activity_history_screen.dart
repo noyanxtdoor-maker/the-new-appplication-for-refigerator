@@ -5,7 +5,11 @@ import 'package:rmplanner/features/planner/application/outcome_reporting_provide
 import 'package:rmplanner/features/planner/domain/outcome_reporting.dart';
 
 final class ActivityHistoryScreen extends ConsumerStatefulWidget {
-  const ActivityHistoryScreen({super.key});
+  const ActivityHistoryScreen({this.sourceSlotKey, super.key});
+
+  /// When supplied by a Preview, the same History presentation is restricted
+  /// to that canonical source slot. The global route leaves it null.
+  final String? sourceSlotKey;
 
   @override
   ConsumerState<ActivityHistoryScreen> createState() =>
@@ -30,7 +34,13 @@ final class _ActivityHistoryScreenState
           controller.readLedgerHistory(effectiveOnly: false),
         ]).then(
           (values) => _ActivityHistoryData(
-            reports: values[0] as List<OutcomeReport>,
+            reports: (values[0] as List<OutcomeReport>)
+                .where(
+                  (report) =>
+                      widget.sourceSlotKey == null ||
+                      report.source.slotKey == widget.sourceSlotKey,
+                )
+                .toList(growable: false),
             entries: values[1] as List<ActivityLedgerEntry>,
           ),
         );

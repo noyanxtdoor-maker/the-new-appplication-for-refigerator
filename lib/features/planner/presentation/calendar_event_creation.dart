@@ -7,10 +7,13 @@ import 'package:rmplanner/app/router/route_names.dart';
 import 'package:rmplanner/features/planner/application/calendar_event_creation_draft_provider.dart';
 import 'package:rmplanner/features/planner/application/event_type_providers.dart';
 import 'package:rmplanner/features/planner/application/planner_providers.dart';
+import 'package:rmplanner/features/planner/application/planner_tap_marker_provider.dart';
 import 'package:rmplanner/features/planner/domain/event_type.dart';
 import 'package:rmplanner/features/planner/domain/planner_date.dart';
 import 'package:rmplanner/features/planner/presentation/calendar_event_form_screen.dart';
 import 'package:rmplanner/features/planner/presentation/event_type_picker_dialog.dart';
+import 'package:rmplanner/features/planner/presentation/planner_editor_sheet_metrics.dart';
+import 'package:rmplanner/features/planner/presentation/task_creation.dart';
 
 final class CalendarEventCreationContext {
   const CalendarEventCreationContext({
@@ -44,6 +47,31 @@ Future<T?> launchCalendarEventCreation<T>(
     recommendedIndicatorKey: creationContext.indicatorKey,
   );
   if (selected == null || !context.mounted) {
+    return null;
+  }
+  // The Planner's real Event-Type picker also exposes the Task entry.  That
+  // choice must stay in the live Planner creation session; pushing the
+  // general /tasks/new route here replaces the Planner and bypasses the one
+  // provisional Task draft and its real draggable sheet.
+  if (selected is EventTypePickerTask &&
+      (creationContext.source == 'planner-fab' ||
+           creationContext.source == 'planner-timeline')) {
+    // A timeline tap temporarily paints a generic Event-selection marker while
+    // the picker is open. Once Task is selected, its own canonical draft owns
+    // the creation session, so the generic marker must not survive under the
+    // Task sheet.
+    ref.read(plannerTapMarkerProvider.notifier).clear();
+    final now = DateTime.now();
+    await launchTaskCreation(
+      context,
+      ref,
+      TaskCreationContext(
+        source: creationContext.source,
+        date: creationContext.date,
+        minute:
+            creationContext.startMinute ?? (now.hour * 60 + now.minute),
+      ),
+    );
     return null;
   }
   if (selected case EventTypePickerEvent(:final eventType)
@@ -131,7 +159,7 @@ void showPlannerCalendarEventFormSheet({
   // scroll controller is attached to the form ListView so content scrolling
   // and sheet dragging stay coordinated instead of fighting.
   const minChildSize = 0.2;
-  const maxChildSize = 0.9;
+  const maxChildSize = kPlannerEditorSheetMaxChildSize;
   // Approximate resting content: sheet header (~72) + ListView top padding
   // (14) + Event Type field (54) + gap (22) + Title field (~58) with a small
   // bottom margin so the Title field (and its label) is fully visible at
@@ -211,7 +239,7 @@ Future<T?> showCalendarEventFormSheet<T>({
 }) {
   final sheetController = DraggableScrollableController();
   const minChildSize = 0.36;
-  const maxChildSize = 0.94;
+  const maxChildSize = kPlannerEditorSheetMaxChildSize;
   return showModalBottomSheet<T>(
     context: context,
     isScrollControlled: true,

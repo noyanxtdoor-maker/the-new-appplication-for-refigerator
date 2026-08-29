@@ -91,6 +91,33 @@ abstract final class PlannerEventBlockLayoutPolicy {
   /// Threshold for the [Density.medium] regime.
   static const double mediumThreshold = 70;
 
+  /// The shortest factual sub-hour detail footprint is 15 px at 60 px/hour.
+  /// Between 15 and 24 px the shared Event/Task primitives scale their compact
+  /// metrics from the same live geometry instead of flipping at a density
+  /// threshold while the zoom-display law is transitioning.
+  static const double minimumContinuousContentHeight = 15;
+
+  static double compactContentProgress(double height) =>
+      ((height - minimumContinuousContentHeight) /
+              (veryShortThreshold - minimumContinuousContentHeight))
+          .clamp(0.0, 1.0)
+          .toDouble();
+
+  static double titleLineHeightForHeight(double height) =>
+      1.0 + 0.1 * compactContentProgress(height);
+
+  static double verticalPaddingForHeight(double height) =>
+      4.0 * compactContentProgress(height);
+
+  static double statusBadgeDiameterForHeight(double height) =>
+      11.0 + 4.0 * compactContentProgress(height);
+
+  static double recurrenceIconSizeForHeight(double height) =>
+      12.0 + 2.0 * compactContentProgress(height);
+
+  static double recurrenceTopForHeight(double height) =>
+      1.0 + 2.0 * compactContentProgress(height);
+
   /// Classify the visible density for a given block height in pixels.
   static Density classify(double height) {
     if (height <= veryShortThreshold) {
@@ -329,6 +356,14 @@ abstract final class PlannerEventBlockColorPolicy {
   /// dark-surface correction), so the no-preference fallback matches the
   /// saved-preference path exactly.
   static Color surfaceColor(Color base) {
+    // Every exact canonical recommendation must use the same automatic dark
+    // surface as its save path. Some of the newly approved muted colors have
+    // a lower HSL lightness than the original fifteen; letting those fall
+    // through the legacy lift branch would make an unsaved/no-preference
+    // Event render differently from the exact same saved Event.
+    if (RecommendedEventColorPalette.byArgb(base.toARGB32()) != null) {
+      return Color(_automaticSurfaceArgb(base.toARGB32()));
+    }
     final hsl = HSLColor.fromColor(base);
     if (hsl.lightness >= 0.45) {
       return Color(_automaticSurfaceArgb(base.toARGB32()));
@@ -424,6 +459,7 @@ final class PlannerEventBlockContent {
     required this.showStatusIcons,
     required this.showResizeHandle,
     this.showTimeOnly = false,
+    this.visibleHeight = double.infinity,
   });
 
   factory PlannerEventBlockContent.forHeight(
@@ -435,32 +471,25 @@ final class PlannerEventBlockContent {
     return PlannerEventBlockContent(
       density: density,
       titleMaxLines: PlannerEventBlockLayoutPolicy.titleMaxLines(density),
-      // Exact-duration blocks can be a few logical pixels tall at wide
-      // zoom-out. A title smaller than the rendered text line would
-      // RenderFlex-overflow the hard-clipped rectangle, so micro blocks
-      // render the surface + accent only (their status badge stays
-      // clipped inside the exact rectangle).
-      showTitle: height >= PlannerEventBlockLayoutPolicy.titleLineHeight,
-      showTime: PlannerEventBlockLayoutPolicy.showTime(density),
-      // At the actual minimum zoom a 15-minute block can be about 11 px
-      // tall. Keep the approved inline schedule for compact blocks that can
-      // still contain it, but collapse smaller blocks to title-only and hide
-      // the recurrence affordance so it cannot bleed outside the block.
-      // R3 (owner override 2026-08-16): content priority is identity first.
-      // The recurrence affordance must NEVER render while the Event title is
-      // hidden (12-17 px blocks previously showed a recurrence icon with no
-      // title) — it requires the same height as the title line so secondary
-      // metadata never outranks identity.
-      showTimeInline:
-          height >= 15 && PlannerEventBlockLayoutPolicy.showTimeInline(density),
-      showRecurrence: height >= PlannerEventBlockLayoutPolicy.titleLineHeight,
-      // A medium block can be only a few pixels taller than the title/time
-      // rows. Keep the status row until there is enough room for all three
-      // rows and their measured gaps; compact blocks must never rely on
-      // clipping to hide an overflow.
-      showStatusIcons:
-          density == Density.tall ||
-          (density == Density.medium && height >= 58),
+      // Short-block identity stays visible down to the factual 15 px detail
+      // endpoint. Typography and padding scale continuously above rather than
+      // disappearing at 18 px during the shared 44->60 zoom transition.
+      showTitle: height >=
+          PlannerEventBlockLayoutPolicy.minimumContinuousContentHeight,
+      // Keep short blocks in one stable inline title/time presentation until
+      // a genuinely tall card has room for a separate row. This prevents the
+      // 44 px short/medium density boundary from creating a second visual
+      // snap while geometry itself changes continuously.
+      showTime: height >= 70,
+      showTimeInline: height >=
+              PlannerEventBlockLayoutPolicy.minimumContinuousContentHeight &&
+          height < 70,
+      showRecurrence: height >=
+          PlannerEventBlockLayoutPolicy.minimumContinuousContentHeight,
+      // Report-required status badges remain independently visible. The
+      // optional Backup/linked text row waits for tall geometry so it cannot
+      // pop inside the sub-hour interpolation band.
+      showStatusIcons: height >= 70,
       showResizeHandle: PlannerEventBlockLayoutPolicy.showResizeHandle(
         density,
         interactive,
@@ -470,6 +499,7 @@ final class PlannerEventBlockContent {
       // as a pure provisional surface.  Saved Events keep their normal
       // title/time content.
       showTimeOnly: showTimeOnly,
+      visibleHeight: height,
     );
   }
 
@@ -484,4 +514,24 @@ final class PlannerEventBlockContent {
 
   /// Provisional-draft flag: the block shows only its time range.
   final bool showTimeOnly;
+
+  /// Live painted height from the shared display geometry. Both Event and
+  /// Task primitives consume it for continuous compact metrics.
+  final double visibleHeight;
+
+  /// Manual descriptors predate the live-height field. Preserve their
+  /// density semantics while production layout always supplies the exact
+  /// fractional display height through [forHeight].
+  double get liveHeight {
+    if (visibleHeight.isFinite) {
+      return visibleHeight;
+    }
+    return switch (density) {
+      Density.veryShort =>
+        PlannerEventBlockLayoutPolicy.minimumContinuousContentHeight,
+      Density.short => PlannerEventBlockLayoutPolicy.veryShortThreshold + 1,
+      Density.medium => PlannerEventBlockLayoutPolicy.shortThreshold + 1,
+      Density.tall => PlannerEventBlockLayoutPolicy.mediumThreshold + 1,
+    };
+  }
 }

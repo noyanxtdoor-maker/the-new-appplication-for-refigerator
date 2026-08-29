@@ -4,22 +4,129 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:rmplanner/app/router/route_names.dart';
-import 'package:rmplanner/app/theme/app_theme.dart';
 import 'package:rmplanner/app/theme/internal_screen.dart';
+import 'package:rmplanner/features/contacts/application/contact_providers.dart';
+import 'package:rmplanner/features/contacts/domain/contact.dart';
+import 'package:rmplanner/features/maps/application/map_coordinate_repository.dart';
+import 'package:rmplanner/features/maps/application/map_providers.dart';
+import 'package:rmplanner/features/maps/domain/map_coordinate.dart';
+import 'package:rmplanner/features/maps/presentation/map_pin_section.dart';
 import 'package:rmplanner/features/planner/application/calendar_event_providers.dart';
 import 'package:rmplanner/features/planner/application/outcome_reporting_providers.dart';
 import 'package:rmplanner/features/planner/application/planner_providers.dart';
 import 'package:rmplanner/features/planner/domain/calendar_event.dart';
 import 'package:rmplanner/features/planner/domain/event_type.dart';
-import 'package:rmplanner/features/planner/domain/outcome_reporting.dart';
 import 'package:rmplanner/features/planner/domain/planner_date.dart';
 import 'package:rmplanner/features/planner/presentation/widgets/anchored_top_bar_popup.dart';
+import 'package:rmplanner/features/planner/presentation/widgets/planner_current_status_controls.dart';
+import 'package:rmplanner/features/planner/presentation/widgets/planner_detail_primitives.dart';
 import 'package:rmplanner/features/planner/presentation/widgets/planner_event_report_status.dart';
-import 'package:rmplanner/features/planner/presentation/widgets/planner_report_status_icons.dart';
 import 'package:rmplanner/features/planner/presentation/widgets/planner_top_bar_icons.dart';
 import 'package:rmplanner/features/planner/presentation/widgets/repeating_event_scope_choices.dart';
 
 enum _CalendarEventDetailAction { duplicate, delete }
+
+final class _EventDetailMapSection extends ConsumerWidget {
+  const _EventDetailMapSection({
+    required this.profileId,
+    required this.eventId,
+  });
+
+  final String profileId;
+  final String eventId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return FutureBuilder<MapCoordinate?>(
+      future: ref
+          .read(mapCoordinateRepositoryProvider)
+          .readCoordinate(
+            profileId: profileId,
+            owner: MapCoordinateOwner.event,
+            recordId: eventId,
+          ),
+      builder: (context, snapshot) {
+        final coordinate = snapshot.data;
+        if (coordinate == null) return const SizedBox.shrink();
+        return Padding(
+          padding: const EdgeInsets.only(top: 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              const Text(
+                'Map',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 8),
+              Semantics(
+                label: 'Event map preview',
+                child: ContactLocationPreview(coordinate: coordinate),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+final class _EventDetailContactsSection extends ConsumerWidget {
+  const _EventDetailContactsSection({
+    required this.profileId,
+    required this.eventId,
+    required this.occurrenceId,
+    required this.historical,
+  });
+
+  final String profileId;
+  final String eventId;
+  final String occurrenceId;
+  final bool historical;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return FutureBuilder<List<EventParticipantPresentation>>(
+      future: ref
+          .read(contactRepositoryProvider)
+          .readEventParticipantPresentation(
+            profileId: profileId,
+            eventId: eventId,
+            occurrenceId: occurrenceId,
+            historical: historical,
+          ),
+      builder: (context, snapshot) {
+        final people = snapshot.data;
+        if (people == null || people.isEmpty) return const SizedBox.shrink();
+        final summaries = ref.watch(
+          contactSummariesByCsvProvider(
+            people.map((person) => person.contactId).join(','),
+          ),
+        );
+        final summariesById = summaries.asData?.value ??
+            const <String, ContactSummary>{};
+        return Padding(
+          padding: const EdgeInsets.only(top: 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              const Text(
+                'Contacts',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 4),
+              for (final person in people)
+                PlannerPreviewContactRow(
+                  key: Key('event-preview-contact-${person.contactId}'),
+                  name: person.displayName,
+                  contact: summariesById[person.contactId],
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
 
 final class CalendarEventDetailScreen extends ConsumerStatefulWidget {
   const CalendarEventDetailScreen({
@@ -49,21 +156,11 @@ final class CalendarEventDetailScreen extends ConsumerStatefulWidget {
 final class _CalendarEventDetailScreenState
     extends ConsumerState<CalendarEventDetailScreen> {
   late Future<CalendarEventOccurrence?> _load;
+  late Future<_EventReportingSnapshot> _reporting;
   late String _detailHeading;
   final GlobalKey _overflowAnchorKey = GlobalKey();
-  bool _statusSaving = false;
-
-  /// Draft status staged in the preview but not yet persisted. Tapping a
-  /// different status enters draft mode (no write); the top-right check icon
-  /// commits the draft through the canonical reporting engine; closing or
-  /// Android Back cancels the draft first.
-  CalendarEventStatus? _draftStatus;
-
-  bool get _draftActive => _draftStatus != null;
-
-  /// Most recently loaded occurrence, kept so the app-bar check action can
-  /// commit the draft without re-reading the occurrence.
-  CalendarEventOccurrence? _latestOccurrence;
+  _EventReportingSnapshot _reportingSnapshot =
+      const _EventReportingSnapshot.empty();
 
   @override
   void initState() {
@@ -85,12 +182,23 @@ final class _CalendarEventDetailScreenState
           originalDate: widget.originalDate,
         );
     _load = future;
+    final reporting = _readEventReporting(
+      eventId: widget.eventId,
+      originalDate: widget.originalDate,
+    );
+    _reporting = reporting;
+    unawaited(
+      reporting.then((value) {
+        if (mounted) {
+          setState(() => _reportingSnapshot = value);
+        }
+      }),
+    );
     unawaited(
       future.then((occurrence) {
         if (!mounted || occurrence == null) {
           return;
         }
-        _latestOccurrence = occurrence;
         final nextHeading =
             occurrence.activityTypeLabel?.trim().isNotEmpty == true
             ? occurrence.activityTypeLabel!
@@ -129,6 +237,9 @@ final class _CalendarEventDetailScreenState
         final isFuture = occurrence.timing == CalendarEventTiming.allDay
             ? occurrence.displayDate.compareTo(displayToday) > 0
             : occurrence.startUtc?.isAfter(nowUtc) ?? false;
+        final isHistorical = occurrence.timing == CalendarEventTiming.allDay
+            ? occurrence.displayDate.compareTo(displayToday) < 0
+            : occurrence.endUtc?.isBefore(nowUtc) ?? false;
         final showStatus = occurrence.requiresReport && !isFuture;
         final eventTypeLabel = occurrence.activityTypeLabel;
         final isContactEvent = _isContactEvent(
@@ -144,12 +255,18 @@ final class _CalendarEventDetailScreenState
             // beneath it. There is deliberately no Schedule Next Appointment,
             // Reschedule, or other hero/action CTA in this area.
             if (showStatus)
-              _EventStatusControlRow(
-                currentStatus: occurrence.status,
-                optimisticStatus: _draftStatus,
-                isContactEvent: isContactEvent,
-                saving: _statusSaving,
-                onSelect: (selected) => _handleStatusTap(occurrence, selected),
+              FutureBuilder<_EventReportingSnapshot>(
+                future: _reporting,
+                builder: (context, reporting) => _EventStatusControlRow(
+                  currentStatus: occurrence.status,
+                  hasReportedHistory:
+                      occurrence.status != CalendarEventStatus.scheduled ||
+                      reporting.connectionState != ConnectionState.done ||
+                      (reporting.data ?? _reportingSnapshot).hasReportedHistory,
+                  isContactEvent: isContactEvent,
+                  onSelect: (selected) =>
+                      _handleStatusTap(occurrence, selected),
+                ),
               ),
             if (showStatus) ...<Widget>[
               const SizedBox(height: 12),
@@ -263,6 +380,16 @@ final class _CalendarEventDetailScreenState
                 icon: Icons.redo,
                 label: 'Replacement Event: ${occurrence.replacementEventId}',
               ),
+            _EventDetailMapSection(
+              profileId: occurrence.profileId,
+              eventId: occurrence.eventId,
+            ),
+            _EventDetailContactsSection(
+              profileId: occurrence.profileId,
+              eventId: occurrence.eventId,
+              occurrenceId: occurrence.id,
+              historical: isHistorical,
+            ),
             const Divider(height: 28),
             ListTile(
               key: const Key('event-activity-history-button'),
@@ -283,25 +410,7 @@ final class _CalendarEventDetailScreenState
       detailContent = Scaffold(
         appBar: InternalAppBar(
           title: Text(_detailHeading),
-          actions: _draftActive
-              ? <Widget>[
-                  IconButton(
-                    key: const Key('event-status-save'),
-                    tooltip: 'Save report status',
-                    // 48 x 48 default touch target; disabled while the
-                    // canonical transaction is in flight so duplicate taps
-                    // cannot double-submit.
-                    onPressed: _statusSaving ? null : _saveDraft,
-                    icon: _statusSaving
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.check),
-                  ),
-                ]
-              : <Widget>[
+          actions: <Widget>[
                   PlannerTopBarIconButton(
                     key: const Key('event-detail-edit-icon'),
                     tooltip: 'Edit Event',
@@ -322,104 +431,33 @@ final class _CalendarEventDetailScreenState
         body: content,
       );
     } else {
-      detailContent = Material(
+      detailContent = SharedPlannerPreviewSheet(
         key: const Key('calendar-event-existing-detail-sheet'),
-        color: Theme.of(context).scaffoldBackgroundColor,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
-        clipBehavior: Clip.antiAlias,
-        child: Column(
-          children: <Widget>[
-            const SizedBox(height: 8),
-            Container(
-              width: 42,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.white30,
-                borderRadius: BorderRadius.circular(4),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(8, 4, 8, 2),
-              child: Row(
-                children: <Widget>[
-                  IconButton(
-                    key: const Key('event-detail-sheet-close'),
-                    tooltip: _draftActive
-                        ? 'Cancel status draft'
-                        : 'Close Calendar Event details',
-                    onPressed: _draftActive
-                        ? () => setState(() => _draftStatus = null)
-                        : () => Navigator.of(context).pop(),
-                    icon: const Icon(Icons.close),
+        title: _detailHeading,
+        closeKey: const Key('event-detail-sheet-close'),
+        closeTooltip: 'Close Calendar Event details',
+        onClose: () => Navigator.of(context).pop(),
+        actions: <Widget>[
+                PlannerTopBarIconButton(
+                  key: const Key('event-detail-sheet-edit-icon'),
+                  tooltip: 'Edit Event',
+                  onPressed: _openTopEdit,
+                  icon: const Icon(Icons.edit_outlined),
+                ),
+                KeyedSubtree(
+                  key: _overflowAnchorKey,
+                  child: PlannerTopBarIconButton(
+                    key: const Key('event-detail-sheet-overflow-icon'),
+                    tooltip: 'Event actions',
+                    onPressed: _openTopOverflow,
+                    icon: const Icon(Icons.more_vert),
                   ),
-                  Expanded(
-                    child: Text(
-                      _detailHeading,
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontSize: 20,
-                        height: 26 / 20,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                  if (_draftActive)
-                    IconButton(
-                      key: const Key('event-status-save'),
-                      tooltip: 'Save report status',
-                      // 48 x 48 default touch target; disabled while the
-                      // canonical transaction is in flight so duplicate taps
-                      // cannot double-submit.
-                      onPressed: _statusSaving ? null : _saveDraft,
-                      icon: _statusSaving
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.check),
-                    )
-                  else ...<Widget>[
-                    PlannerTopBarIconButton(
-                      key: const Key('event-detail-sheet-edit-icon'),
-                      tooltip: 'Edit Event',
-                      onPressed: _openTopEdit,
-                      icon: const Icon(Icons.edit_outlined),
-                    ),
-                    KeyedSubtree(
-                      key: _overflowAnchorKey,
-                      child: PlannerTopBarIconButton(
-                        key: const Key('event-detail-sheet-overflow-icon'),
-                        tooltip: 'Event actions',
-                        onPressed: _openTopOverflow,
-                        icon: const Icon(Icons.more_vert),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            const Divider(height: 1),
-            Expanded(child: content),
-          ],
-        ),
+                ),
+              ],
+        child: content,
       );
     }
-    // Draft-mode Back handling: Android Back cancels the staged status draft
-    // first; a second Back exits the preview. The persisted status is never
-    // changed by cancelling the draft.
-    return PopScope<void>(
-      canPop: !_draftActive,
-      onPopInvokedWithResult: (didPop, _) {
-        if (didPop || !mounted) {
-          return;
-        }
-        if (_draftActive) {
-          setState(() => _draftStatus = null);
-        }
-      },
-      child: detailContent,
-    );
+    return detailContent;
   }
 
   Future<CalendarEventOccurrence?> _readCurrentOccurrence() {
@@ -453,7 +491,7 @@ final class _CalendarEventDetailScreenState
       builder: (popupContext) => Column(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          _DetailOverflowItem(
+          PlannerPreviewOverflowItem(
             key: const Key('event-overflow-duplicate'),
             icon: Icons.copy_outlined,
             label: 'Duplicate',
@@ -462,7 +500,7 @@ final class _CalendarEventDetailScreenState
               anchoredTopBarPopupController.dismiss();
             },
           ),
-          _DetailOverflowItem(
+          PlannerPreviewOverflowItem(
             key: const Key('event-overflow-delete'),
             icon: Icons.delete_outline,
             label: 'Delete',
@@ -487,100 +525,37 @@ final class _CalendarEventDetailScreenState
     }
   }
 
-  /// Draft-mode status tap. Entering draft mode never writes: the tapped
-  /// status is only staged until Save. Tapping the persisted status (or
-  /// Unreported, which represents the absence of a saved status) while a
-  /// draft is active cancels the draft back to the persisted status.
-  void _handleStatusTap(
+  /// Event status always stages inside the canonical Event editor. Preview
+  /// owns neither a parallel draft nor persistence boundary.
+  Future<void> _handleStatusTap(
     CalendarEventOccurrence occurrence,
     CalendarEventStatus selected,
-  ) {
-    if (_statusSaving) {
+  ) async {
+    if (selected == occurrence.status) {
       return;
     }
-    if (!_draftActive) {
-      if (selected == occurrence.status ||
-          selected == CalendarEventStatus.scheduled) {
-        return;
-      }
-      setState(() => _draftStatus = selected);
-      return;
-    }
-    if (selected == occurrence.status ||
-        selected == CalendarEventStatus.scheduled) {
-      setState(() => _draftStatus = null);
-      return;
-    }
-    setState(() => _draftStatus = selected);
+    await _openForm(occurrence: occurrence, statusIntent: selected);
   }
 
-  /// Commits the staged draft (via the top-right check icon) through the
-  /// canonical reporting engine: one outcome, one Activity History state, one
-  /// operation/outbox state, and one contribution state. On success the
-  /// preview returns to normal mode and the Planner Event block refreshes
-  /// through the shared provider reload.
-  Future<void> _saveDraft() async {
-    final occurrence = _latestOccurrence;
-    final status = _draftStatus;
-    if (occurrence == null || status == null || _statusSaving) {
-      return;
-    }
-    final outcome = switch (status) {
-      CalendarEventStatus.completedHappened => OutcomeKind.completedHappened,
-      CalendarEventStatus.partiallyCompleted => OutcomeKind.partiallyCompleted,
-      CalendarEventStatus.didNotHappen => OutcomeKind.didNotHappen,
-      _ => null,
-    };
-    if (outcome == null) {
-      setState(() => _draftStatus = null);
-      return;
-    }
-    setState(() => _statusSaving = true);
-    try {
-      final result = await ref
-          .read(outcomeReportingControllerProvider.notifier)
-          .submitEventStatus(
-            eventId: occurrence.eventId,
-            originalDate: occurrence.originalDate,
-            outcome: outcome,
-            operationId: ref.read(plannerIdentifierSourceProvider).nextUuid(),
-            contributionRuleKey: occurrence.contributionRuleKey,
-          );
-      if (mounted && result != null) {
-        setState(() {
-          _draftStatus = null;
-          _reload();
-        });
-      } else if (mounted) {
-        // Honest failure feedback: the canonical submit path reports
-        // failures through the outcome controller's own state (it does not
-        // rethrow), so a null result is read back and shown here. The draft
-        // stays staged and the check icon remains available for retry — the
-        // persisted status, Activity History, operations, and contributions
-        // were never partially updated.
-        final message = ref.read(outcomeReportingControllerProvider);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              message == null || message.isEmpty
-                  ? 'Unable to save the Event status.'
-                  : message,
-            ),
-          ),
-        );
-      }
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Unable to save the Event status.')),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _statusSaving = false);
-      }
-    }
+  Future<_EventReportingSnapshot> _readEventReporting({
+    required String eventId,
+    required PlannerDate originalDate,
+  }) async {
+    final controller = ref.read(outcomeReportingControllerProvider.notifier);
+    final source = await controller.readEventSource(
+      eventId: eventId,
+      originalDate: originalDate,
+    );
+    if (source == null) return const _EventReportingSnapshot.empty();
+    final history = await controller.readHistory();
+    return _EventReportingSnapshot(
+      hasReportedHistory: history.any(
+        (report) =>
+            report.outcome != null && report.source.slotKey == source.slotKey,
+      ),
+    );
   }
+
 
   Future<void> _duplicate(CalendarEventOccurrence occurrence) async {
     final saved = await ref
@@ -598,7 +573,10 @@ final class _CalendarEventDetailScreenState
     }
   }
 
-  Future<void> _openForm({required CalendarEventOccurrence occurrence}) async {
+  Future<void> _openForm({
+    required CalendarEventOccurrence occurrence,
+    CalendarEventStatus? statusIntent,
+  }) async {
     // Delta 4.1 edit flow: Edit ALWAYS opens the Edit Event form first — for
     // normal, repeating, Backup, Contact, reported, and unreported Events
     // alike.  For a repeating Event the recurrence scope chooser must not
@@ -616,6 +594,7 @@ final class _CalendarEventDetailScreenState
       // already holds, so the form never shows a blank pause.
       title: occurrence.displayTitle,
       eventTypeLabel: occurrence.activityTypeLabel,
+      statusIntent: statusIntent,
     );
     final changed = await context.push<bool>(path);
     if (changed == true && mounted) {
@@ -711,7 +690,7 @@ final class _CalendarEventDetailScreenState
     required CalendarEventEditScope scope,
     required String operationId,
   }) async {
-    final success = await ref
+    final result = await ref
         .read(calendarEventControllerProvider.notifier)
         .cancelEvent(
           eventId: occurrence.eventId,
@@ -719,9 +698,28 @@ final class _CalendarEventDetailScreenState
           scope: scope,
           operationId: operationId,
         );
-    if (success && mounted) {
+    if (!mounted) {
+      return;
+    }
+    if (result ==
+        CalendarEventCancellationResult.deletedAwaitingPlannerRefresh) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Event deleted. Planner is refreshing.')),
+      );
       Navigator.of(context).pop(true);
-    } else if (mounted) {
+    } else if (result ==
+        CalendarEventCancellationResult.deletionStateUncertain) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Event deletion status is being confirmed. Planner is refreshing.',
+          ),
+        ),
+      );
+      Navigator.of(context).pop(true);
+    } else if (result.closesDetail) {
+      Navigator.of(context).pop(true);
+    } else {
       setState(_reload);
     }
   }
@@ -742,9 +740,10 @@ final class _CalendarEventDetailScreenState
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              const Text(
-                'Choose which Events to delete. Historical reports and '
-                'activity records will remain.',
+              Text(
+                'Selected occurrence: ${widget.originalDate.iso8601}\n\n'
+                'Choose what to delete. Historical reports and activity '
+                'records will remain.',
               ),
               const SizedBox(height: 14),
               FilledButton(
@@ -768,7 +767,7 @@ final class _CalendarEventDetailScreenState
                 onPressed: () => Navigator.of(
                   dialogContext,
                 ).pop(CalendarEventEditScope.series),
-                child: const Text('Delete All Events'),
+                child: const Text('Delete Entire Series'),
               ),
             ],
           ),
@@ -865,14 +864,21 @@ final class _CalendarEventDetailScreenState
   }
 }
 
+final class _EventReportingSnapshot {
+  const _EventReportingSnapshot({required this.hasReportedHistory});
+
+  const _EventReportingSnapshot.empty() : hasReportedHistory = false;
+
+  final bool hasReportedHistory;
+}
+
 /// Compact status row for the Calendar Event preview.
 ///
 /// The current status label sits on the left and the direct-selection
 /// controls sit on the right, immediately below the app bar. Tapping a
-/// different status only stages a draft — no reporting write happens until
-/// the top-right check icon commits it. The selected control uses a filled
-/// treatment while the unselected ones use a neutral outline, so the state
-/// never relies on color alone.
+/// reported outcome opens the canonical Event editor with that status staged;
+/// Preview itself does not write a report. The selected control uses a filled
+/// treatment while the unselected ones use a neutral outline.
 ///
 /// Planner Polish Delta 2 status matrix:
 ///   Contact Events  → Unreported / Did Not Attempt / Missed - Attempted /
@@ -884,159 +890,66 @@ final class _CalendarEventDetailScreenState
 final class _EventStatusControlRow extends StatelessWidget {
   const _EventStatusControlRow({
     required this.currentStatus,
-    required this.optimisticStatus,
+    required this.hasReportedHistory,
     required this.isContactEvent,
-    required this.saving,
     required this.onSelect,
   });
 
   final CalendarEventStatus currentStatus;
-  final CalendarEventStatus? optimisticStatus;
+  final bool hasReportedHistory;
   final bool isContactEvent;
-  final bool saving;
   final ValueChanged<CalendarEventStatus> onSelect;
 
   @override
   Widget build(BuildContext context) {
-    final effective = optimisticStatus ?? currentStatus;
+    final effective = currentStatus;
     final currentKind = PlannerEventReportStatus.kindForStatus(
       effective,
       isContactEvent: isContactEvent,
     );
-    return Row(
-      key: const Key('event-status-control'),
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: <Widget>[
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              Text(
-                'Current Status',
-                style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  color: AppTheme.detailCaptionOf(context),
-                ),
-              ),
-              const SizedBox(height: 3),
-              Text(
-                calendarEventOutcomeLabel(
-                  status: effective,
-                  isContactEvent: isContactEvent,
-                ),
-                key: const Key('event-status-current-label'),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: PlannerEventReportStatus.labelColorFor(
-                    context,
-                    currentKind,
-                  ),
-                  fontSize: 17,
-                  height: 20 / 17,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(width: 10),
-        for (final (status) in _selectableStatuses(
-          isContactEvent: isContactEvent,
-        )) ...<Widget>[
-          _EventStatusControlButton(
-            key: Key('event-status-option-${status.name}'),
-            status: status,
-            isContactEvent: isContactEvent,
-            selected: effective == status,
-            enabled: !saving,
-            onTap: () => onSelect(status),
-          ),
-          const SizedBox(width: 6),
-        ],
-      ],
-    );
-  }
-
-  /// The selectable Current Status set for this Event.  Contact Events keep
-  /// the richer four-state set (including Did Not Attempt); generic
-  /// non-Contact Events offer exactly Unreported / Missed / Completed.
-  static List<CalendarEventStatus> _selectableStatuses({
-    required bool isContactEvent,
-  }) {
-    return isContactEvent
-        ? const <CalendarEventStatus>[
-            CalendarEventStatus.scheduled,
-            CalendarEventStatus.didNotHappen,
-            CalendarEventStatus.partiallyCompleted,
-            CalendarEventStatus.completedHappened,
-          ]
-        : const <CalendarEventStatus>[
-            CalendarEventStatus.scheduled,
-            CalendarEventStatus.partiallyCompleted,
-            CalendarEventStatus.completedHappened,
-          ];
-  }
-}
-
-final class _EventStatusControlButton extends StatelessWidget {
-  const _EventStatusControlButton({
-    required this.status,
-    required this.isContactEvent,
-    required this.selected,
-    required this.enabled,
-    required this.onTap,
-    super.key,
-  });
-
-  final CalendarEventStatus status;
-  final bool isContactEvent;
-  final bool selected;
-  final bool enabled;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final kind = PlannerEventReportStatus.kindForStatus(
-      status,
-      isContactEvent: isContactEvent,
-    );
-    return Semantics(
-      button: true,
-      selected: selected,
-      label: PlannerEventReportStatus.labelFor(
-        kind,
+    return PlannerCurrentStatusControlRow(
+      currentLabel: calendarEventOutcomeLabel(
+        status: effective,
         isContactEvent: isContactEvent,
       ),
-      child: Tooltip(
-        message: PlannerEventReportStatus.labelFor(
-          kind,
-          isContactEvent: isContactEvent,
-        ),
-        child: GestureDetector(
-          key: Key('event-status-button-${status.name}'),
-          behavior: HitTestBehavior.opaque,
-          onTap: enabled ? onTap : null,
-          // Combined delta: the VISIBLE control shrinks to ~21 dp while the
-          // touch target stays the full 48 x 48 interactive square, so the
-          // icon reads as a compact selector (not a large circular button)
-          // without losing accessibility.
-          child: SizedBox(
-            width: 48,
-            height: 48,
-            child: Center(
-              child: PlannerReportStatusIcon(
-                kind: kind,
-                size: 21,
-                style: selected
-                    ? PlannerReportStatusIconStyle.selected
-                    : PlannerReportStatusIconStyle.unselected,
+      currentKind: currentKind,
+      selectedId: effective.name,
+       options: _selectableStatuses()
+          .map(
+            (status) => PlannerPreviewStatusOption(
+              id: status.name,
+              label: calendarEventOutcomeLabel(
+                status: status,
+                isContactEvent: isContactEvent,
               ),
+               kind: PlannerEventReportStatus.kindForStatus(
+                 status,
+                 isContactEvent: isContactEvent,
+               ),
+               enabled:
+                   status != CalendarEventStatus.scheduled ||
+                   !(currentStatus != CalendarEventStatus.scheduled ||
+                       hasReportedHistory),
             ),
-          ),
-        ),
-      ),
+          )
+          .toList(growable: false),
+       saving: false,
+      onSelect: (id) => onSelect(CalendarEventStatus.values.byName(id)),
+      controlKey: const Key('event-status-control'),
+      currentLabelKey: const Key('event-status-current-label'),
+      optionKeyPrefix: 'event-status-option-',
     );
+  }
+
+  /// Unreported remains visible in-place after reporting starts but becomes
+  /// non-tappable; this preserves the control geometry and reporting history.
+  static List<CalendarEventStatus> _selectableStatuses() {
+    return <CalendarEventStatus>[
+      CalendarEventStatus.scheduled,
+      CalendarEventStatus.didNotHappen,
+      CalendarEventStatus.partiallyCompleted,
+      CalendarEventStatus.completedHappened,
+    ];
   }
 }
 
@@ -1050,6 +963,7 @@ Future<T?> showCalendarEventDetailSheet<T>({
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
+    constraints: const BoxConstraints(maxWidth: kPlannerPreviewSheetMaxWidth),
     backgroundColor: Colors.transparent,
     barrierColor: Colors.black.withValues(alpha: 0.62),
     builder: (sheetContext) => FractionallySizedBox(
@@ -1064,8 +978,8 @@ Future<T?> showCalendarEventDetailSheet<T>({
   );
 }
 
-final class _DetailOverflowItem extends StatelessWidget {
-  const _DetailOverflowItem({
+final class DetailOverflowItemLegacy extends StatelessWidget {
+  const DetailOverflowItemLegacy({
     required this.icon,
     required this.label,
     required this.onTap,
@@ -1104,66 +1018,5 @@ final class _DetailOverflowItem extends StatelessWidget {
   }
 }
 
-final class _DetailRow extends StatelessWidget {
-  const _DetailRow({required this.icon, required this.label});
-
-  final IconData icon;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 7),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Icon(icon, size: 20),
-          const SizedBox(width: 10),
-          Expanded(child: Text(label)),
-        ],
-      ),
-    );
-  }
-}
-
-final class _DetailField extends StatelessWidget {
-  const _DetailField({
-    required this.icon,
-    required this.label,
-    required this.value,
-    super.key,
-  });
-
-  final IconData icon;
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 7),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Icon(icon, size: 20),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  label,
-                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    color: AppTheme.detailCaptionOf(context),
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(value),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
+typedef _DetailRow = PlannerDetailRow;
+typedef _DetailField = PlannerDetailField;

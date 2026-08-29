@@ -15,6 +15,7 @@ import 'package:rmplanner/features/goals/domain/goal.dart';
 import 'package:rmplanner/features/goals/presentation/widgets/goal_icon.dart';
 import 'package:rmplanner/features/planner/application/event_type_providers.dart';
 import 'package:rmplanner/features/planner/application/planner_providers.dart';
+import 'package:rmplanner/features/planner/application/planner_task_creation_draft_provider.dart';
 import 'package:rmplanner/features/planner/domain/planner_date.dart';
 import 'package:rmplanner/features/planner/domain/planner_task.dart';
 import 'package:rmplanner/features/planner/presentation/widgets/planner_slide_down_date_picker.dart';
@@ -24,17 +25,58 @@ import 'package:rmplanner/features/privacy/domain/permission_summary.dart';
 final class TaskFormScreen extends ConsumerStatefulWidget {
   const TaskFormScreen.create({
     required this.initialDueDate,
+    this.initialDueMinute,
+    this.initialDraftId,
     this.initialContactIds = const <String>[],
+    this.initialTitle,
+    this.initialDescription,
+    this.initialPeople = const <String>[],
+    this.initialRecurrence = PlannerTaskRecurrence.none,
+    this.initialGoalId,
+    this.sheetPresentation = false,
+    this.onClose,
+    this.sheetScrollController,
+    this.sheetController,
+    this.sheetMinChildSize = 0.2,
+    this.sheetMaxChildSize = 0.9,
     super.key,
   }) : taskId = null;
 
-  const TaskFormScreen.edit({required this.taskId, super.key})
-    : initialDueDate = null,
-      initialContactIds = const <String>[];
+  const TaskFormScreen.edit({
+    required this.taskId,
+    this.initialDraftId,
+    this.sheetPresentation = false,
+    this.onClose,
+    this.sheetScrollController,
+    this.sheetController,
+    this.sheetMinChildSize = 0.2,
+    this.sheetMaxChildSize = 0.9,
+    super.key,
+  }) : initialDueDate = null,
+       initialDueMinute = null,
+       initialContactIds = const <String>[],
+       initialTitle = null,
+       initialDescription = null,
+       initialPeople = const <String>[],
+       initialRecurrence = PlannerTaskRecurrence.none,
+       initialGoalId = null;
 
   final String? taskId;
   final PlannerDate? initialDueDate;
+  final int? initialDueMinute;
+  final String? initialDraftId;
   final List<String> initialContactIds;
+  final String? initialTitle;
+  final String? initialDescription;
+  final List<String> initialPeople;
+  final PlannerTaskRecurrence initialRecurrence;
+  final String? initialGoalId;
+  final bool sheetPresentation;
+  final ValueChanged<bool>? onClose;
+  final ScrollController? sheetScrollController;
+  final DraggableScrollableController? sheetController;
+  final double sheetMinChildSize;
+  final double sheetMaxChildSize;
 
   @override
   ConsumerState<TaskFormScreen> createState() => _TaskFormScreenState();
@@ -53,7 +95,6 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen>
   // Contact records linked to this Task (VS-11).  Distinct from the legacy
   // free-text [_people] list; follow-up creation pre-links a Contact here.
   late List<String> _contactIds;
-  bool _requiresReport = false;
   bool _setDueDate = false;
   bool _notificationsUnavailable = false;
   bool _remindersUnavailable = false;
@@ -70,20 +111,44 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen>
   // B3.2 (D2): the explicit DIRECT Life Goal link.  The ONLY Goal resolver
   // for Tasks; Event-Type fields are independent classification metadata.
   String? _goalId;
+  ProviderSubscription<PlannerTaskCreationDraft?>? _draftSubscription;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // A Planner provisional draft owns the eventual canonical Task id. This
+    // keeps the visible draft and the saved Task one identity; direct create
+    // routes (without a draft) still allocate a fresh id.
     _stableTaskId =
-        widget.taskId ?? ref.read(plannerIdentifierSourceProvider).nextUuid();
+        widget.taskId ??
+        widget.initialDraftId ??
+        ref.read(plannerIdentifierSourceProvider).nextUuid();
     _contactIds = List<String>.from(widget.initialContactIds);
+    _titleController.text = widget.initialTitle ?? '';
+    _descriptionController.text = widget.initialDescription ?? '';
+    _people = List<String>.from(widget.initialPeople);
+    _goalId = widget.initialGoalId;
     if (widget.taskId != null) {
       unawaited(_loadTaskContacts());
     }
     _dueDate = widget.initialDueDate;
     _setDueDate = widget.initialDueDate != null;
-    _dueMinute = widget.initialDueDate == null ? null : 18 * 60;
+    _dueMinute = widget.initialDueDate == null
+        ? null
+        : widget.initialDueMinute ?? 18 * 60;
+    _recurrence = widget.initialDueDate == null
+        ? PlannerTaskRecurrence.none
+        : widget.initialRecurrence;
+    _titleController.addListener(_publishDraftTitle);
+    final draftId = widget.initialDraftId;
+    if (draftId != null) {
+      _draftSubscription = ref.listenManual<PlannerTaskCreationDraft?>(
+        plannerTaskCreationDraftProvider,
+        (_, next) => _synchronizeFromPlannerDraft(draftId, next),
+        fireImmediately: true,
+      );
+    }
     unawaited(_refreshCapabilities());
     if (widget.taskId != null) {
       _loading = true;
@@ -101,9 +166,78 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _draftSubscription?.close();
     _titleController.dispose();
     _descriptionController.dispose();
     super.dispose();
+  }
+
+  PlannerTaskCreationDraft? get _activeDraft {
+    final id = widget.initialDraftId;
+    if (id == null) return null;
+    final draft = ref.read(plannerTaskCreationDraftProvider);
+    return draft?.id == id ? draft : null;
+  }
+
+  void _publishDraftTitle() {
+    if (_activeDraft != null) {
+      ref
+          .read(plannerTaskCreationDraftProvider.notifier)
+          .updateTitle(_titleController.text);
+    }
+  }
+
+  void _publishDraftSchedule() {
+    final draft = _activeDraft;
+    final date = _dueDate;
+    final minute = _dueMinute;
+    if (!_setDueDate || draft == null || date == null || minute == null) {
+      return;
+    }
+    final controller = ref.read(plannerTaskCreationDraftProvider.notifier);
+    controller.updateDate(date);
+    controller.updateMinute(minute);
+  }
+
+  /// A Day-canvas drag owns the provisional schedule until the form is saved.
+  /// Mirror that single Task draft back into this open form so the visible due
+  /// fields, canvas block, and eventual canonical Task stay synchronized.
+  void _synchronizeFromPlannerDraft(
+    String draftId,
+    PlannerTaskCreationDraft? draft,
+  ) {
+    if (!mounted || draft?.id != draftId) return;
+    final titleChanged = _titleController.text != draft!.title;
+    // With Due Date OFF, the Planner block is intentionally only a
+    // provisional placement. Moving it must not silently make the saved Task
+    // dated. Once the owner has deliberately enabled Due Date, that same
+    // canonical draft becomes the bidirectional schedule source.
+    final scheduleChanged =
+        _setDueDate &&
+        (_dueDate != draft.date || _dueMinute != draft.minute);
+    if (!titleChanged && !scheduleChanged) return;
+    setState(() {
+      if (titleChanged) {
+        _titleController.value = _titleController.value.copyWith(
+          text: draft.title,
+          selection: TextSelection.collapsed(offset: draft.title.length),
+          composing: TextRange.empty,
+        );
+      }
+      if (scheduleChanged) {
+        _dueDate = draft.date;
+        _dueMinute = draft.minute;
+      }
+    });
+  }
+
+  void _close(bool saved) {
+    final onClose = widget.onClose;
+    if (onClose != null) {
+      onClose(saved);
+    } else {
+      Navigator.of(context).pop(saved);
+    }
   }
 
   Future<void> _refreshCapabilities() async {
@@ -144,13 +278,14 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen>
       _recurrence = task.recurrence;
       _people = List<String>.unmodifiable(task.people);
       _setDueDate = task.dueDate != null;
-      _requiresReport = task.requiresReport;
       _linkedActivityTypeId = task.linkedActivityTypeId;
       _linkedActivityTypeStableKey = task.linkedActivityTypeStableKey;
       _linkedActivityTypeLabelSnapshot = task.linkedActivityTypeLabelSnapshot;
       _goalId = task.goalId;
       _loading = false;
     });
+    _publishDraftSchedule();
+    _publishDraftTitle();
     if (_setDueDate) {
       await _refreshCapabilities();
     }
@@ -158,55 +293,77 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen>
 
   @override
   Widget build(BuildContext context) {
+    if (widget.initialDraftId != null) {
+      ref.watch(plannerTaskCreationDraftProvider);
+    }
     final use24HourTime = ref
         .watch(eventTypeControllerProvider)
         .settings
         .use24HourTime;
-    return Scaffold(
-      body: SafeArea(
+    final formSurface = SafeArea(
         child: _loading
             ? const Center(child: CircularProgressIndicator())
             : Column(
                 children: <Widget>[
-                  const SizedBox(height: 8),
-                  Container(
-                    key: const Key('task-form-drag-handle'),
-                    width: 32,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).brightness == Brightness.dark
-                          ? Colors.white70
-                          : Theme.of(
-                              context,
-                            ).colorScheme.onSurface.withValues(alpha: 0.70),
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                    child: Row(
+                  GestureDetector(
+                    key: const Key('task-form-sheet-header'),
+                    behavior: HitTestBehavior.opaque,
+                    // The header owns the only upper-sheet blank surface.
+                    // Child controls keep their own gestures; a tap on bare
+                    // header background simply dismisses the active keyboard.
+                    onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
+                    onVerticalDragUpdate: _handleSheetDragUpdate,
+                    child: Column(
                       children: <Widget>[
-                        IconButton(
-                          key: const Key('task-form-close'),
-                          tooltip: 'Close',
-                          onPressed: () => Navigator.of(context).maybePop(),
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(
-                            minWidth: 48,
-                            minHeight: 48,
+                        const SizedBox(height: 8),
+                        Container(
+                          key: const Key('task-form-drag-handle'),
+                          width: 32,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color:
+                                Theme.of(context).brightness == Brightness.dark
+                                ? Colors.white70
+                                : Theme.of(context)
+                                      .colorScheme
+                                      .onSurface
+                                      .withValues(alpha: 0.70),
+                            borderRadius: BorderRadius.circular(2),
                           ),
-                          icon: const Icon(Icons.close, size: 28),
                         ),
-                        const Spacer(),
-                        _buildSaveButton(),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                          child: Row(
+                            children: <Widget>[
+                              IconButton(
+                                key: const Key('task-form-close'),
+                                tooltip: 'Close',
+                                onPressed: () => _close(false),
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(
+                                  minWidth: 48,
+                                  minHeight: 48,
+                                ),
+                                icon: const Icon(Icons.close, size: 28),
+                              ),
+                              const Spacer(),
+                              _buildSaveButton(),
+                            ],
+                          ),
+                        ),
                       ],
                     ),
                   ),
                   Expanded(
-                    child: Form(
-                      key: _formKey,
-                      child: ListView(
+                    child: GestureDetector(
+                      key: const Key('task-form-blank-space-dismiss'),
+                      behavior: HitTestBehavior.translucent,
+                      onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
+                      child: Form(
+                        key: _formKey,
+                        child: ListView(
                         key: const Key('task-form-scroll'),
+                        controller: widget.sheetScrollController,
                         padding: EdgeInsets.fromLTRB(
                           16,
                           6,
@@ -230,7 +387,7 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen>
                             autofocus: widget.taskId == null,
                             textInputAction: TextInputAction.next,
                             maxLines: 1,
-                            decoration: _inputDecoration('Title'),
+                            decoration: _inputDecoration(label: 'Title'),
                             validator: (value) {
                               return value == null || value.trim().isEmpty
                                   ? 'Enter a Task title.'
@@ -244,7 +401,10 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen>
                             minLines: 3,
                             maxLines: 5,
                             keyboardType: TextInputType.multiline,
-                            decoration: _inputDecoration('Description'),
+                            decoration: _inputDecoration(
+                              hintText:
+                                  'Notes: What do you need to remember about this?',
+                            ),
                           ),
                           const SizedBox(height: 18),
                           SwitchListTile(
@@ -297,7 +457,7 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen>
                             ],
                           ],
                           const SizedBox(height: 26),
-                          const _TaskSectionHeader(label: 'People'),
+                          const _TaskSectionHeader(label: 'Contacts'),
                           const SizedBox(height: 12),
                           Align(
                             alignment: Alignment.centerRight,
@@ -306,7 +466,7 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen>
                               onPressed: () => unawaited(_openAddContacts()),
                               style: _rightAlignedActionStyle(),
                               icon: const Icon(Icons.add, size: 24),
-                              label: const Text('People'),
+                              label: const Text('Contacts'),
                             ),
                           ),
                           if (_people.isNotEmpty) ...<Widget>[
@@ -330,7 +490,7 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen>
                             const Padding(
                               padding: EdgeInsets.symmetric(vertical: 4),
                               child: Text(
-                                'No People linked yet.',
+                                'No Contacts linked yet.',
                                 style: TextStyle(
                                   color: Color(0xFF9CA0A6),
                                   fontSize: 14,
@@ -359,7 +519,7 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen>
                                   error: (error, stack) => const Padding(
                                     padding: EdgeInsets.symmetric(vertical: 8),
                                     child: Text(
-                                      'People could not be loaded.',
+                                      'Contacts could not be loaded.',
                                       style: TextStyle(
                                         color: Color(0xFF9CA0A6),
                                       ),
@@ -381,16 +541,40 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen>
                                   ),
                                 ),
                           const SizedBox(height: 26),
-                          // TF-01: Life Goal sits BELOW People.
+                          // TF-01: Life Goal sits BELOW Contacts.
                           _buildLifeGoalSection(),
                         ],
+                        ),
                       ),
                     ),
                   ),
                 ],
               ),
-      ),
     );
+    if (!widget.sheetPresentation) {
+      return Scaffold(body: formSurface);
+    }
+    return Material(
+      key: const Key('task-detail-sheet'),
+      color: Theme.of(context).scaffoldBackgroundColor,
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      clipBehavior: Clip.antiAlias,
+      child: formSurface,
+    );
+  }
+
+  void _handleSheetDragUpdate(DragUpdateDetails details) {
+    final controller = widget.sheetController;
+    if (controller == null || !controller.isAttached) return;
+    final delta = details.primaryDelta;
+    if (delta == null) return;
+    final viewportHeight = MediaQuery.sizeOf(context).height;
+    final nextSize = (controller.size - delta / viewportHeight)
+        .clamp(widget.sheetMinChildSize, widget.sheetMaxChildSize)
+        .toDouble();
+    if ((nextSize - controller.size).abs() > 0.0001) {
+      controller.jumpTo(nextSize);
+    }
   }
 
   /// B3.2 Life Goal section (owner D2): explicit DIRECT Goal link with the
@@ -420,9 +604,7 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen>
             decoration: BoxDecoration(
               // POLISH-04: Light uses the semantic near-white surface +
               // outline (never a gray container slab); Dark keeps its fill.
-              color: dark
-                  ? const Color(0xFF1C1E21)
-                  : colorScheme.surface,
+              color: dark ? const Color(0xFF1C1E21) : colorScheme.surface,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
                 color: dark
@@ -663,9 +845,10 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen>
     );
   }
 
-  InputDecoration _inputDecoration(String label) {
+  InputDecoration _inputDecoration({String? label, String? hintText}) {
     return InputDecoration(
       labelText: label,
+      hintText: hintText,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       labelStyle: AppTypography.micro,
       floatingLabelStyle: AppTypography.micro,
@@ -699,9 +882,16 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen>
 
   void _toggleDueDate(bool value) {
     FocusScope.of(context).unfocus();
+    final provisionalPosition = _activeDraft;
     setState(() {
       _setDueDate = value;
       if (value) {
+        // Enabling Due Date adopts the currently visible provisional block;
+        // this is the single deliberate transition from visual placement to a
+        // persisted Task schedule.  The block itself already exists while
+        // the switch is OFF, so do not recreate or move it here.
+        _dueDate = provisionalPosition?.date ?? _dueDate;
+        _dueMinute = provisionalPosition?.minute ?? _dueMinute;
         _dueDate ??= ref.read(plannerControllerProvider).selectedDate;
         _dueDate ??= PlannerDate.fromDateTime(DateTime.now());
         _dueMinute ??= 18 * 60;
@@ -713,6 +903,7 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen>
     });
     if (value) {
       unawaited(_refreshCapabilities());
+      _publishDraftSchedule();
     }
   }
 
@@ -727,6 +918,7 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen>
     );
     if (value != null && mounted) {
       setState(() => _dueDate = PlannerDate.fromDateTime(value));
+      _publishDraftSchedule();
     }
   }
 
@@ -746,6 +938,7 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen>
     );
     if (value != null && mounted) {
       setState(() => _dueMinute = value.hour * 60 + value.minute);
+      _publishDraftSchedule();
     }
   }
 
@@ -805,7 +998,7 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen>
   Future<void> _openAddContacts() async {
     final result = await context.push<List<String>>(
       RoutePaths.addPeople,
-      extra: AddPeopleArgs(initialIds: _contactIds),
+      extra: AddPeopleArgs(initialIds: _contactIds, displayLabel: 'Contacts'),
     );
     if (result != null && mounted) {
       setState(() => _contactIds = result);
@@ -852,7 +1045,9 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen>
             dueDate: _setDueDate ? _dueDate : null,
             dueMinute: _setDueDate ? _dueMinute : null,
             recurrence: _setDueDate ? _recurrence : PlannerTaskRecurrence.none,
-            requiresReport: _requiresReport,
+            // The persisted legacy field remains schema-compatible, but every
+            // Task save normalizes it to the universal reporting law.
+            requiresReport: true,
             people: _people,
             linkedActivityTypeId: _linkedActivityTypeId,
             linkedActivityTypeStableKey: _linkedActivityTypeStableKey,
@@ -878,7 +1073,7 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen>
       if (!mounted) {
         return;
       }
-      Navigator.of(context).pop(true);
+      _close(true);
       return;
     }
     final message =
@@ -966,7 +1161,7 @@ final class _TaskLegacyPersonChip extends StatelessWidget {
   }
 }
 
-/// A linked Contact chip in the Task form People section.
+/// A linked Contact chip in the Task form Contacts section.
 final class _TaskContactChip extends StatelessWidget {
   const _TaskContactChip({
     required this.id,
