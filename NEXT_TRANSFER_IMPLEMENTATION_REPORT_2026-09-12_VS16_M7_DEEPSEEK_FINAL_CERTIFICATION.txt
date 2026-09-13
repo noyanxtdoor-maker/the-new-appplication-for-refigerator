@@ -1,0 +1,930 @@
+NEXT TRANSFER — VS16 M7 DEEPSEEK FINAL ENGINEERING CERTIFICATION REPORT
+Date: 2026-09-12 | FINAL M7 ENGINEERING ROUND
+Base 7b1395c10232b51f7d59464214ffe915415c4bb1 | schema46
+Report scope: recovery of the existing DeepSeek worktree, completion of the
+P29 / repair-marker behavioral verification, final M7 certification gates,
+one fresh FINAL DeepSeek M7 debug APK, then STOP before device installation.
+
+============================================================================
+A. IDENTITY
+============================================================================
+
+Worktree (authoritative continuation state):
+  C:\Users\sherl\Downloads\NT_B5_DEVELOP__deepseek-m7m8-20260911
+
+Expected branch (verified):
+  develop/vs16-m7-m8-deepseek-20260911
+
+Actual Git/HEAD topology:
+  git rev-parse HEAD              = 7b1395c10232b51f7d59464214ffe915415c4bb1
+  git branch --show-current       = develop/vs16-m7-m8-deepseek-20260911
+  Base object EXISTS and is intact; the branch points at the certified stable
+  base and all M7 work is present as uncommitted working-tree state.
+
+Stable base:
+  7b1395c10232b51f7d59464214ffe915415c4bb1  (schema46)
+
+Unusual linked-worktree condition:
+  PRESENT AND PRESERVED. The `git worktree list` output shows this worktree
+  reporting HEAD 7b1395c on its branch, while sibling worktrees
+  (NT_B5_DEVELOP, NT_B5_DEVELOP__clean-m7m8-20260911) report a zero object id
+  `0000000` for their branches. This is NOT a defect to repair and was NOT
+  "fixed": per the continuation instruction the topology was inspected,
+  documented, the base objects were confirmed present, and the worktree was
+  preserved as-is. No reset, clean, stash, broad-restore, recreation or
+  branch copy was performed.
+
+Worktree inventory recorded from `git worktree list` (canonical root
+C:\Users\sherl\Downloads\NT_B5_DEVELOP):
+  C:/Users/sherl/Documents/Next Transfer                      cd9f567 [codex/vs-08-weekly-planning-lifecycle]
+  .../Temp/opencode/vs16-m7-m8/baseline-wt                   7b1395c (detached)
+  C:/Users/sherl/Documents/Next Transfer-Temp                430fe4b [autonomous/stability-ux-pack-a-20260814]
+  C:/Users/sherl/Downloads/NT_B5_DEVELOP                     0000000 [develop/vs16-m7-m8-20260910]
+  C:/Users/sherl/Downloads/NT_B5_DEVELOP__baseline-7b1395c   7b1395c (detached)
+  C:/Users/sherl/Downloads/NT_B5_DEVELOP__clean-m7m8-20260911 0000000 [develop/vs16-m7-m8-clean-20260911]
+  C:/Users/sherl/Downloads/NT_B5_DEVELOP__deepseek-m7m8-20260911 7b1395c [develop/vs16-m7-m8-deepseek-20260911]
+
+============================================================================
+B. ISOLATION
+============================================================================
+
+GLM worktree — UNTOUCHED:
+  C:\Users\sherl\Downloads\NT_B5_DEVELOP__clean-m7m8-20260911
+  Directory mtime 2026-09-12 13:19:14 (+0800) predates this session start
+  (15:17). No source inspection, no diff, no copy, no cherry-pick, no merge,
+  no rebase, no implementation guidance was taken from it.
+
+Failed / historical candidate — UNTOUCHED:
+  C:\Users\sherl\Downloads\NT_B5_DEVELOP (develop/vs16-m7-m8-20260910)
+  Directory mtime 2026-09-09 17:15:56. Not inspected for implementation
+  material. No rebase onto it, no cherry-pick from it.
+
+Pristine baseline worktree — READ-ONLY (one temporary test drop, then removed):
+  C:\Users\sherl\Downloads\NT_B5_DEVELOP__baseline-7b1395c-20260910 @ 7b1395c
+  Used only to (a) execute the required fail-first proof and (b) build a
+  same-variant debug APK for the merged-manifest permission comparison. The
+  single temporary file (test/features/planner/data/m7_occurrence_route_window_test.dart)
+  that was copied in to make the fail-first proof executable was DELETED
+  afterwards and the directory was removed. Post-cleanup `git status` shows
+  only untracked tool-state artifacts (.flutter, .flutter_tool_state,
+  .m7_evidence) and ZERO source/test modifications. Its HEAD remains 7b1395c.
+
+No GLM source code was read at any point in this session.
+
+============================================================================
+C. AUTHORITY
+============================================================================
+
+Controlling authority (read completely):
+  NEXT_TRANSFER_ASTRA_VS16_M7_M8_FINAL_CLEAN_REIMPLEMENTATION_CONTRACT_20260911.txt
+  (1970 lines; sections 1-69 including Appendix P and Appendix T)
+
+Supporting review / rationale (read completely):
+  NEXT_TRANSFER_ASTRA_VS16_M7_M8_GLM_INDEPENDENT_REVIEW_20260911.txt
+  (581 lines)
+
+Conflict resolution applied:
+  The FINAL CLEAN REIMPLEMENTATION CONTRACT controls on every point.
+
+Owner decisions invented: NONE.
+The contract already states OWNER DECISIONS REQUIRED = 0.
+
+Where the contract's later amendments (final sections 63-69, notably 64/65/66)
+replace earlier retained passages, the amendments were followed:
+  - section 64 Event-end relevance window replaces the obsolete
+    "suppress at/after start" rule
+  - section 65 generation/WorkInfo law
+  - section 66 O8/O9/performance law
+  - section 28 success-only refill handoff
+
+============================================================================
+D. IMPLEMENTATION MANIFEST
+============================================================================
+
+D.1 REAL CONTENT DIFFS = 32 FILES
+
+IMPORTANT MEASUREMENT NOTE: `git status --short` lists 64 entries as ` M`,
+but `git diff --name-only` reports only 32 files with real content changes.
+The remaining 32 entries are STALE STAT-CACHE ARTIFACTS with byte-identical
+content (checkout/CRLF stat noise), not implementation changes. Verified
+individually: `git diff --quiet -- <path>` returns success for every one of
+them. This is the diff-hygiene classification required by contract section 53.
+
+D.2 PRODUCTION FILES CHANGED (28)
+
+M7 ENTRY / PROVENANCE
+ 1 lib/features/contacts/presentation/contact_detail_screen.dart
+   _createFollowUp passes a typed ContactFollowUpCreationIntent(contactId) in
+   the GoRouter extra instead of relying on a raw contacts= string.
+ 2 lib/app/router/app_router.dart
+   Event/Task create route builders accept and forward the typed intent;
+   unknown/malformed extra falls back closed to ordinary creation.
+ 3 lib/features/planner/presentation/calendar_event_create_gate_screen.dart
+   Forwards the typed follow-up intent through the picker result branches.
+ 4 lib/features/planner/presentation/calendar_event_creation.dart
+   showCalendarEventFormSheet accepts and forwards the optional follow-up
+   argument into the form (necessary intermediate helper).
+
+M7 FORM FINALIZATION ORDER
+ 5 lib/features/planner/presentation/calendar_event_form_screen.dart
+   Source save -> People commit -> source-level purpose policy -> reconcile;
+   early scheduling withheld via deferReminderReconciliation; O9 resolved
+   display label for heading + type field; O8 label consumers; exact failure
+   SnackBar copies; stable IDs retained across retry.
+ 6 lib/features/planner/presentation/task_form_screen.dart
+   Equivalent Task save/link/purpose ordering and finalization.
+ 7 lib/features/planner/application/calendar_event_providers.dart
+   deferReminderReconciliation parameter that skips controller-driven
+   reconcileOccurrence; purpose-aware saveReminderPolicyAndReconcile.
+ 8 lib/features/planner/application/planner_providers.dart
+   Task purpose finalization, projected-date key propagation, defer flag.
+
+M7 DOMAIN / POLICY PERSISTENCE
+ 9 lib/features/notifications/domain/reminder_policy.dart
+   Explicit preserve / set / clear purpose API so null-ambiguity cannot make
+   clearing impossible; timing validation retained.
+10 lib/features/notifications/application/reminder_reconciler.dart
+   savePolicy preserves existing purpose/contactId on timing-only writes;
+   transport selection (m7w_ / m7n_ sticky); three-key worker spec enqueue;
+   shared pure ReminderDeliveryEligibility (section 64) used by reconciler,
+   delivery service and horizon; generation-safe transitions.
+11 lib/features/notifications/data/drift_notification_foundation_repository.dart
+   Transactional purpose updates, generation-conditional claim/transition
+   APIs, reserved-ID allocator handling; rows/unique IDs preserved.
+
+M7 TRANSPORT / DELIVERY
+12 lib/core/background/background_work_gateway.dart
+    Typed worker-spec scheduling member added; existing native
+    schedule/cancel contract intact.
+13 lib/core/background/workmanager_background_work_gateway.dart
+    Strict three-key CanonicalReminderWorkSpec parse (stable_key,
+    scheduled_utc_ms, source_revision) rejecting extras and legacy two-key
+    input as terminal obsolete; unique-name derivation; WorkInfo mapping.
+14 lib/features/notifications/application/reminder_background_runtime.dart
+    Targeted delivery delegation; Snooze entry returns handled no-op;
+    headless dependency composition; trigger validation before any source
+    read.
+15 lib/features/notifications/application/notification_providers.dart
+    Wire new ports; transport markers only set behind a real registration.
+
+RECOVERY / REPAIR MARKERS (same-transaction)
+16 lib/features/planner/data/drift_calendar_event_repository.dart
+    Bounded prior-day lower bound in readOccurrenceById (P29, section 64);
+    transaction-local repair marker on save/edit/cancel/reschedule/duplicate.
+17 lib/features/planner/data/drift_planner_repository.dart
+    Reminder projection port + repair markers in saveTask /
+    changeTaskStatus / hardDeleteTask transactions.
+18 lib/features/planner/data/drift_outcome_reporting_repository.dart
+    Marker after successful relevant submit/clear commit only.
+19 lib/features/weekly_planning/data/drift_weekly_planning_repository.dart
+    Marker after completeReview / eligible plan writes; reads stay read-only.
+20 lib/features/privacy/data/drift_privacy_repository.dart
+    Marker on real preview/lock policy writes only.
+21 lib/features/planner/data/drift_event_type_repository.dart
+    Marker only for an actual global reminder-default change.
+22 lib/features/contacts/data/drift_contact_repository.dart
+    Contact rename/archive/merge purpose invalidation with repair marker;
+    narrow live-link read helper shared with the enrichment source.
+
+PRESENTATION / PERFORMANCE
+23 lib/features/planner/application/event_type_providers.dart
+    ensureLoaded warm-profile readiness, load-epoch provenance and in-flight
+    coalescing (OAT13); existing load(includeArchived) preserved.
+24 lib/features/planner/presentation/event_type_picker_dialog.dart
+    O8 shared formatter consumer.
+25 lib/features/notifications/presentation/reminder_time_picker.dart
+    O8 shared formatter consumer; dialog validation/layout unchanged.
+26 lib/features/settings/presentation/notifications_settings_screen.dart
+    O8 shared formatter consumer; hierarchy/permission semantics unchanged.
+27 lib/features/planner/application/event_reminder_horizon_reconciler.dart
+    Both-transport pending rules; due-row protection (section 64) so
+    start>now cannot discard a currently due row.
+28 lib/main.dart
+    Headless runtime dependency composition mirrors the app; no startup prompt.
+
+D.3 NEW PRODUCTION FILES (9)
+
+ 1 lib/core/background/background_repair_decision.dart
+   Typed platform registration state (absent / pending / terminal /
+   unavailable) and durable eligibility consulted BEFORE platform state, so
+   WorkInfo can never outrank app-owned truth. An unavailable query is
+   explicitly not absent.
+ 2 lib/core/background/reminder_recovery_request.dart
+   Section 27 transaction-local marker writer
+   (stableKey reconcile:reminders:<profileId>, category reminderRecovery,
+   ownerKind profile, occurrenceId null, platformNotificationId null,
+   queued state). Idempotent per profile: an existing marker keeps its
+   createdAtUtc / attemptCount / revision, so a burst of mutations collapses
+   into ONE pending reconciliation.
+ 3 lib/features/notifications/application/reminder_delivery_service.dart
+   Section 32 targeted enriched delivery algorithm. No whole-horizon scan,
+   no domain writes.
+ 4 lib/features/notifications/application/reminder_delivery_source_reader.dart
+   Narrow canonical source reread port for the delivery path.
+ 5 lib/features/notifications/application/reminder_enrichment_resolver.dart
+   Section 15 sanitization: 80 name / 120 location grapheme limits via
+   `characters`, control + bidi stripping, URI/scheme and coordinate-pair
+   rejection. Sanitization only, no global rewrite of owner source text.
+ 6 lib/features/notifications/application/reminder_notification_renderer.dart
+   One shared renderer for native ordinary and targeted worker post. Exact
+   frozen baseline copy plus the conditional Follow up / Location lines.
+ 7 lib/features/notifications/data/drift_reminder_enrichment_source.dart
+   Narrow live-link/enrichment port mirroring the effective live-link
+   semantics without the historical fallback.
+ 8 lib/features/notifications/domain/contact_follow_up_creation_intent.dart
+   Immutable typed creation intent (single nonblank contactId + equality);
+   never serialized to durable storage.
+ 9 lib/features/notifications/domain/reminder_policy_label.dart
+   O8 shared nonnegative formatter, one authority for all consumers.
+
+D.4 TEST FILES ADDED (9 suites) / CHANGED (4 suites)
+
+NEW:
+  test/features/contacts/presentation/m7_follow_up_creation_test.dart
+  test/features/contacts/data/m7_contact_purpose_invalidation_test.dart
+  test/features/notifications/application/m7_contact_follow_up_test.dart
+  test/features/notifications/application/m7_enriched_delivery_test.dart
+  test/features/notifications/domain/reminder_policy_label_test.dart
+  test/core/background/m7_workinfo_matrix_test.dart
+  test/core/background/m7_repair_marker_test.dart
+  test/features/planner/presentation/m7_event_type_header_test.dart
+  test/features/planner/data/m7_event_reminder_repair_marker_test.dart
+  test/features/planner/data/m7_occurrence_route_window_test.dart   (P29)
+  test/features/privacy/data/m7_privacy_repair_marker_test.dart
+
+CHANGED:
+  test/features/notifications/application/reminder_reconciler_test.dart
+  test/features/notifications/application/event_reminder_horizon_reconciler_test.dart
+  test/features/notifications/notification_foundation_domain_test.dart
+  test/features/notifications/vs16_m4_platform_safety_test.dart
+
+D.5 WHY EACH CHANGED (rationale summary)
+  Every production edit traces to a named contract path (Appendix P) and a
+  named obligation. No opportunistic cleanup, no architecture redesign, no
+  M8 implementation was performed. M7-required M8 prerequisites (same-
+  transaction repair markers, three-key parser, headless composition,
+  WorkInfo truthfulness) are included because M7 delivery depends on them,
+  exactly as contract section 67 M7 sequence step 3 requires.
+
+============================================================================
+E. CONTRACT COVERAGE
+============================================================================
+
+CONTACT FOLLOW-UP PURPOSE (sections 7-11)
+  purpose/contactId persisted on the existing v46 policy row; explicit
+  preserve/set/clear API; timing-only writes preserve purpose; occurrence
+  overrides inherit or override per contract; unlink/archive/merge
+  invalidation; duplicate starts standard; reschedule replacement carries
+  purpose by stable ID only after the Contact link committed.
+  Evidence: m7_contact_follow_up_test, m7_contact_purpose_invalidation_test,
+  notification_foundation_domain_test, drift_notification_foundation_repository_test.
+
+ENRICHED MAP / LOCATION NOTIFICATIONS (section 17)
+  Only the current canonical occurrence locationText is eligible. Contact
+  address, SavedPlace label, reverse geocode, coordinates, device location and
+  HTTP requests are NOT used. Rejections proven with numeric sentinels.
+  Evidence: m7_enriched_delivery_test (T29), reminder_enrichment_resolver.
+
+CURRENT SOURCE TRUTH (sections 18-19, OAT5/OAT6)
+  Delivery rereads current Event/Task/Contact/location truth at delivery time.
+  Rename Aa->Bea->Cara before delivery yields CURRENT valid content only; no
+  stale persisted private name can win. Contact rename writes its timestamp
+  in the same mutation transaction and participates in the technical
+  fingerprint.
+  Evidence: m7_enriched_delivery_test T27 (fail-first on pre-fix), OAT5/OAT6.
+
+PRIVACY (sections 14-16)
+  Generic and Privacy Lock expose ONLY the exact neutral title/body with zero
+  enrichment tokens; privacy failure falls back to Generic when source and
+  permission are valid; permission validation failure suppresses/retries and
+  never requests. Detailed copy is never serialized into WorkManager.
+  Evidence: m7_enriched_delivery_test T31, m7_privacy_repair_marker_test,
+  vs16_m4_platform_safety_test.
+
+WORKER PRIVACY (sections 14, 39; see section I below)
+  Worker input is EXACTLY three technical keys. Parse rejects any extra key
+  and any legacy two-key input. No private text exists anywhere in
+  lib/core/background/.
+  Evidence: m7_workinfo_matrix_test, m7_enriched_delivery_test T34.
+
+TRANSPORT OWNERSHIP (section 6)
+  Selection is independent of preview mode; m7w_ is sticky across unlink,
+  location removal and privacy change; m7n_ is not sticky; new recurrence
+  keys select from current truth; native and worker are never both scheduled
+  for one logical reminder; m7w_ is only ever written behind a real
+  registration.
+  Evidence: reminder_reconciler_test T21-T24, m7_enriched_delivery_test T35.
+
+GENERATION IDENTITY (sections 29-36, 65)
+  Dispatch identity is (stableKey, normalized scheduled target,
+  sourceRevision). New target or technical revision installs a new generation
+  and resets attemptCount; same-generation repair preserves attempts/backoff;
+  content-only change cannot replay a completed or delivery_uncertain episode;
+  all transitions CAS against expected key/target/revision/state.
+  Evidence: m7_workinfo_matrix_test, reminder_reconciler_test.
+
+WORKINFO (section 65 matrix)
+  Durable terminal/retry/source truth is consulted BEFORE platform state.
+  SUCCEEDED is NOT inferred as delivered. UNKNOWN/unavailable is never treated
+  as ABSENT. ENQUEUED and BLOCKED are used as the plugin's combined pending
+  meaning.
+  Evidence: m7_workinfo_matrix_test, background_repair_decision.
+
+EVENT-END RELEVANCE (section 64)
+  S = current startUtc, E = current endUtc, L = effective non-negative offset,
+  T = S - L. Deliverable iff T <= now < E. NO fixed 3/5/15-minute grace.
+  At or after E: obsolete / zero-post. Quiet Hours delay to/after S
+  suppresses; Q == T with T == S is valid. Verified in source at
+  reminder_reconciler.dart ReminderDeliveryEligibility.classifyEvent
+  (strict `!nowUtc.isBefore(endsAtUtc)` end boundary) and consumed by both
+  reminder_delivery_service.dart and the reconciler.
+  Native ordinary reminders stay native and gain NO worker catch-up.
+  Evidence: m7_enriched_delivery_test, reminder_reconciler_test.
+
+RETRY HANDLING (section 31)
+  Bounded attempts per full dispatch identity; 30/60/120/240s exponential
+  minimum backoff; attempt 5 terminal retry_exhausted; sanitized failure
+  categories only (no raw exception text, stack trace, title or IDs); DB
+  unavailable reports runtime_unavailable rather than inventing an attempt
+  row; WorkInfo does not expose Android attempt count or finish time and none
+  is fabricated.
+  Evidence: m7_workinfo_matrix_test, m7_repair_marker_test.
+
+REPAIR MARKERS (section 27)
+  Marker row uses the EXISTING background_work_requests table (no schema
+  change), keyed reconcile:reminders:<profileId>. Committed in the SAME
+  transaction as the mutation it accompanies, so a later platform failure
+  cannot erase committed intent. Marker is idempotent per profile. No markers
+  from reads.
+  Evidence: m7_event_reminder_repair_marker_test (commit + rollback),
+  m7_privacy_repair_marker_test, m7_repair_marker_test.
+
+RECOVERY HORIZON (sections 27-29, 64; the P29 law)
+  The bounded occurrence scan must include the contract-required PREVIOUS-DAY
+  window so an otherwise relevant Event reminder is not discarded merely
+  because its target T = S - L falls on the prior planner date. Implemented by
+  moving only the LOWER bound: scanFloor = today - 1 day, with the upper bound
+  unchanged. Proven BEHAVIORALLY, not by source grep — see section F.4.
+
+O8 (section 66)
+  0 -> "At event time"; 1 -> "1 minute before"; N>=2 -> "<N> minutes before".
+  Inherited positive keeps the abbreviated "Default (<N> min before)  ›"
+  style. One shared formatter (reminder_policy_label.dart) consumed by the
+  picker, Event summary, Task summary and Notifications Settings. Off
+  sentinel -1 and null never reach the numeric formatter (ArgumentError).
+  Evidence: reminder_policy_label_test, m7_follow_up_creation_test,
+  vs16_m1_minimal_notifications_settings_test.
+
+O9 (section 66)
+  Event Edit presentation resolves the EFFECTIVE CURRENT OCCURRENCE identity
+  shared by heading and type field before any deliberate picker change; a
+  retired master type cannot override the occurrence exception; snapshot-less
+  occurrences follow the canonical live fallback; a deliberate selection
+  (including reselecting the original) wins; history/binding/snapshots are
+  never rewritten by opening, closing or reminder-only edits.
+  Evidence: m7_event_type_header_test (OAT11 / OAT12 / OAT11C).
+
+EVENT TYPE PERFORMANCE (section 66 O1/O10, OAT13)
+  ensureLoaded provides the narrow warm-profile fast path with load-epoch
+  provenance and in-flight coalescing. Same-profile valid warm state is
+  reused; cold state loads once; concurrent callers share one load;
+  wrong-profile/stale/error state cannot supply a stale eligible type. No
+  unawaited required save work was introduced to fake responsiveness.
+  Evidence: m7_event_type_header_test OAT13, event_type_creation_provider_test.
+
+EVENT/TASK SAVE FINALIZATION (section 8, OAT14)
+  Ordering is source -> People -> purpose -> affected-source reconcile, with
+  early scheduling deferred exactly once for the explicit follow-up save.
+  Platform failure does not roll back a canonical save; durable repair intent
+  survives; exact SnackBar copy is used; stable IDs are retained for
+  idempotent retry; the form is not closed as complete on partial failure.
+  Evidence: m7_follow_up_creation_test T13-T15, OAT14,
+  event_reminder_mutation_boundary_test.
+
+BODY-TAP BEHAVIOUR (section 19)
+  v1 body-open intent preserved with calendarEvent/task source kind and source
+  IDs; navigation is to the owner source through the shared Event/Task
+  preview. Warm/cold capture stays NotificationResponseController -> app
+  pending intent -> StartupReady/profile guard -> canonical source reread ->
+  Planner shell. No direct Maps launch from a background payload. Event
+  absent/cancelled and Task absent are safe no-ops.
+
+NO SNOOZE / NO OPEN ACTION (sections 15, 22, 48)
+  Reminders carry NO explicit action buttons (_detailsFor is action-free;
+  verified in source and by the absence of any AndroidNotificationAction).
+  The runtime dispatcher returns handled without scheduling or domain/work
+  mutation for a Snooze intent; legacy Snooze jobs terminate rather than
+  retry. No explicit Open button was added; the body-open action enum remains
+  valid. No Snooze UI, button, action, runtime flow, snoozeCount or
+  user-facing Snooze behaviour exists or was activated.
+
+NO NEW PERMISSIONS (sections 22, 47) — see section H.
+
+============================================================================
+F. TEST EVIDENCE
+============================================================================
+
+F.1 ACCEPTED PRISTINE BASELINE IDENTITY
+  File: .m7_evidence/baseline_complete_7b1395c.json
+  Provenance: captured from the detached pristine baseline worktree at exact
+  7b1395c10232b51f7d59464214ffe915415c4bb1.
+  Integrity CONFIRMED by direct re-parse in this session:
+    protocolVersion 0.1.1 / runnerVersion 1.31.0
+    suite events              270   (allSuites count 270)
+    testStart                 2284
+    testDone                  2284   (no truncation; every start resolved)
+    error events              98
+    completion marker         {"success": false, "type": "done"} PRESENT
+    visible (non-hidden) testDone  1994
+  This matches the required accepted complete baseline: 270/270 suites,
+  2284 testDone, proper completion marker, expected inherited failures, no
+  crash/truncation. The earlier INCOMPLETE capture was not used.
+
+F.2 FINAL CANDIDATE TOTALS
+  File: .m7_evidence/final_candidate.json
+  Command: flutter test --no-pub --reporter json   (entire suite tree)
+  Re-parse in this session:
+    suite events              281   (allSuites count 281)
+    testStart                 2415
+    testDone                  2415   (no truncation)
+    error events              118
+    visible (non-hidden) testDone  2114
+    completion marker         {"success": false, "type": "done"} PRESENT
+  This run is FRESH and was executed AFTER the final repair-marker and P29
+  edits (previous candidate_current.json predated them and was NOT used).
+  Suite growth 270 -> 281 = the 11 new DeepSeek M7 suites.
+
+F.3 NAMED DIFFERENTIAL (suite-relative path + full visible test name)
+  Tool: .m7_evidence/compare_full.py, keyed on
+  <suite-relative-path>::<full-visible-test-name>, comparing normalized
+  identity against the accepted pristine baseline — NOT raw counts.
+
+  REQUIRED RESULT -> ACHIEVED:
+    NEW FAILURES = 0
+    NEW ERRORS   = 0
+    NEW SKIPS    = 0
+
+  baseline : total=1994  suites=270  bad=130
+  candidate: total=2114  suites=281  bad=116
+  inherited (bad in both)      = 116
+  scoped improvements (bad only in baseline) = 14
+
+  Inherited failures: 116, all proven present in the accepted pristine
+  baseline by name. These are inherited and unchanged by DeepSeek; they are
+  disclosed, not silently "fixed".
+
+  The 14 scoped improvements are previously-flaky presentation/geometry
+  suites (home indicator journey, light-UI surface contract, MP-04 accent
+  border, interactive day-pager cache). They improved from bad -> good and
+  introduce ZERO new failures. They are recorded as scoped improvements, not
+  as DeepSeek-delivered features.
+
+  MISSING accepted names = 0. No baseline test name disappeared from the
+  candidate. No unauthorized outcome changes.
+
+F.4 P29 BEHAVIORAL VERIFICATION (the last known continuation point)
+
+  Located: test/features/planner/data/m7_occurrence_route_window_test.dart
+  (with supporting repair-marker coverage in
+  test/features/planner/data/m7_event_reminder_repair_marker_test.dart).
+
+  This test proves section 64 / P29 through OBSERVABLE REPOSITORY BEHAVIOUR
+  (real Drift in-memory database + real DriftCalendarEventRepository +
+  fixed clock + CalendarEventOccurrenceIdentity.forDate), deliberately NOT by
+  source-text grep.
+
+  CANDIDATE RESULT (current final DeepSeek tree):
+    PASS  P29 an occurrence one day before today still resolves
+    PASS  P29 today still resolves and the window stays bounded
+    PASS  P29 a recurring series anchored well before today still resolves its newest occurrence
+    PASS  P29 saving an Event commits the repair intent in its own transaction
+    PASS  P29 a rolled-back Event save leaves no durable repair intent
+    PASS  P33 a settings save that does NOT change the reminder default marks nothing
+    PASS  P33 changing the global reminder default DOES mark repair
+    -> 7/7 PASS
+
+  FAIL-FIRST PROOF ON PRISTINE 7b1395c (executed on the pristine baseline
+  worktree at exact 7b1395c, then the temporary test file was removed and the
+  baseline restored):
+    FAIL  P29 an occurrence one day before today still resolves
+            Expected: not null / Actual: <null>
+    PASS  P29 today still resolves and the window stays bounded
+    PASS  P29 a recurring series anchored well before today still resolves its newest occurrence
+
+  INTERPRETATION: the base LACKS the corrected behaviour for the prior-day
+  window and has it for the other two cases. The single discriminating failure
+  is exactly the previous-day gap the contract requires to be fixed; the two
+  passing cases confirm the corrected behaviour did not change unrelated
+  resolution semantics. This is a genuine fail-first proof, not an artificial
+  red test.
+
+  BASELINE SOURCE CONFIRMATION (read-only):
+    Baseline readOccurrenceById (line 282-285):
+      final today = PlannerDate.fromDateTime(clock.nowUtc().toLocal());
+      final first = start.compareTo(today) < 0 ? today : start;
+      for (var offset = 0; offset <= 90; offset++) { ... }
+    Candidate:
+      final scanFloor = today.addDays(-1);
+      final first = start.compareTo(scanFloor) < 0 ? scanFloor : start;
+      for (var offset = 0; offset <= 91; offset++) { ... }
+    ONLY the lower bound moved (one day earlier); the upper bound is
+    unchanged, so the horizon remains bounded and did not become an unbounded
+    walk. The third test asserts this explicitly (two days back must still
+    return null).
+
+  TEST DEFECT CORRECTED DURING THIS ROUND (disclosed):
+    The third case as originally written seeded a NON-recurring Event 7 days
+    in the past and expected an occurrence dated today. That premise is
+    wrong: CalendarRecurrenceRule.none yields exactly one occurrence (the
+    start date), so today correctly has no occurrence. The test was corrected
+    to seed a DAILY recurring series anchored 7 days back, which is the
+    scenario the assertion intends. The correction strengthens rather than
+    weakens the test: it now exercises genuine recurrence projection from
+    before the window floor. This is a test-authoring correction, not a
+    weakening of an implementation assertion.
+
+F.5 M7 RELATED SUITE RESULTS (final tree)
+
+  New M7 suites (9 files, 106 tests):
+    106 / 106 PASS   -> .m7_evidence/final_m7_new_suites.out
+    Covers: m7_follow_up_creation_test, m7_contact_follow_up_test,
+    m7_enriched_delivery_test, reminder_policy_label_test,
+    m7_event_type_header_test, m7_contact_purpose_invalidation_test,
+    m7_privacy_repair_marker_test, m7_repair_marker_test,
+    m7_workinfo_matrix_test.
+    Includes OAT11 / OAT12 / OAT11C / OAT13 named scenarios.
+
+  P29 / P33 marker + horizon suites (2 files, 7 tests):
+    7 / 7 PASS       -> .m7_evidence/p29_candidate.out
+
+  Affected notification suites (8 files, 67 tests):
+    67 / 67 PASS     -> .m7_evidence/final_affected_notif.out
+    reminder_reconciler_test, event_reminder_horizon_reconciler_test,
+    event_reminder_mutation_boundary_test, notification_foundation_domain_test,
+    drift_notification_foundation_repository_test, vs16_m4_platform_safety_test,
+    vs16_m3_m4_correction_test, vs16_final_source_contract_test.
+
+  Affected contact / settings / planner / badge suites (8 files, 64 tests):
+    64 / 64 PASS     -> .m7_evidence/final_affected_rest.out
+    drift_contact_repository_test, contact_timeline_ac_authority_test,
+    contact_timeline_e1_route_test, planner_presentation_document_store_test,
+    vs16_m1_minimal_notifications_settings_test,
+    notification_settings_toggle_test, launcher_badge_coordinator_test.
+
+  Required coverage areas from contract section 10 are all represented:
+  reminder reconciler, M7 transport, M7 enriched delivery, M7 follow-up
+  creation, M7 Contact follow-up, Event Type header/O9, O8 reminder label,
+  WorkInfo matrix, worker/runtime, recovery-marker, P22, P29-P33,
+  recovery/horizon scan, affected Contact/Event/Task repositories,
+  privacy/settings, affected Event/Task forms, Event Type controller, and the
+  DeepSeek-specific M7 contract suites.
+
+F.6 INFRASTRUCTURE NOTES (identified and resolved, NOT implementation failures)
+  A harness-level environment problem blocked test execution at session start.
+  Exact diagnosis performed rather than assumed:
+   (a) The sandboxed shell does not export PROGRAMFILES(X86). flutter_tools'
+       Windows Visual Studio probe (packages/flutter_tools/lib/src/windows/
+       visual_studio.dart:262) hard-requires it and aborts with
+       "%PROGRAMFILES(X86)% environment variable not found."
+   (b) The session exports http_proxy/https_proxy pointing at an internal
+       proxy (127.0.0.1:56093). flutter_tester connects to its OWN loopback
+       WebSocket, which the proxy intercepted and answered 502, surfacing as
+       "Unable to connect to flutter_tester process: WebSocketException:
+       Invalid WebSocket upgrade request".
+  Resolution: a documented wrapper (.m7_evidence/flutterw.sh) injects
+  PROGRAMFILES(X86) and clears the proxy variables with NO_PROXY for loopback.
+  No repository file was modified to work around this, no tool cache was
+  cleared, and no user process was killed. Both were classified as
+  infrastructure only after direct evidence, exactly as contract section 11
+  requires. No genuine implementation failure was reclassified as
+  infrastructure.
+
+============================================================================
+G. ANALYZER
+============================================================================
+
+Exact command (contract section 52):
+  flutter analyze --no-pub --fatal-infos lib test
+
+Exit code: 0
+Output:    "No issues found!"  (ran in 6.0s)
+Evidence:  .m7_evidence/final_analyze.out
+
+An intermediate analyzer pass on this same tree DID report 2 issues, both
+unused imports (`package:rmplanner/core/time/app_clock.dart`) in two M7 test
+files. Both were fixed by removing the unused import — the required symbol
+(FixedClock) actually comes from test/support/test_dependencies.dart. No
+warning, lint or ignore directive was added or suppressed to make the gate
+pass. After the fix the analyzer was rerun from the real Flutter process and
+returned exit 0 with "No issues found!".
+
+============================================================================
+H. PROTECTED GATES
+============================================================================
+
+SCHEMA v46 — INTACT
+  lib/core/database/app_database.dart:
+    line 1407: int get schemaVersion => _schemaVersionOverride ?? 46;
+  File is byte-identical to baseline: `git status --porcelain lib/core/database/`
+  returns empty. No generated file modified (no *.g.dart change anywhere).
+  No migration added. No database row touched; no owner DB accessed.
+
+PUBSPEC — UNCHANGED
+  `git diff --name-only -- pubspec.yaml` returns empty.
+
+LOCKFILE — UNCHANGED
+  `git diff --name-only -- pubspec.lock` returns empty.
+
+DATABASE / GENERATED — NO UNAUTHORIZED MODIFICATION
+  No app_database.g.dart change. No hand-edit of any generated file. The
+  generator was NOT run. New repair markers reuse the EXISTING
+  background_work_requests table as a new logical row — no schema change.
+
+ANDROID — NO UNAUTHORIZED MANIFEST/GRADLE CHANGE
+  `git status --porcelain android/` returns empty. The AndroidManifest source
+  permission set is exactly the seven baseline permissions; receivers and
+  Gradle configuration are untouched.
+
+PERMISSIONS — DIFF = ZERO (source AND merged)
+  SOURCE manifest permission set (unchanged, 7):
+    USE_BIOMETRIC, READ_CONTACTS, ACCESS_COARSE_LOCATION, ACCESS_FINE_LOCATION,
+    INTERNET, POST_NOTIFICATIONS, RECEIVE_BOOT_COMPLETED
+  MERGED manifest comparison performed by building the same debug variant from
+  the pristine baseline worktree and dumping both APKs with aapt2 36.0.0:
+    baseline merged set  -> .m7_evidence/perms_baseline.txt
+    candidate merged set -> .m7_evidence/perms_candidate.txt
+    `diff` -> NO DIFFERENCES.  *** MERGED PERMISSION DIFF = ZERO ***
+  (Both include the same dependency-inherited entries: ACCESS_NETWORK_STATE,
+  ACCESS_WIFI_STATE, FOREGROUND_SERVICE, FOREGROUND_SERVICE_SHORT_SERVICE,
+  USE_FINGERPRINT, VIBRATE, WAKE_LOCK, the app's DYNAMIC_RECEIVER_NOT_EXPORTED
+  *_PERMISSION. These are pre-existing dependency declarations, not new ones,
+  exactly as review section 8 requires the claim to be stated.)
+
+PROTECTED PRODUCT BOUNDARIES — UNCHANGED
+  Specifically confirmed ABSENT / NOT INTRODUCED in the final tree:
+    - exact alarm permission (SCHEDULE_EXACT_ALARM / USE_EXACT_ALARM)  ABSENT
+    - foreground service permission ADDED                                NONE
+      (only pre-existing dependency FGS declarations; no new declaration or
+       activation, and no FGS is started by M7 code)
+    - background location permission (ACCESS_BACKGROUND_LOCATION)        ABSENT
+    - geofencing permission                                              ABSENT
+    - battery-exemption / REQUEST_IGNORE_BATTERY_OPTIMIZATIONS           ABSENT
+    - Saved Place reminder feature                                    NOT ADDED
+    - Snooze UI / action / runtime                                    NOT ADDED
+    - explicit OPEN notification action                               NOT ADDED
+      (details remain action-free; body tap is the only action)
+    - notification permission redesign                                NOT ADDED
+    - new font / font asset / typography token                        NOT ADDED
+    - global theme redesign                                           NOT ADDED
+    - new dependency                                                  NOT ADDED
+    - DB migration                                                    NOT ADDED
+    - unrelated Maps feature                                          NOT ADDED
+    - Goal accounting rewrite                                         NOT ADDED
+    - new native delivery bridge / receiver / broadcast               NOT ADDED
+  Also preserved: Maps persistence, Saved Places, Contacts design/lifecycle/
+  history, Goal canonical slots/progress, Activity Ledger, reporting/
+  accounting, Event Type binding architecture, Education exact-baseline
+  defaults, Study & Planning prospective label, shared Event/Task preview,
+  manual 5-minute time inputs, signing/package/SDK configuration.
+  Theme files: the theme directory resolves under a different path in this
+  tree and is unchanged; no theme file appears in the 32-file diff.
+
+SNOOZE LAW (sections 15, 48) — FULLY DEFERRED, verified
+  _detailsFor produces action-free NotificationDetails (no Android actions at
+  all, for both native schedule and immediate worker show).
+  reminder_background_runtime.dart: nextTransferReminderAction returns early
+  unless the decoded action is Snooze, and the Snooze path performs no domain
+  or work mutation; legacy Snooze jobs terminate rather than retry.
+  No Snooze UI, notification button, action, runtime flow, snoozeCount usage
+  or user-facing behaviour was added. snoozeCount is never used as a
+  generation/retry counter.
+
+FORMAT / DIFF HYGIENE (section 53)
+  `git diff --check` -> exit 0, CLEAN (no whitespace/conflict-marker errors).
+  Formatting: only task-owned DeepSeek Dart files were touched; no
+  mass-formatting of unrelated project files.
+  CRLF/checkout noise classified separately and correctly: 64 ` M` entries in
+  `git status` vs 32 real content diffs. Each of the 32 stat-only entries was
+  individually verified content-identical via `git diff --quiet`. Line-ending
+  noise was NOT confused with implementation changes.
+
+============================================================================
+I. WORKER PRIVACY AUDIT
+============================================================================
+
+IMPLEMENTATION
+  lib/core/background/workmanager_background_work_gateway.dart defines
+  CanonicalReminderWorkSpec with EXACTLY three fields and a closed allowlist:
+    stableKeyField         = 'stable_key'
+    scheduledUtcMsField    = 'scheduled_utc_ms'
+    sourceRevisionField    = 'source_revision'
+    allowedFields = {stable_key, scheduled_utc_ms, source_revision}
+  toInputData() emits exactly those three keys and nothing else.
+  The parser enforces `input.length != allowedFields.length -> null` and
+  `input.keys.any((k) => !allowedFields.contains(k)) -> null`, so any extra or
+  unknown key is rejected as malformed.
+
+WHAT IS PERSISTED (technical identifiers only)
+  - stable_key: a logical reminder key of the form
+      reminder:calendarEvent:<profileId>:<occurrenceId>:base
+      reminder:task:<profileId>:task:<taskId>:<projectedDate>:base
+    constrained by RegExp ^reminder:[A-Za-z0-9_.:-]{1,240}$ — identifiers,
+    never display text.
+  - scheduled_utc_ms: an integer UTC millisecond target.
+  - source_revision: a technical revision token (IDs, timestamps, version
+    tokens, and the m7w_/m7n_ transport marker), constrained by
+    ^[A-Za-z0-9_.:-]{1,256}$.
+  - Unique work name: nt.reminder.<platformId>.<utcMs>.<SHA256(revision)[0:16]>
+    — a technical digest, never a hash of private text. No displayTitle
+    hashCode and no hash of name/notes/location is used for new M7 work.
+
+WHAT IS NOT PERSISTED (verified absent)
+  A direct scan of lib/core/background/ for private-field identifiers
+  (contactName, displayName, locationText, eventTitle, taskTitle, notes)
+  returns NOTHING. Worker input therefore carries no Contact names, Event
+  titles, Task titles, descriptions, notes, location text, numeric
+  coordinates, rendered notification strings or any other private content.
+
+PRIVATE CONTENT IS REREAD AT DELIVERY TIME
+  All private copy is produced at posting time by
+  reminder_notification_renderer.dart from a fresh canonical source read
+  performed by reminder_delivery_service.dart / reminder_delivery_source_reader
+  through the live repositories. Nothing private survives in durable dispatch
+  metadata. This is exactly why a Contact rename before delivery yields the
+  current name and never a stale persisted one.
+
+DIAGNOSTIC PRIVACY (sections 38-39)
+  No diagnostic surface was added under M7 that would expose private text or
+  raw IDs. The existing consent model is preserved.
+
+============================================================================
+J. APK
+============================================================================
+
+Built exactly ONE fresh FINAL DeepSeek M7 debug APK for this certification
+round, from the FINAL tree, after all source gates passed.
+
+Command:  flutter build apk --debug --no-pub
+Exit:     0        (evidence: .m7_evidence/final_build.out)
+
+Absolute path:
+  C:\Users\sherl\Downloads\NT_B5_DEVELOP__deepseek-m7m8-20260911\build\app\outputs\flutter-apk\app-debug.apk
+
+Byte size:      240,957,877
+SHA-256:        183413420841c8b991748bea90a66146d4a0335db754946ec0da6a12dc24e7a0
+Build timestamp: 2026-09-12 15:59:22 (+0800)  =  2026-09-12T07:59:22Z
+Package ID:     com.nexttransfer.rmplanner
+versionName:    0.1.0
+versionCode:    1
+minSdk:         24
+targetSdk:      36        (compileSdk 36, platformBuildVersionCode 36)
+Flutter:        3.44.7 (stable, framework revision 84fc5cbb22)
+Dart:           3.12.2
+JDK:            Temurin 21.0.12.1+1 (openjdk 21.0.12.1 2026-08-18 LTS)
+
+Supersession note:
+  This FINAL APK SUPERSEDES all earlier DeepSeek APKs.
+  The earlier intermediate artifact
+    bytes 208,136,668
+    SHA-256 c375947877c808d5f2f4e257d1e70d65b06d3ab100e23e1ec552433d62456acc
+  was INTERMEDIATE ONLY and is NOT reused, NOT certified, and NOT treated as
+  the final artifact.
+
+No APK signing, package, SDK or Gradle configuration change was made. No
+global Gradle/dependency configuration was edited. The build used the
+project-local JDK21 path and the existing toolchain root
+C:\Users\sherl\AppData\Local\NextTransferFlutter.
+
+============================================================================
+K. DEVICE
+============================================================================
+
+DEVICE STATUS = NOT INSTALLED
+
+ABSOLUTELY NO ADB WAS USED. Confirmed not performed:
+  no `adb devices`, no wireless debugging, no USB debugging, no `adb install`,
+  no `adb install -r`, no `adb shell`, no device inspection, no notification
+  testing on device, no database copy from device, no package inspection from
+  device.
+The owner has NOT authorized the DeepSeek device phase. The M7 physical gate
+(section 68, M7-P1..M7-P11) remains separately authorized work and was not
+started.
+
+============================================================================
+L. GIT
+============================================================================
+
+COMMIT STATUS = NOT COMMITTED
+PUSH STATUS   = NOT PUSHED
+
+Confirmed not performed: no git commit, no git tag, no git push, no merge,
+no rebase, no cherry-pick, no force push, no reset, no clean, no stash, no
+broad restore, no branch checkout/copy, no worktree recreation, no index
+mass-staging, no global Git config change.
+The worktree remains dirty/untracked as found, plus the M7 work that was
+already present and the edits made in this certification round.
+
+============================================================================
+M. FINAL VERDICT
+============================================================================
+
+M7 ENGINEERING GATE = PASSED
+
+Basis:
+  - Correct worktree and branch recovered; base 7b1395c intact; unusual
+    linked-worktree topology documented and preserved, not "fixed".
+  - P29 / recovery-horizon behavioral verification COMPLETE and PASSING, with
+    an executed fail-first proof on pristine 7b1395c (one discriminating
+    failure: the prior-day window) plus two unchanged-behaviour controls.
+  - M7 related suites: 106/106 new-suite tests pass; 67/67 affected
+    notification tests pass; 64/64 affected contact/settings/planner/badge
+    tests pass; 7/7 P29/P33 marker+horizon tests pass.
+  - Fresh COMPLETE final candidate run: 281 suites, 2415 testDone, proper
+    completion marker, no truncation.
+  - Named differential vs the accepted complete pristine baseline:
+      NEW FAILURES = 0, NEW ERRORS = 0, NEW SKIPS = 0
+    116 inherited failures all identified by name and proven present in the
+    accepted baseline; 0 missing accepted names.
+  - Analyzer gate: `flutter analyze --no-pub --fatal-infos lib test` exit 0,
+    "No issues found!" from the real Flutter process.
+  - `git diff --check` CLEAN; 32 real content diffs separated from 32 CRLF/
+    stat-only artifacts.
+  - Protected gates: schema v46 intact; pubspec.yaml unchanged; pubspec.lock
+    unchanged; no generated/DB modification; Android unchanged; SOURCE and
+    MERGED permission diffs both ZERO; no new font/theme/dependency/migration;
+    no Snooze UI/action/runtime; no explicit OPEN action; no Saved Place
+    reminder; no Goal accounting rewrite.
+  - Worker privacy: exactly three technical keys persisted, extras rejected,
+    no private text anywhere in the background layer, private content reread
+    at delivery time. Audit recorded (section I).
+  - One fresh FINAL debug APK built and identified (section J).
+
+No unresolved blocker exists for the M7 ENGINEERING gate.
+
+============================================================================
+N. SCOPE AND STOP
+============================================================================
+
+Authorized scope ends when BOTH exist:
+  1. FINAL certified DeepSeek M7 APK            -> DELIVERED (section J)
+  2. FINAL detailed DeepSeek M7 engineering report -> THIS DOCUMENT
+
+HARD STOP. Not performed and explicitly not authorized:
+  - no install, no ADB, no device action of any kind
+  - no continuation to M8
+  - no commit, no tag, no push
+  - no comparison against GLM; no declaration of a winner
+  - no inspection of GLM source at any time
+  - no owner decisions invented (OWNER DECISIONS REQUIRED = 0)
+
+Candidate comparison will be performed separately after both implementations
+are complete.
+
+============================================================================
+O. DEVIATIONS, LIMITATIONS AND DISCLOSURES
+============================================================================
+
+1 TEST AUTHORING CORRECTION (disclosed, section F.4):
+  The third P29 behavioral case was rewritten to seed a recurring series
+  instead of a non-recurring Event, because a non-recurring Event genuinely
+  has only one occurrence. This strengthened the test; no implementation
+  assertion was weakened to obtain a green result.
+
+2 ANALYZER FIXES ON REAL ISSUES:
+  Two unused imports in M7 test files were reported and removed. No warning
+  was suppressed.
+
+3 TEST-DRIVEN CHANGES TO THE PRISTINE BASELINE WORKTREE:
+  Exactly one temporary test file was placed there to execute the required
+  fail-first proof, then deleted. The worktree's HEAD remains 7b1395c and its
+  tracked content is unmodified.
+
+4 HARNESS ENVIRONMENT WORKAROUND:
+  A wrapper script was created under .m7_evidence/ to supply PROGRAMFILES(X86)
+  and bypass the session proxy for loopback. No repository file was changed,
+  no tool cache cleared, no user process killed.
+
+5 PREVIOUS-SESSION INTERMEDIATE EVIDENCE NOT REUSED AS CERTIFICATION:
+  candidate_current.json predates the final repair-marker/P29 edits and was
+  NOT used for certification. A fresh complete candidate run was executed.
+
+6 CONTRACT DEVIATIONS:
+  NONE. No production or test path outside the contract's Appendix P/Q
+  allowlist was modified. No forbidden path was touched. No additional owner
+  decision was required or invented.
+
+7 EXPLICIT LIMITS (not claimed):
+  - Engineering proof is NOT physical owner PASS. The M7 physical matrix
+    (M7-P1..M7-P11) has not been executed.
+  - No exactly-once delivery is claimed across arbitrary process crash plus
+    user dismissal; only one logical key / one active platform ID with
+    conservative crash recovery.
+  - No finite window or WorkManager choice guarantees OS delivery timing.
+    Android may delay execution; the implementation reports delay truthfully
+    rather than escalating permissions.
+  - Plugin WorkInfo does not expose Android attempt count or finish time in
+    this version, and none is fabricated.
+
+============================================================================
+END OF FINAL DEEPSEEK M7 ENGINEERING CERTIFICATION REPORT
+============================================================================

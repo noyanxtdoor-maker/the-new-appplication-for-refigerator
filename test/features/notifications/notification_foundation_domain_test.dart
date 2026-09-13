@@ -5,9 +5,88 @@ import 'package:rmplanner/core/notifications/notification_payload.dart';
 import 'package:rmplanner/core/notifications/notification_preview_policy.dart';
 import 'package:rmplanner/core/notifications/notification_response_controller.dart';
 import 'package:rmplanner/features/notifications/domain/notification_preferences.dart';
+import 'package:rmplanner/features/notifications/domain/reminder_policy.dart';
 import 'package:rmplanner/features/privacy/domain/privacy_settings.dart';
 
 void main() {
+  ReminderPolicy policy({
+    ReminderPurpose purpose = ReminderPurpose.standard,
+    String? contactId,
+  }) => ReminderPolicy(
+    id: 'policy-1',
+    profileId: 'profile-1',
+    sourceKind: ReminderSourceKind.task,
+    sourceId: 'task-1',
+    occurrenceId: ReminderPolicy.seriesOccurrenceId,
+    mode: ReminderPolicyMode.offset,
+    offsetMinutes: 15,
+    purpose: purpose,
+    contactId: contactId,
+    createdAtUtc: DateTime.utc(2026, 9, 1),
+    updatedAtUtc: DateTime.utc(2026, 9, 1),
+  );
+
+  test('T1/T2 contact follow-up purpose requires exactly one Contact id', () {
+    expect(
+      () => policy(purpose: ReminderPurpose.contactFollowUp).validate(),
+      throwsArgumentError,
+      reason: 'contactFollowUp without a Contact id is invalid',
+    );
+    expect(
+      () => policy(
+        purpose: ReminderPurpose.contactFollowUp,
+        contactId: '   ',
+      ).validate(),
+      throwsArgumentError,
+      reason: 'a blank Contact id is not a Contact identity',
+    );
+    expect(
+      () => policy(contactId: 'contact-1').validate(),
+      throwsArgumentError,
+      reason: 'standard purpose must not store a Contact id',
+    );
+    expect(
+      policy(
+        purpose: ReminderPurpose.contactFollowUp,
+        contactId: 'contact-1',
+      ).validate,
+      returnsNormally,
+    );
+  });
+
+  test('T3/T5 omitted purpose preserves; explicit standard clears Contact', () {
+    final followUp = policy(
+      purpose: ReminderPurpose.contactFollowUp,
+      contactId: 'contact-1',
+    );
+
+    final timingOnly = followUp.copyWith(
+      mode: ReminderPolicyMode.offset,
+      offsetMinutes: 30,
+      updatedAtUtc: DateTime.utc(2026, 9, 2),
+    );
+    expect(timingOnly.purpose, ReminderPurpose.contactFollowUp);
+    expect(timingOnly.contactId, 'contact-1');
+    expect(timingOnly.offsetMinutes, 30);
+
+    final cleared = followUp.copyWith(purpose: ReminderPurpose.standard);
+    expect(cleared.purpose, ReminderPurpose.standard);
+    expect(cleared.contactId, isNull);
+
+    final explicitlyCleared = followUp.copyWith(clearPurpose: true);
+    expect(explicitlyCleared.purpose, ReminderPurpose.standard);
+    expect(explicitlyCleared.contactId, isNull);
+
+    final retargeted = followUp.copyWith(
+      purpose: ReminderPurpose.contactFollowUp,
+      contactId: 'contact-2',
+    );
+    expect(retargeted.contactId, 'contact-2');
+
+    final kept = followUp.copyWith(purpose: ReminderPurpose.contactFollowUp);
+    expect(kept.contactId, 'contact-1');
+  });
+
   test(
     'master notification policy keeps saved category choices but gates effective state',
     () {

@@ -218,6 +218,18 @@ void main() {
       final windowStart = DateTime.utc(2026, 9, 6);
       final windowEnd = DateTime.utc(2026, 10, 19);
 
+      // Durable rows always carry the canonical stable-key family prefix for
+      // their source kind (ReminderReconciler.stableKey), and the bounded
+      // reminder-work query matches that prefix so the two planning families
+      // can never be confused.  The fixture therefore seeds canonical keys
+      // instead of bare labels that no production writer can emit.
+      String eventKey(String suffix) =>
+          '${ReminderSourceKind.calendarEvent.stableKeyFamilyPrefix}'
+          '$profileId:$suffix:base';
+      String taskKey(String suffix) =>
+          '${ReminderSourceKind.task.stableKeyFamilyPrefix}'
+          '$profileId:$suffix:base';
+
       Future<void> insert({
         required String key,
         required String ownerId,
@@ -247,7 +259,7 @@ void main() {
       }
 
       await insert(
-        key: 'event-a-start',
+        key: eventKey('event-a-start'),
         ownerId: 'event-a',
         category: BackgroundWorkCategory.reminderRecovery,
         ownerKind: BackgroundWorkOwnerKind.occurrence,
@@ -255,7 +267,7 @@ void main() {
         scheduledForUtc: windowStart,
       );
       await insert(
-        key: 'event-a-later',
+        key: eventKey('event-a-later'),
         ownerId: 'event-a',
         category: BackgroundWorkCategory.reminderRecovery,
         ownerKind: BackgroundWorkOwnerKind.occurrence,
@@ -263,7 +275,7 @@ void main() {
         scheduledForUtc: windowStart.add(const Duration(days: 2)),
       );
       await insert(
-        key: 'event-b',
+        key: eventKey('event-b'),
         ownerId: 'event-b',
         category: BackgroundWorkCategory.reminderRecovery,
         ownerKind: BackgroundWorkOwnerKind.occurrence,
@@ -271,7 +283,7 @@ void main() {
         scheduledForUtc: windowStart.add(const Duration(days: 1)),
       );
       await insert(
-        key: 'task-a',
+        key: taskKey('task-a'),
         ownerId: 'task-a',
         category: BackgroundWorkCategory.reminderRecovery,
         ownerKind: BackgroundWorkOwnerKind.task,
@@ -279,7 +291,7 @@ void main() {
         scheduledForUtc: windowStart.add(const Duration(hours: 1)),
       );
       await insert(
-        key: 'event-a-cancelled',
+        key: eventKey('event-a-cancelled'),
         ownerId: 'event-a',
         category: BackgroundWorkCategory.reminderRecovery,
         ownerKind: BackgroundWorkOwnerKind.occurrence,
@@ -287,7 +299,7 @@ void main() {
         scheduledForUtc: windowStart.add(const Duration(hours: 2)),
       );
       await insert(
-        key: 'event-a-foundation',
+        key: eventKey('event-a-foundation'),
         ownerId: 'event-a',
         category: BackgroundWorkCategory.notificationFoundation,
         ownerKind: BackgroundWorkOwnerKind.occurrence,
@@ -295,7 +307,7 @@ void main() {
         scheduledForUtc: windowStart.add(const Duration(hours: 3)),
       );
       await insert(
-        key: 'event-a-before',
+        key: eventKey('event-a-before'),
         ownerId: 'event-a',
         category: BackgroundWorkCategory.reminderRecovery,
         ownerKind: BackgroundWorkOwnerKind.occurrence,
@@ -303,7 +315,7 @@ void main() {
         scheduledForUtc: windowStart.subtract(const Duration(microseconds: 1)),
       );
       await insert(
-        key: 'event-a-end',
+        key: eventKey('event-a-end'),
         ownerId: 'event-a',
         category: BackgroundWorkCategory.reminderRecovery,
         ownerKind: BackgroundWorkOwnerKind.occurrence,
@@ -311,7 +323,7 @@ void main() {
         scheduledForUtc: windowEnd,
       );
       await insert(
-        key: 'event-a-unscheduled',
+        key: eventKey('event-a-unscheduled'),
         ownerId: 'event-a',
         category: BackgroundWorkCategory.reminderRecovery,
         ownerKind: BackgroundWorkOwnerKind.occurrence,
@@ -326,8 +338,8 @@ void main() {
         windowEndUtc: windowEnd,
       );
       expect(scoped.map((work) => work.stableKey), <String>[
-        'event-a-start',
-        'event-a-later',
+        eventKey('event-a-start'),
+        eventKey('event-a-later'),
       ]);
 
       final allEvents = await repository.readReminderWork(
@@ -337,9 +349,9 @@ void main() {
         windowEndUtc: windowEnd,
       );
       expect(allEvents.map((work) => work.stableKey), <String>[
-        'event-a-start',
-        'event-b',
-        'event-a-later',
+        eventKey('event-a-start'),
+        eventKey('event-b'),
+        eventKey('event-a-later'),
       ]);
       expect(
         () => repository.readReminderWork(

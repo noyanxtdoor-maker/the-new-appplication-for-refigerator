@@ -4,6 +4,7 @@ import 'package:rmplanner/features/notifications/application/notification_founda
 import 'package:rmplanner/features/notifications/application/reminder_reconciler.dart';
 import 'package:rmplanner/features/notifications/domain/reminder_policy.dart';
 import 'package:rmplanner/features/planner/application/calendar_event_repository.dart';
+import 'package:rmplanner/features/planner/application/event_reminder_horizon_reconciler.dart';
 import 'package:rmplanner/features/planner/domain/calendar_event.dart';
 import 'package:rmplanner/features/planner/domain/planner_date.dart';
 import 'package:rmplanner/features/privacy/domain/permission_summary.dart';
@@ -75,15 +76,19 @@ final class PlanningReminderReconciler {
     required bool systemEnabled,
     required bool showDetails,
   }) async {
-    final now = reminders.clock.nowUtc();
-    final today = PlannerDate.fromDateTime(tz.TZDateTime.from(now, zone));
     final expected = <String>{};
     for (final plan in await weeklyPlans.readHistory(profileId)) {
-      final eligible =
-          plan.effectiveState(today) == WeeklyPlanState.reviewDue &&
-          plan.reviewCompletedAtUtc == null &&
-          plan.storedState != WeeklyPlanState.reviewed &&
-          plan.storedState != WeeklyPlanState.historical;
+      // Section 37 PLANNING FIX: SCHEDULING eligibility and CURRENT-ATTENTION
+      // eligibility are different concepts.  A plan whose period end is known
+      // may register its future 09:00 target even though it is not yet due for
+      // review; the attention check below still governs whether the reminder
+      // deserves delivery, and every canonical mutation re-runs this pass so a
+      // completed/retired review retires the target.
+      final retired =
+          plan.reviewCompletedAtUtc != null ||
+          plan.storedState == WeeklyPlanState.reviewed ||
+          plan.storedState == WeeklyPlanState.historical;
+      final schedulable = !retired;
       final scheduled = tz.TZDateTime(
         zone,
         plan.period.end.addDays(1).year,
@@ -101,7 +106,7 @@ final class PlanningReminderReconciler {
         globalOffsetMinutes: null,
         categoryEnabled: preferencesEnabled,
         systemEnabled: systemEnabled,
-        sourceActive: eligible,
+        sourceActive: schedulable,
         sourceVersion: plan.updatedAtUtc.microsecondsSinceEpoch,
         genericTitle: '🔔 Next Transfer',
         genericBody: 'You have a new notification.',
@@ -117,7 +122,7 @@ final class PlanningReminderReconciler {
         profileId: profileId,
         occurrenceId: plan.id,
       );
-      if (eligible && await _isActive(key)) expected.add(key);
+      if (schedulable && await _isActive(key)) expected.add(key);
     }
     await _cancelUnexpected(
       profileId: profileId,
@@ -136,12 +141,15 @@ final class PlanningReminderReconciler {
     if (events is! CalendarEventRangeSource) return;
     final now = reminders.clock.nowUtc();
     final today = PlannerDate.fromDateTime(tz.TZDateTime.from(now, zone));
-    // Only current/previous-local-day occurrences can have a still-future M5
-    // trigger. Older report backlogs are intentionally not replayed as new.
+    // Section 37 PLANNING FIX: a SCHEDULED requires-report Event with no
+    // submitted report is schedulable from its KNOWN canonical timing even
+    // before that time arrives, so the horizon covers the full bounded
+    // projection plus the previous day for still-current report backlogs.
+    // Older backlogs are intentionally not replayed as new.
     final items = await (events as CalendarEventRangeSource).readRange(
       profileId: profileId,
       startDate: today.addDays(-1),
-      endDate: today,
+      endDate: today.addDays(EventReminderHorizonReconciler.horizonDays),
     );
     final expected = <String>{};
     for (final item in items) {
@@ -154,10 +162,13 @@ final class PlanningReminderReconciler {
         originalDate: originalDate,
       );
       if (occurrence == null) continue;
-      final eligible = occurrence.isAwaitingReport(
-        nowUtc: now,
-        displayToday: today,
-      );
+      // Scheduling eligibility: the source is still a scheduled Event that owes
+      // a report.  Current-attention eligibility (its window has actually
+      // elapsed) is the separate, source-checked concept.
+      final schedulable =
+          occurrence.status == CalendarEventStatus.scheduled &&
+          occurrence.requiresReport &&
+          occurrence.reportedStatus == null;
       final scheduled = _reportTrigger(occurrence, zone);
       await reminders.reconcile(
         sourceKind: ReminderSourceKind.awaitingReport,
@@ -169,7 +180,7 @@ final class PlanningReminderReconciler {
         globalOffsetMinutes: null,
         categoryEnabled: preferencesEnabled,
         systemEnabled: systemEnabled,
-        sourceActive: eligible,
+        sourceActive: schedulable,
         sourceVersion: occurrence.updatedAtUtc?.microsecondsSinceEpoch ?? 0,
         genericTitle: '🔔 Next Transfer',
         genericBody: 'You have a new notification.',
@@ -185,7 +196,7 @@ final class PlanningReminderReconciler {
         profileId: profileId,
         occurrenceId: occurrence.id,
       );
-      if (eligible && await _isActive(key)) expected.add(key);
+      if (schedulable && await _isActive(key)) expected.add(key);
     }
     await _cancelUnexpected(
       profileId: profileId,
@@ -235,10 +246,17 @@ final class PlanningReminderReconciler {
       if (expected.contains(item.stableKey) || item.occurrenceId == null) {
         continue;
       }
+      // F03 fix (section 34): cancel the VALIDATED row by its ACTUAL stable key.
+      // Rebuilding the key from the occurrence token would resolve to the
+      // sibling planning family whenever the two families share a token.
+      // The family check is a second, independent guard: an unowned key is
+      // never cancelled.
+      if (!kind.ownsStableKey(item.stableKey)) continue;
       await reminders.cancel(
         sourceKind: kind,
         profileId: profileId,
         occurrenceId: item.occurrenceId!,
+        exactStableKey: item.stableKey,
       );
     }
   }

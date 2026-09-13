@@ -1,0 +1,7 @@
+{"protocolVersion":"0.1.1","runnerVersion":"1.31.0","pid":21324,"type":"start","time":0}
+{"suite":{"id":0,"platform":"vm","path":"C:/Users/sherl/Downloads/NT_B5_DEVELOP__deepseek-m7m8-20260911/test/features/notifications/application/m7_detailed_content_test.dart"},"type":"suite","time":0}
+{"test":{"id":1,"name":"loading C:/Users/sherl/Downloads/NT_B5_DEVELOP__deepseek-m7m8-20260911/test/features/notifications/application/m7_detailed_content_test.dart","suiteID":0,"groupIDs":[],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":null},"type":"testStart","time":1}
+{"count":1,"time":9,"type":"allSuites"}
+{"testID":1,"error":"Failed to load \"C:/Users/sherl/Downloads/NT_B5_DEVELOP__deepseek-m7m8-20260911/test/features/notifications/application/m7_detailed_content_test.dart\": Missing definition of `main` method.","stackTrace":"package:test_core/src/runner/parse_metadata.dart 95:7   _Parser.parse\npackage:test_core/src/runner/parse_metadata.dart 28:49  parseMetadata\npackage:test_core/src/runner/loader.dart 177:11         Loader.loadFile\n===== asynchronous gap ===========================\ndart:async/stream_controller.dart 616:3                 _StreamController.add\n===== asynchronous gap ===========================\ndart:async/stream_pipe.dart 183:3                       _ForwardingStreamSubscription._handleData\n","isFailure":false,"type":"error","time":16}
+{"testID":1,"result":"error","skipped":false,"hidden":false,"type":"testDone","time":18}
+{"success":false,"type":"done","time":20}

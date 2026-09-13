@@ -1,0 +1,16 @@
+{"protocolVersion":"0.1.1","runnerVersion":"1.31.0","pid":6036,"type":"start","time":0}
+{"suite":{"id":0,"platform":"vm","path":"C:/Users/sherl/Downloads/NT_B5_DEVELOP__deepseek-m7m8-20260911/test/features/notifications/data/zz_forensic_persistence_probe_test.dart"},"type":"suite","time":0}
+{"test":{"id":1,"name":"loading C:/Users/sherl/Downloads/NT_B5_DEVELOP__deepseek-m7m8-20260911/test/features/notifications/data/zz_forensic_persistence_probe_test.dart","suiteID":0,"groupIDs":[],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":null},"type":"testStart","time":1}
+{"count":1,"time":5,"type":"allSuites"}
+{"testID":1,"result":"success","skipped":false,"hidden":true,"type":"testDone","time":2687}
+{"group":{"id":2,"suiteID":0,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":1,"line":null,"column":null,"url":null},"type":"group","time":2690}
+{"test":{"id":3,"name":"D-FORENSIC-2: settings writer + malformed preservation","suiteID":0,"groupIDs":[2],"metadata":{"skip":false,"skipReason":null},"line":22,"column":3,"url":"file:///C:/Users/sherl/Downloads/NT_B5_DEVELOP__deepseek-m7m8-20260911/test/features/notifications/data/zz_forensic_persistence_probe_test.dart"},"type":"testStart","time":2690}
+{"testID":3,"messageType":"print","message":"CASE 1 encodedCurrentDocument keys: []","type":"print","time":2936}
+{"testID":3,"messageType":"print","message":"CASE 1 kept notificationDetailedContent: false","type":"print","time":2936}
+{"testID":3,"messageType":"print","message":"CASE 1 kept someFutureKey: false","type":"print","time":2936}
+{"testID":3,"messageType":"print","message":"CASE 2 malformed carried verbatim: true","type":"print","time":2936}
+{"testID":3,"messageType":"print","message":"CASE 2 reader fell back to defaults: true","type":"print","time":2937}
+{"testID":3,"messageType":"print","message":"CASE 3 after notification write keys: [someFutureKey, notificationDetailedContent]","type":"print","time":2937}
+{"testID":3,"messageType":"print","message":"CASE 3 notification writer kept someFutureKey: true","type":"print","time":2937}
+{"testID":3,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2937}
+{"success":true,"type":"done","time":2971}

@@ -1,0 +1,587 @@
+================================================================================
+NEXT TRANSFER — VS16 M7
+CONTINUE INTERRUPTED v47 PERSISTENCE REPAIR
+IMPLEMENTATION / CERTIFICATION REPORT
+================================================================================
+
+DATE            : 2026-09-12
+SESSION         : CONTINUATION of the interrupted DeepSeek v47 repair
+WORKTREE        : C:/Users/sherl/Downloads/NT_B5_DEVELOP__deepseek-m7m8-20260911
+BRANCH          : develop/vs16-m7-m8-deepseek-20260911
+BASE HEAD       : 7b1395c10232b51f7d59464214ffe915415c4bb1
+
+FINAL VERDICT   : VS16 M7 CORRECTIVE PERSISTENCE REPAIR = PASSED
+
+DEVICE          = NOT TOUCHED
+COMMIT          = NOT PERFORMED
+PUSH            = NOT PERFORMED
+M8              = NOT STARTED
+
+--------------------------------------------------------------------------------
+0. SCOPE DISCIPLINE OBSERVED
+--------------------------------------------------------------------------------
+This session did NOT restart the M7 audit. It did NOT redo Phase F. It did NOT
+revert, reset, clean, stash, delete or recreate the worktree. The Phase F
+finding (persistence design = UNSAFE) was taken as PROVEN and was not
+re-litigated. The disqualified APK was NOT installed.
+
+================================================================================
+1. RECOVERED CONTINUATION STATE
+================================================================================
+Recovery was READ-ONLY first. Recorded before any modification:
+
+  git branch --show-current  -> develop/vs16-m7-m8-deepseek-20260911   (MATCH)
+  git rev-parse HEAD         -> 7b1395c10232b51f7d59464214ffe915415c4bb1 (MATCH)
+  git stash list             -> EMPTY (nothing was stashed by the lost session)
+  git reflog                 -> single entry at 7b1395c; no hidden resets
+  git diff --check           -> exit 0
+  tracked modified           -> 37 files
+  untracked                  -> 233 entries (incl. evidence bundles)
+
+FINDING — THE INTERRUPTED SESSION GOT MUCH FURTHER THAN THE HANDOFF STATES.
+The handoff's last recorded state was "the v47 columns don't exist yet". The
+tree on disk had ALREADY advanced past that. File modification times placed the
+lost session's final work at 20:35–20:42 (recovery began 21:21):
+
+  20:37:44  lib/features/notifications/data/detailed_content_preferences_store.dart
+  20:39:43  lib/core/database/app_database.g.dart
+  20:41:14  lib/core/database/app_database.dart
+  20:41:36  test/features/notifications/data/m7_detailed_content_store_test.dart
+  20:42:38  test/features/notifications/data/m7c_persistence_repair_test.dart
+
+So the v47 production implementation was substantially COMPLETE, not absent.
+The handoff's fail-first description was a stale snapshot. This was verified by
+inspection, not assumed.
+
+FILE CLASSIFICATION (post-Phase-F surface)
+  V47 REPAIR WORK (inherited from the interrupted session)
+    lib/core/database/app_database.dart              +64
+    lib/core/database/app_database.g.dart           +392
+    lib/features/notifications/data/detailed_content_preferences_store.dart
+                                                     rewritten to typed storage
+    lib/features/notifications/application/notification_foundation_repository.dart
+                                                     +24
+    lib/features/notifications/data/drift_notification_foundation_repository.dart
+                                                     +34
+    test/features/notifications/data/m7c_persistence_repair_test.dart      (new)
+    test/features/notifications/data/m7_detailed_content_store_test.dart   (new)
+  PREVIOUS CORRECTIVE WORK — unchanged, preserved
+    (reminder_reconciler, renderer, delivery service/source reader,
+     enrichment resolver, providers, settings screen, main.dart, etc.)
+  PRE-EXISTING M7 — unchanged, preserved
+  UNEXPECTED — none. No unexplained file appeared.
+
+The interrupted fail-first test files were PRESERVED INTACT. Nothing was deleted
+merely because it once failed to compile.
+
+================================================================================
+2. FAIL-FIRST EVIDENCE INHERITED FROM THE PRIOR SESSION
+================================================================================
+test/features/notifications/data/m7c_persistence_repair_test.dart was authored
+BEFORE the production fix, deliberately, so that against the v46
+JSON-piggyback implementation it MUST fail. Its own header states this contract:
+
+  "It is written BEFORE the production fix on purpose: against the current v46
+   JSON-piggyback implementation these tests MUST FAIL, and the failure is the
+   evidence that the current persistence architecture is wrong."
+
+  "Everything asserted here is behaviour, never implementation shape."
+
+sha256 (preserved, unmodified by this session):
+  045aa91ecafe5ca7df5634c104b0bb2d60f4e320d276cdb95c70acdf506b9e42
+
+The fail-first phase is now CLOSED: with the v47 typed storage in place the same
+suite passes in full. The transition fail -> pass IS the proof that the target
+contract was previously unsatisfied and now is.
+
+PERSIST-1 … PERSIST-18 COVERAGE (all present, all PASS)
+  PERSIST-1  real v46 notification_preferences row migrates to v47          PASS
+  PERSIST-2  all five new fields become TRUE                                PASS
+             (asserted inside PERSIST-1, labelled in-line)
+  PERSIST-3  existing notification preferences survive exactly              PASS
+             (12 pre-existing columns asserted one by one)
+  PERSIST-4  privacy settings survive                                       PASS
+  PERSIST-5  no duplicate notification_preferences row                      PASS
+  PERSIST-6  fresh v47 defaults five fields TRUE                            PASS
+  PERSIST-7  save/reopen exact five-field values (all 32 combinations)      PASS
+  PERSIST-8  mixed example survives close/reopen
+             (title=false, description=false, time=true,
+              contacts=false, location=true)                               PASS
+  PERSIST-9  Event Color save does not modify Detailed settings             PASS
+  PERSIST-10 Contact Group colour save does not modify Detailed settings    PASS
+  PERSIST-11 restore Event Color defaults does not modify Detailed settings PASS
+  PERSIST-12 savePlannerSettings does not modify Detailed settings          PASS
+  PERSIST-13 notification-detail save does not modify Event Color JSON      PASS
+  PERSIST-14 notification-detail save does not modify unrelated
+             PlannerPreferences                                             PASS
+  PERSIST-15 Privacy Lock forces Generic but does not rewrite the five
+             stored values                                                  PASS
+  PERSIST-16 all five OFF still gives exact Generic fallback                PASS
+  PERSIST-17 worker and UI read identical typed preferences                 PASS
+  PERSIST-18 no private content enters WorkManager input                    PASS
+
+FORENSIC REGRESSION SEQUENCE — also encoded verbatim and PASSING:
+  save notification settings -> save Event Color -> reopen notification settings
+    OLD unsafe result : settings lost
+    NEW v47 result    : settings unchanged exactly
+
+================================================================================
+3. EXACT FIVE NEW TYPED FIELDS
+================================================================================
+Domain / Drift accessor      Database column            Type     Default
+---------------------------  -------------------------  -------  -------
+detailedShowTitle            detailed_show_title        bool     TRUE
+detailedShowDescription      detailed_show_description  bool     TRUE
+detailedShowTime             detailed_show_time         bool     TRUE
+detailedShowContacts         detailed_show_contacts     bool     TRUE
+detailedShowLocation         detailed_show_location     bool     TRUE
+
+Declared on the EXISTING NotificationPreferences table
+(lib/core/database/app_database.dart), not on a new table.
+
+Generated Drift output confirms the default law on every column:
+  defaultValue: const Constant(true)
+  defaultConstraints: CHECK ("detailed_show_<field>" IN (0, 1))
+
+No unrelated schema change was introduced. No sixth column. No new table.
+
+================================================================================
+4. v46 -> v47 MIGRATION IMPLEMENTATION
+================================================================================
+lib/core/database/app_database.dart, onUpgrade:
+
+  if (from < 47 && to >= 47) {
+    ... additive, boolean-only, five addColumn calls guarded by _columnExists
+  }
+
+Properties, each verified by reading the implementation:
+  * ADDITIVE ONLY — no INSERT, no UPDATE, no DELETE, no backfill of any column.
+  * Existing notification_preferences row is preserved as-is.
+  * Existing column defaults initialise every new field to TRUE, reproducing the
+    exact pre-options behaviour for an upgrading profile.
+  * Idempotency guard via _columnExists('notification_preferences', <column>)
+    so a v47 image restored as v46 cannot throw a duplicate-column exception and
+    strand Startup behind loading.
+  * Established repository Drift migration style (same shape as v44/v45/v46).
+  * Schema becomes EXACTLY 47. No v48. No unrelated migration step.
+
+  int get schemaVersion => _schemaVersionOverride ?? 47;
+
+GENERATED CODE was produced by the normal generator (drift_dev via
+build_runner). Generated database code was NEVER hand-edited.
+
+================================================================================
+5. REAL MIGRATION PROOF (real v46 database opened as v47)
+================================================================================
+Not certified from a fresh v47 database. The migration tests build an actual
+v46 database with schemaVersionOverride: 46, seed NON-DEFAULT owner data, close
+it, then reopen the SAME sqlite handle with the current schema and assert:
+
+  * PRAGMA user_version == 47
+  * the five new fields read TRUE
+  * all twelve pre-existing notification columns read back exactly as seeded
+    (e.g. taskRemindersEnabled=false, awaitingReportRemindersEnabled=false,
+     inAppGoalCelebrationsEnabled=false, defaultTaskReminderMinutes=25,
+     snoozeDurationMinutes=15, quietHoursEnabled=true,
+     quietStartMinute=1320, quietEndMinute=420)
+  * exactly ONE notification_preferences row exists (no duplicate)
+  * privacy_preferences survive with an identical key and values
+    (lockEnabled=true, notificationPreviewMode='hidden')
+
+================================================================================
+6. ROW / DATA PRESERVATION PROOF
+================================================================================
+MIGRATION-SAFETY test compares representative row counts BEFORE (v46) and AFTER
+(v47) for every one of the required tables:
+
+  contacts                          calendar_events
+  calendar_event_exceptions         planner_tasks
+  goals                             reminder_policies
+  notification_preferences          privacy_preferences
+  saved_places
+
+RESULT: every table count is IDENTICAL. ZERO unintended row loss.
+
+================================================================================
+7. RETIREMENT OF THE UNSAFE JSON AUTHORITY
+================================================================================
+The five fields NO LONGER depend on PlannerPreferences.eventColorPreferencesJson
+and NO LONGER use a notificationDetailedContent key for authoritative storage.
+
+Evidence — the literal string `notificationDetailedContent` now appears ONLY in:
+  * documentation comments explaining the retired defect (2 files), and
+  * ONE test fixture that deliberately seeds a LEGACY planner JSON containing the
+    old key, in order to prove the v47 typed values are authoritative and the
+    legacy key is ignored.
+
+There is NO production read or write of that key anywhere.
+
+Evidence — `eventColorPreferencesJson` appears in the notifications feature only
+inside test assertions that prove the document is NOT touched. The planner
+presentation document store and EventColorPreferenceCodec contain ZERO
+notification/detailed references.
+
+lib/features/planner/data/planner_presentation_document_store.dart  -> clean
+lib/features/planner/domain/event_color_preferences.dart            -> clean
+
+FILES AUDITED BEFORE ANY REMOVAL DECISION
+  lib/features/notifications/data/detailed_content_preferences_store.dart
+    RETAINED, but REPURPOSED. It is no longer a Planner-JSON piggyback; it is now
+    the typed reader/writer over the five dedicated columns. It performs a
+    PARTIAL UPDATE of exactly five columns plus updatedAtUtc, so no other
+    notification preference can change.
+  ReminderDetailOptions
+    RETAINED as a rendering value object, as explicitly permitted. It remains the
+    single presentation contract used by the renderer.
+  Repository methods/providers
+    readDetailedContent / saveDetailedContent now route through the typed store.
+    Nothing stores the five flags through the Planner JSON document.
+  Unrelated Planner JSON behaviour
+    NOT removed, NOT rewritten. Old corrective keys in an existing database are
+    simply IGNORED after v47 — typed values are authoritative.
+
+================================================================================
+8. EVENT COLOR ISOLATION REGRESSION PROOF
+================================================================================
+The exact defect sequence was reproduced as a test and now passes:
+
+  save notification settings -> save Event Color -> reopen notification settings
+
+  * OLD unsafe result: settings lost (the five switches silently reverted to
+    all-TRUE defaults).
+  * NEW v47 result: settings unchanged exactly.
+
+Additional isolation proofs, all PASSING:
+  PERSIST-9   Event Color save leaves the five values untouched
+  PERSIST-10  Contact Group colour save leaves them untouched
+  PERSIST-11  restore Event Color defaults leaves them untouched
+  PERSIST-12  savePlannerSettings leaves them untouched
+  PERSIST-13  notification-detail save does not alter Event Color data
+              (byte-compared eventColorPreferencesJson before vs after)
+  PERSIST-14  notification-detail save leaves unrelated planner columns alone
+
+The isolation is now STRUCTURAL — the two features share no document — rather
+than defensive merging.
+
+================================================================================
+9. SAVE/REOPEN PERSISTENCE PROOF
+================================================================================
+  * All 32 combinations of the five fields round-trip exactly (PERSIST-7).
+  * The mixed case survives a real close/reopen of the same database
+    (PERSIST-8): title=false, description=false, time=true, contacts=false,
+    location=true.
+  * A profile with NO notification_preferences row reads as the all-TRUE default
+    and the read CREATES NO ROW (reading is never a write).
+  * First write creates the row exactly once.
+
+================================================================================
+10. PRIVACY LOCK PERSISTENCE PROOF
+================================================================================
+  * Privacy Lock forces the exact Generic copy at render time.
+  * Privacy Lock does NOT clear or rewrite the five stored values. The owner's
+    Detailed preferences survive a locked period and return unchanged when the
+    lock is released (PERSIST-15).
+  * All five OFF yields the exact Generic fallback (PERSIST-16), and the same
+    all-off rule holds for Tasks.
+  * A privacy read FAILURE degrades to Generic; it is never treated as
+    permission for Detailed.
+
+  Generic exact copy remains, unchanged:
+      🔔 Next Transfer
+      You have a new notification.
+
+================================================================================
+11. PREVIOUS DETAILED BEHAVIOUR REGRESSION GATE
+================================================================================
+Corrective behaviour gate: 78 tests, ALL PASS (exit 0).
+
+  m7_detailed_content_test.dart .................... 23 tests  PASS
+  m7_enriched_delivery_test.dart ................... 37 tests  PASS
+  m7_headless_runtime_override_test.dart ............ 7 tests  PASS
+  m7_bigtext_presentation_test.dart ................. 3 tests  PASS
+  notification_foundation_domain_test.dart .......... 2 tests  PASS
+  (plus the remaining corrective suites in the same run)
+
+Preserved and re-verified, NOT regressed:
+  * actual resolved Event title (D1) and Task title (D4)
+  * blank title fallbacks (D2)
+  * emoji preservation through the title path (D3)
+  * 120-grapheme description preview cap (D6-D7)
+  * the five user content toggles
+  * all-off Generic fallback (D18, D18b) for both Event and Task
+  * Privacy Lock exact Generic override (D19)
+  * canonical renderer convergence — same renderer object for both transports
+    (D22)
+  * Generic copy is exactly neutral with zero enrichment tokens
+  * current Contact freshness and current location freshness
+  * technical-only worker input
+  * narrow diagnosticsProvider headless override (D28-D31)
+
+================================================================================
+12. BIGTEXT
+================================================================================
+m7_bigtext_presentation_test.dart — 3 tests, ALL PASS (exit 0).
+BigText presentation and channel identity/importance are unchanged.
+
+================================================================================
+13. HEADLESS CORRECTION
+================================================================================
+m7_headless_runtime_override_test.dart — 7 tests, ALL PASS (exit 0).
+D28-D31 hold: the inherited diagnosticsProvider gap is reproduced (D28) and the
+corrected narrow override set resolves the headless path (D29/D30), while real
+downstream failures remain truthful (D31). D24 confirms the headless container
+carries no owner display content.
+
+================================================================================
+14. ICON PRESERVED
+--------------------------------------------------------------------------------
+test/android/notification_icon_test.dart — 7 tests, ALL PASS (exit 0).
+  * gateway still selects @drawable/ic_nt_notification; no mipmap used for
+    notifications
+  * single-path monochrome vector, 108x108 viewport, 24dp declared
+  * the 1.08 uniform reframe is preserved: scaleX == scaleY == 1.08,
+    translate -4.32/-4.32, artwork still centred and unclipped
+  * every mipmap launcher file remains a real PNG and was NOT edited
+    (git status shows only ic_nt_notification.xml changed under android/)
+
+NOTE ON INTERPRETATION: these are REGRESSION-PROTECTION assertions only.
+Bounding-box arithmetic is not perception. Final subjective icon acceptance
+remains OWNER PHYSICAL REVIEW. A green run here is NOT reported as icon
+acceptance.
+
+================================================================================
+15. ANALYZER
+================================================================================
+  flutter analyze --no-pub --fatal-infos lib test
+  -> exit 0, "No issues found!" (52.5s)
+
+Run AFTER the v47 test update, so the result covers the final tree.
+
+================================================================================
+16. REGRESSION DIFFERENTIAL
+--------------------------------------------------------------------------------
+METHOD: identity-based, not count-based. Normalized test identity is
+
+    <suite-relative-path>::<full-visible-test-name>
+
+compared against the ACCEPTED pristine baseline capture
+(.m7_bundle_stage/EVIDENCE/02_accepted_baseline_test_output_7b1395c.json, the
+7b1395c worktree). Raw counts were NOT used as the criterion, because the
+candidate legitimately ADDS suites and tests.
+
+  baseline  : tests=1993  suites=270  bad=130  end_marker=YES
+  candidate : tests=2181  suites=287  bad=116  end_marker=YES
+  candidate stderr: 0 bytes (complete, validly terminated run)
+
+    NEW FAILURES = 0
+    NEW ERRORS   = 0
+    NEW SKIPS    = 0
+
+  inherited (bad in both)        : 116
+  fixed (bad only in baseline)   : 14
+  baseline names missing from candidate: 1 (explained below)
+
+ONE INTERMEDIATE FINDING — FOUND AND FIXED IN THIS SESSION
+The first post-recovery full run produced 5 NEW FAILURES, all in
+test/core/database/migration_rollback_test.dart. Root cause was NOT a product
+defect: five assertions hardcoded the "current" schema version as 46. Bumping
+the schema to 47 legitimately invalidated them.
+
+  Expected: <46>   Actual: <47>
+
+These five were updated to 47 with accurate comments describing the v47
+migration. This is exactly the permitted "storage-specific test moves", and it
+STRENGTHENS nothing and WEAKENS nothing — the assertions remain hardcoded
+integers rather than being replaced by a dynamic always-true comparison.
+
+  793, 951, 1065, 1128, 1314  ->  46 becomes 47
+
+After the fix: migration_rollback_test.dart 22/22 PASS, and the full-suite
+re-run produced NEW FAILURES = 0.
+
+THE ONE "MISSING" BASELINE NAME — a legitimate rename, verified by hand
+  baseline : ...vs16_m4_platform_safety_test.dart::durable work payload safety
+             delivery WorkManager input is stable-key-only
+  candidate: ...vs16_m4_platform_safety_test.dart::delivery WorkManager input is
+             the strict three-field allowlist
+
+This is a RENAME with STRENGTHENED assertions. The old test asserted the key set
+equals {stable_key}. The new test asserts the key set equals EXACTLY
+{stable_key, scheduled_utc_ms, source_revision}, that NO key contains
+title/body/text/name/location, and that uniqueName embeds the
+SHA-256-derived revision. Assertions were strengthened, never weakened.
+
+INHERITED FAILURES (116) are pre-existing conditions of 7b1395c, each proven
+present in the accepted baseline capture. They are tolerated only under that
+proof; none was waved through on the basis of a count. A representative
+verification was performed by hand on
+test/core/database/v38_notification_foundation_migration_test.dart, whose four
+tests are bad in BOTH baseline and candidate.
+
+The 14 "fixed" names are concentrated in frame-timing-sensitive presentation and
+geometry suites known to be flaky in this repository. They are reported for
+transparency and are NOT claimed as M7 deliverable work.
+
+================================================================================
+17. SCHEMA / GENERATED-CODE PROOF
+--------------------------------------------------------------------------------
+SCHEMA VERSION: exactly 47 (no v48).
+
+GENERATED CODE IN SYNC — proven by regeneration, not by inspection:
+  sha256 before regeneration:
+    93436dd78410550b7df0e7a912afcb3b6528ddd7b2830da0c9ac7482f66f9f29
+  ran: flutter pub run build_runner build
+  sha256 after regeneration:
+    93436dd78410550b7df0e7a912afcb3b6528ddd7b2830da0c9ac7482f66f9f29
+  BYTE-IDENTICAL. Regeneration was a no-op, therefore the committed generated
+  output already matches the source schema.
+  No churn: git status after regeneration showed no new or removed files.
+  Generated database code was NEVER hand-edited.
+
+================================================================================
+18. PERMISSIONS / PROTECTED BOUNDARIES
+--------------------------------------------------------------------------------
+NO UNAUTHORIZED DELTA.
+
+  android/ changes: exactly ONE file —
+    android/app/src/main/res/drawable/ic_nt_notification.xml (the 1.08 reframe)
+  AndroidManifest.xml  : UNCHANGED
+  Gradle build files   : UNCHANGED
+  mipmap launcher icons: UNCHANGED
+  pubspec.yaml / pubspec.lock : UNCHANGED (no new dependency)
+
+Permission set in the NEW APK is IDENTICAL to the previously certified APK
+(15 entries; listed in V47_APK_METADATA.txt). No exact-alarm permission, no
+foreground-service type expansion, no background-location permission.
+
+WORKER PRIVACY — technical only, verified structurally:
+  CanonicalReminderWorkSpec accepts EXACTLY three keys:
+    stable_key, scheduled_utc_ms, source_revision
+  Any extra key, missing key, wrong type, or the legacy two-key shape returns
+  null and is treated as a TERMINAL HANDLED NO-OP that must never mutate domain
+  state and must never be replayed.
+  PERSIST-18 and D24 both confirm no private display string enters WorkManager
+  input.
+
+DEFERRED / ABSENT, as required:
+  Snooze — fully deferred. No explicit Open action. No exact alarms. No new
+  permissions. No Saved Place reminders. No M8.
+
+================================================================================
+19. NEW APK IDENTITY
+--------------------------------------------------------------------------------
+  ABSOLUTE PATH : C:/Users/sherl/Downloads/NT_B5_DEVELOP__deepseek-m7m8-20260911/
+                  build/app/outputs/flutter-apk/app-debug.apk
+  BYTES         : 241,013,960
+  SHA-256       : 8506eb67143793bd560a67c42606b7392289eb9884781f2becf91ee2a201100a
+  TIMESTAMP     : 2026-09-12T14:24:50Z  (2026-09-12 22:24:50 local, GMT+8)
+  VARIANT       : debug
+  FLUTTER       : 3.44.7
+  DART          : 3.12.2
+  JDK           : Temurin 21.0.12.1+1
+  PACKAGE       : com.nexttransfer.rmplanner
+  VERSION NAME  : 0.1.0
+  VERSION CODE  : 1
+  MIN SDK       : 24
+  TARGET SDK    : 36
+  COMPILE SDK   : 36
+  SCHEMA VERSION: 47
+
+DISQUALIFICATION CHECK
+  disqualified : 208,136,378 bytes / a7c02b9790451cf92bf9f029ec8f00654d909a09
+                 907faf45ca14da4a6307484e
+  new v47      : 241,013,960 bytes / 8506eb67143793bd560a67c42606b7392289eb98
+                 84781f2becf91ee2a201100a
+  RESULT       : DISTINCT on both byte size and SHA-256.
+  The disqualified artefact was PRESERVED as forensic evidence and was NOT
+  reused, NOT overwritten in its evidence copy, and NOT installed.
+
+THREE-WAY LINEAGE (do not confuse)
+  PRE-CORRECTIVE CERTIFIED   240,957,877   1834134208...  (bundle, 15:59)
+  CORRECTIVE (DISQUALIFIED)  208,136,378   a7c02b97...    (19:14) unsafe v46
+  V47 REPAIR (THIS)          241,013,960   8506eb67...    (22:24) typed v47
+
+DO NOT INSTALL. Installation is a separate owner decision.
+
+================================================================================
+20. GATE SUMMARY
+--------------------------------------------------------------------------------
+  1  v47 persistence/migration suite .................. PASS (18 PERSIST cases)
+  2  previous Detailed corrective behaviour gate ...... PASS (78 tests)
+  3  regression differential .......................... PASS
+        NEW FAILURES = 0, NEW ERRORS = 0, NEW SKIPS = 0
+  4  flutter analyze --no-pub --fatal-infos lib test .. PASS (exit 0, no issues)
+  5  git diff --check ................................. PASS (exit 0)
+  6  schema ........................................... exactly v47
+  7  generated Drift output matches source ............ PASS (byte-identical
+                                                         after regeneration)
+  8  manifest / permissions ........................... PASS (no delta)
+  9  launcher icons ................................... PASS (unchanged)
+ 10  worker privacy ................................... PASS (technical only)
+
+SUPPORTING GATE RUNS
+  v47 gate bundle (m7c_persistence_repair + m7_detailed_content_store +
+  migration_rollback + drift_notification_foundation_repository) .. 56/56 PASS
+  notification/background/android/database subset ................. 322 pass
+  notification icon gate .......................................... 7/7 PASS
+
+================================================================================
+21. ENVIRONMENT NOTE (machine, NOT an app defect)
+--------------------------------------------------------------------------------
+The shell's PROGRAMFILES(X86) was observed as the corrupted literal value
+"(X86)". The correct value was injected ONLY for the tool invocation:
+
+    PROGRAMFILES(X86)=C:\Program Files (x86)
+
+No production source was modified to work around this machine condition.
+
+The shell also carried localhost proxy variables (http_proxy/https_proxy ->
+127.0.0.1:62218). The established localhost proxy-bypass harness was preserved
+and used for every test and build invocation:
+
+    NO_PROXY=no_proxy=localhost,127.0.0.1,::1
+
+Toolchain used, as specified:
+    C:/Users/sherl/AppData/Local/NextTransferFlutter
+    Flutter 3.44.7 / Dart 3.12.2
+    JDK C:/Users/sherl/AppData/Local/NextTransferFlutter/jdk21/jdk-21.0.12.1+1
+
+================================================================================
+22. EVIDENCE INDEX (this session)
+--------------------------------------------------------------------------------
+.m7_v47_evidence/
+  v47_candidate_test_output.json ........ full candidate run, JSON reporter
+  v47_candidate_stderr.txt .............. 0 bytes (clean complete run)
+  named_differential.py ................. identity-based differential tool
+  v47_named_differential.txt ............ final differential result
+  v47_gate_output.txt ................... v47 gate bundle (56 tests)
+  v47_corrective_behavior_gate.txt ...... corrective behaviour gate
+  v47_icon_gate.txt ..................... notification icon gate (7 tests)
+  v47_apk_build_log.txt ................. fresh v47 build log
+  v47_pre_build_state.txt ............... branch/HEAD/timestamp before build
+  v47_final_diff_stat.txt ............... final diff --stat
+  V47_APK_METADATA.txt .................. new APK identity + permissions
+  DISQUALIFIED_APK_FORENSIC_RECORD.txt .. disqualified artefact record
+  DISQUALIFIED_208136378_a7c02b97_app-debug.apk
+                                          byte-identical forensic copy
+
+================================================================================
+23. FINAL VERDICT
+--------------------------------------------------------------------------------
+
+  VS16 M7 CORRECTIVE PERSISTENCE REPAIR = PASSED
+
+  The five Detailed-notification content options now persist as TYPED boolean
+  columns on the existing notification_preferences row at schema v47. The unsafe
+  Planner-JSON piggyback is retired. Cross-feature isolation is structural. The
+  v46 -> v47 migration is additive, boolean-only, row-preserving and proven
+  against a real v46 database.
+
+  DEVICE = NOT TOUCHED
+  COMMIT = NOT PERFORMED
+  PUSH   = NOT PERFORMED
+  M8     = NOT STARTED
+
+  HARD STOP — no ADB, no device install, no commit, no push, no M8.
+
+================================================================================

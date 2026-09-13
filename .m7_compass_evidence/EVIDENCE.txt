@@ -1,0 +1,100 @@
+================================================================================
+VS16 M7 — TOP-LEFT COMPASS NEEDLE: FUNCTION RESTORATION EVIDENCE
+Device: Infinix X6731 (serial 10620253B3004617), Android 14 / SDK 34, 1080x2400
+Date: 2026-09-13
+================================================================================
+
+1. ROOT CAUSE (pointer interception, not visibility, not bearing re-apply)
+--------------------------------------------------------------------------------
+android/maps_interaction_patch/java/io/flutter/plugins/googlemaps/
+NtPrecisionMapView.java — the M3.2 Pass 2 precision tap layer — cancelled EVERY
+completed single-finger tap before the SDK saw ACTION_UP and consumed the event:
+
+    if (completedTap && interaction != null && interaction.enabled()) {
+      ... super.dispatchTouchEvent(cancel);   // SDK sees DOWN then CANCEL
+      interaction.tap(x, y);                  // Dart decides what the tap meant
+      return true;                            // real UP never reaches the SDK
+    }
+
+The Google Maps SDK's docked controls (the top-left compass among them) sit in
+the same view hierarchy, so their click could never complete. Result: the needle
+was drawn and rotated with the bearing, but a press on it did nothing.
+
+Measured on the UNFIXED build (this device):
+    tap on the visible needle at screen (72,391), bearing ~132 deg
+    -> logcat: "NTMapTiming {phase: T0-received, token: native:0:4, id: , ...}"
+       i.e. the precision layer consumed the press and forwarded it to Dart as a
+       blank-map tap; no camera frame followed.
+    -> BEARING BEFORE TAP  = non-zero (needle present, 394-402 red px)
+       BEARING AFTER  TAP  = UNCHANGED (identical needle pixels and position)
+    screenshots 01_*.png / 02_*.png (byte-identical needle geometry)
+
+Ruled out at the same time (each was inspected, not assumed):
+  * no Flutter overlay covers the compass — the Stack children above the
+    platform view are the bottom-right control column, the bottom disclosure
+    card, and boundary/placement chrome; the nearest Listener does not consume;
+  * camera/bearing persistence is session-only and only SEEDS
+    initialCameraPosition; no code re-issues a stale bearing after a move
+    (pinned by tests 3/5 in vs15_m33_auto_face_north_audit_test.dart);
+  * compassEnabled: true / rotateGesturesEnabled: true are untouched.
+
+2. FUNCTIONAL FIX (one sentence)
+--------------------------------------------------------------------------------
+NtPrecisionMapView now resolves, at ACTION_DOWN, whether the press started inside
+a visible docked SDK control view (<= 48 logical px, the compass) and, if so,
+forwards the whole gesture to the SDK instead of cancelling and consuming it —
+so the SDK's own compass click returns the camera to north-up while target and
+zoom stay put.
+
+3. ON-DEVICE VERIFICATION of the fix (real adb input events, no mock)
+--------------------------------------------------------------------------------
+Harness: verify.py (temporary in-app probe put the camera on a known bearing so
+the SDK dial shows its needle; the tap itself is a real injected MotionEvent).
+
+    RUN 1 (16:24:12)  NEEDLE VISIBLE = YES (395 red px)
+      BEARING BEFORE TAP = 40.00  tilt 0.00  zoom 16.000  target 16.84518,121.60767
+      BEARING AFTER  TAP =  0.00  tilt 0.00  zoom 16.000  target 16.84518,121.60767
+      needle after tap   = ABSENT (north-up)     VERDICT = PASS
+    RUN 2 (16:26:07)  identical: 40.00 -> 0.00, target/zoom preserved, PASS
+      native trace: "down x=82.0 y=81.0 sdkControl=true" then
+                    "up x=82.0 y=81.0 completed=true sdkControl=true"
+      and NO T0-received frame -> the SDK, not the precision layer, handled it.
+    screenshots 03_*.png (needle at 40 deg) / 04_*.png (north-up, needle gone)
+
+Regression checks on the delivered APK (compass hidden, bearing 0):
+    blank map tap (500,1200)            -> T0-received = 1  (precision layer
+                                           still owns ordinary map taps)
+    top-left tap (82,405), no control   -> T0-received = 1  (no blanket corner
+                                           bypass; the exception is visibility
+                                           aware and only fires on the control)
+
+4. FRESH APK
+--------------------------------------------------------------------------------
+path   : build/app/outputs/flutter-apk/app-debug.apk
+bytes  : 240,980,609        (previous stale artefact: 240,980,610)
+sha256 : d7c9b6b807120f7296c328ab5b86f7cc82ed72fb4296b6247b2203451bbbf539
+built  : 2026-09-13 16:28, flutter build apk --debug (Flutter 3.44.7),
+         Gradle assembleDebug 21.6s
+dex    : classes11.dex carries overSdkControl (the fix);
+         NTCompassDiag / NTProbe / NT_COMPASS_PROBE = ABSENT (clean artefact)
+install: adb install -r -> Success (no uninstall, no pm clear, no wipe)
+
+5. DEVICE PRESERVATION AFTER INSTALL
+--------------------------------------------------------------------------------
+schema user_version        : 47
+PRAGMA integrity_check     : ok
+tables                     : 45
+contacts / saved_places /
+calendar_events rows       : 16 / 5 / 313
+startup                    : MainActivity foreground, no FATAL in logcat
+location permission        : untouched by this change
+
+6. TREE
+--------------------------------------------------------------------------------
+changed : android/maps_interaction_patch/java/.../NtPrecisionMapView.java (+50/-3)
+          android/maps_interaction_patch/README.md (+10)
+          test/features/maps/vs15_m33_auto_face_north_audit_test.dart (untracked
+          M7 file; tests 11 and 12 added)
+untouched: lib/features/maps/presentation/google_maps_surface.dart keeps only its
+          pre-existing M7 hunk (compassEnabled/rotateGesturesEnabled)
+not performed: commit, push, reset, clean, stash, M8

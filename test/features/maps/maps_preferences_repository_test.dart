@@ -203,8 +203,9 @@ void main() {
         final userVersion = await versionThirtySeven
             .customSelect('PRAGMA user_version')
             .getSingle();
-        // M1 adds foundation tables and the correction adds a v39 master flag.
-        expect(userVersion.read<int>('user_version'), 39);
+        // The historical v36 source must upgrade through every additive step
+        // to the current application schema.
+        expect(userVersion.read<int>('user_version'), 47);
 
         final tableCount = await versionThirtySeven
             .customSelect(

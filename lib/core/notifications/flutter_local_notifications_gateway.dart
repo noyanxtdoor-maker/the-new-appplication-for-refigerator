@@ -126,6 +126,24 @@ final class FlutterLocalNotificationsGateway
   // VS16 owner decision: reminders carry NO explicit action buttons. Snooze is
   // deferred from the current product and the notification body's own tap is
   // the canonical Open path (same payload/routing as the retired button).
+  //
+  // VS16 M7 corrective — BigText presentation.
+  //
+  // Both `schedule()` (the native ordinary transport) and
+  // `showCanonicalReminder()` (the worker/enriched transport) route through
+  // this one method, so applying the style here converges both transports on a
+  // single presentation choke point.
+  //
+  // Without a style, Android renders the body in the collapsed one-line
+  // layout and a multiline Detailed body (time range + follow-up + description
+  // + location) collapses to a single visible line.  BigTextStyle makes the
+  // full body readable when the user expands the notification.
+  //
+  // `contentTitle` is pinned to [LocalNotificationRequest.title] so the
+  // expanded header shows exactly the same resolved title the collapsed header
+  // shows — including the M7 source-title amendment.  This is presentation
+  // only: channel identity, importance, permissions, platform IDs, transport
+  // ownership and scheduling semantics are all untouched.
   NotificationDetails _detailsFor(
     LocalNotificationRequest request,
   ) => NotificationDetails(
@@ -133,6 +151,10 @@ final class FlutterLocalNotificationsGateway
       request.channel.id,
       request.channel.label,
       channelDescription: request.channel.description,
+      styleInformation: BigTextStyleInformation(
+        request.body,
+        contentTitle: request.title,
+      ),
     ),
   );
 

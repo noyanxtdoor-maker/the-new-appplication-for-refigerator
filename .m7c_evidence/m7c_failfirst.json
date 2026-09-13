@@ -1,0 +1,35 @@
+{"protocolVersion":"0.1.1","runnerVersion":"1.31.0","pid":15832,"type":"start","time":0}
+{"suite":{"id":0,"platform":"vm","path":"C:/Users/sherl/Downloads/NT_B5_DEVELOP__deepseek-m7m8-20260911/test/features/notifications/data/m7c_persistence_repair_test.dart"},"type":"suite","time":0}
+{"test":{"id":1,"name":"loading C:/Users/sherl/Downloads/NT_B5_DEVELOP__deepseek-m7m8-20260911/test/features/notifications/data/m7c_persistence_repair_test.dart","suiteID":0,"groupIDs":[],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":null},"type":"testStart","time":1}
+{"count":1,"time":5,"type":"allSuites"}
+test/features/notifications/data/m7c_persistence_repair_test.dart:492:18: Error: The getter 'detailedShowTitle' isn't defined for the type 'NotificationPreferenceRow'.
+ - 'NotificationPreferenceRow' is from 'package:rmplanner/core/database/app_database.dart' ('lib/core/database/app_database.dart').
+Try correcting the name to the name of an existing getter, or defining a getter or field named 'detailedShowTitle'.
+      expect(row.detailedShowTitle, isTrue);
+                 ^^^^^^^^^^^^^^^^^
+test/features/notifications/data/m7c_persistence_repair_test.dart:493:18: Error: The getter 'detailedShowDescription' isn't defined for the type 'NotificationPreferenceRow'.
+ - 'NotificationPreferenceRow' is from 'package:rmplanner/core/database/app_database.dart' ('lib/core/database/app_database.dart').
+Try correcting the name to the name of an existing getter, or defining a getter or field named 'detailedShowDescription'.
+      expect(row.detailedShowDescription, isTrue);
+                 ^^^^^^^^^^^^^^^^^^^^^^^
+test/features/notifications/data/m7c_persistence_repair_test.dart:494:18: Error: The getter 'detailedShowTime' isn't defined for the type 'NotificationPreferenceRow'.
+ - 'NotificationPreferenceRow' is from 'package:rmplanner/core/database/app_database.dart' ('lib/core/database/app_database.dart').
+Try correcting the name to the name of an existing getter, or defining a getter or field named 'detailedShowTime'.
+      expect(row.detailedShowTime, isTrue);
+                 ^^^^^^^^^^^^^^^^
+test/features/notifications/data/m7c_persistence_repair_test.dart:495:18: Error: The getter 'detailedShowContacts' isn't defined for the type 'NotificationPreferenceRow'.
+ - 'NotificationPreferenceRow' is from 'package:rmplanner/core/database/app_database.dart' ('lib/core/database/app_database.dart').
+Try correcting the name to the name of an existing getter, or defining a getter or field named 'detailedShowContacts'.
+      expect(row.detailedShowContacts, isTrue);
+                 ^^^^^^^^^^^^^^^^^^^^
+test/features/notifications/data/m7c_persistence_repair_test.dart:496:18: Error: The getter 'detailedShowLocation' isn't defined for the type 'NotificationPreferenceRow'.
+ - 'NotificationPreferenceRow' is from 'package:rmplanner/core/database/app_database.dart' ('lib/core/database/app_database.dart').
+Try correcting the name to the name of an existing getter, or defining a getter or field named 'detailedShowLocation'.
+      expect(row.detailedShowLocation, isTrue);
+                 ^^^^^^^^^^^^^^^^^^^^
+test/features/notifications/data/m7c_persistence_repair_test.dart:605:5: Error: Method not found: 'DriftNotificationFoundationRepository'.
+    DriftNotificationFoundationRepository(database: database);
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+{"testID":1,"error":"Failed to load \"C:/Users/sherl/Downloads/NT_B5_DEVELOP__deepseek-m7m8-20260911/test/features/notifications/data/m7c_persistence_repair_test.dart\":\nCompilation failed for testPath=C:/Users/sherl/Downloads/NT_B5_DEVELOP__deepseek-m7m8-20260911/test/features/notifications/data/m7c_persistence_repair_test.dart: test/features/notifications/data/m7c_persistence_repair_test.dart:492:18: Error: The getter 'detailedShowTitle' isn't defined for the type 'NotificationPreferenceRow'.\n - 'NotificationPreferenceRow' is from 'package:rmplanner/core/database/app_database.dart' ('lib/core/database/app_database.dart').\nTry correcting the name to the name of an existing getter, or defining a getter or field named 'detailedShowTitle'.\n      expect(row.detailedShowTitle, isTrue);\n                 ^^^^^^^^^^^^^^^^^\ntest/features/notifications/data/m7c_persistence_repair_test.dart:493:18: Error: The getter 'detailedShowDescription' isn't defined for the type 'NotificationPreferenceRow'.\n - 'NotificationPreferenceRow' is from 'package:rmplanner/core/database/app_database.dart' ('lib/core/database/app_database.dart').\nTry correcting the name to the name of an existing getter, or defining a getter or field named 'detailedShowDescription'.\n      expect(row.detailedShowDescription, isTrue);\n                 ^^^^^^^^^^^^^^^^^^^^^^^\ntest/features/notifications/data/m7c_persistence_repair_test.dart:494:18: Error: The getter 'detailedShowTime' isn't defined for the type 'NotificationPreferenceRow'.\n - 'NotificationPreferenceRow' is from 'package:rmplanner/core/database/app_database.dart' ('lib/core/database/app_database.dart').\nTry correcting the name to the name of an existing getter, or defining a getter or field named 'detailedShowTime'.\n      expect(row.detailedShowTime, isTrue);\n                 ^^^^^^^^^^^^^^^^\ntest/features/notifications/data/m7c_persistence_repair_test.dart:495:18: Error: The getter 'detailedShowContacts' isn't defined for the type 'NotificationPreferenceRow'.\n - 'NotificationPreferenceRow' is from 'package:rmplanner/core/database/app_database.dart' ('lib/core/database/app_database.dart').\nTry correcting the name to the name of an existing getter, or defining a getter or field named 'detailedShowContacts'.\n      expect(row.detailedShowContacts, isTrue);\n                 ^^^^^^^^^^^^^^^^^^^^\ntest/features/notifications/data/m7c_persistence_repair_test.dart:496:18: Error: The getter 'detailedShowLocation' isn't defined for the type 'NotificationPreferenceRow'.\n - 'NotificationPreferenceRow' is from 'package:rmplanner/core/database/app_database.dart' ('lib/core/database/app_database.dart').\nTry correcting the name to the name of an existing getter, or defining a getter or field named 'detailedShowLocation'.\n      expect(row.detailedShowLocation, isTrue);\n                 ^^^^^^^^^^^^^^^^^^^^\ntest/features/notifications/data/m7c_persistence_repair_test.dart:605:5: Error: Method not found: 'DriftNotificationFoundationRepository'.\n    DriftNotificationFoundationRepository(database: database);\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n.","stackTrace":"","isFailure":false,"type":"error","time":1912}
+{"testID":1,"result":"error","skipped":false,"hidden":false,"type":"testDone","time":1916}
+{"success":false,"type":"done","time":1918}

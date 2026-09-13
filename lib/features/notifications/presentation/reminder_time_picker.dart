@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:rmplanner/features/notifications/domain/reminder_policy_label.dart';
 
 Future<int?> showReminderTimePicker(BuildContext context) async {
   const custom = -2;
@@ -21,7 +22,7 @@ Future<int?> showReminderTimePicker(BuildContext context) async {
           ),
           for (final value in <int>[0, 5, 10, 15, 30, 45, 60])
             ListTile(
-              title: Text(value == 0 ? 'At time' : '$value minutes before'),
+              title: Text(ReminderPolicyLabel.offsetMinutes(value)),
               onTap: () => Navigator.pop(context, value),
             ),
           ListTile(

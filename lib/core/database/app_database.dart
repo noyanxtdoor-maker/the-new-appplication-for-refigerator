@@ -247,6 +247,27 @@ class NotificationPreferences extends Table {
       boolean().withDefault(const Constant(false))();
   IntColumn get quietStartMinute => integer().nullable()();
   IntColumn get quietEndMinute => integer().nullable()();
+  // VS16 M7 corrective persistence repair (v47): the five per-field Detailed
+  // notification content options. They were briefly stored as a namespaced key
+  // inside PlannerPreferences.eventColorPreferencesJson, which was UNSAFE: the
+  // planner document writers rebuild that JSON from the keys they understand
+  // and silently dropped the namespaced key. Notification-specific
+  // preferences therefore belong here, in typed columns, alongside every other
+  // notification preference.
+  //
+  // DEFAULT LAW: all five default to TRUE. A profile that has never touched
+  // these settings keeps the richest Detailed behaviour and keeps the exact
+  // pre-options behaviour on upgrade.
+  BoolColumn get detailedShowTitle =>
+      boolean().withDefault(const Constant(true))();
+  BoolColumn get detailedShowDescription =>
+      boolean().withDefault(const Constant(true))();
+  BoolColumn get detailedShowTime =>
+      boolean().withDefault(const Constant(true))();
+  BoolColumn get detailedShowContacts =>
+      boolean().withDefault(const Constant(true))();
+  BoolColumn get detailedShowLocation =>
+      boolean().withDefault(const Constant(true))();
   DateTimeColumn get updatedAtUtc => dateTime()();
 
   @override
@@ -1277,6 +1298,54 @@ class MapsPreferences extends Table {
   Set<Column<Object>> get primaryKey => <Column<Object>>{key};
 }
 
+/// Connection options for the app's single logical database file.
+///
+/// VS16 M7 corrective — first-launch migration race.
+///
+/// `AppDatabase.defaults()` is constructed from three independent sites
+/// (`lib/main.dart`, and twice in
+/// `lib/features/notifications/application/reminder_background_runtime.dart`).
+/// With drift's default options each site opened its OWN connection to
+/// `next_transfer.sqlite`. On the first launch after the upgrade, two
+/// connections could therefore both decide to run the v46 -> v47 `onUpgrade`
+/// at once:
+///
+///   * connection A acquired RESERVED (`BEGIN IMMEDIATE`) and then needed
+///     EXCLUSIVE to commit, but could not get it while B held SHARED;
+///   * connection B held SHARED (from reading `user_version`) and needed
+///     RESERVED, but could not get it while A held RESERVED.
+///
+/// That is a genuine lock-upgrade deadlock, so SQLite returns
+/// `SqliteException(5): database is locked` and NO timeout can rescue it.
+/// Measured, not assumed: a busy timeout of 5 s, `journal_mode = WAL`, and both
+/// together were each tried against a reproduced race and each still failed
+/// (evidence: `.m7_frozen_audit/migration_race_probe/`). The exception was
+/// unhandled on the startup path, so no frame was ever drawn and the app
+/// appeared to hang on the splash screen; the second launch succeeded because
+/// the schema was already 47 and `onUpgrade` was skipped.
+///
+/// The only correction that addresses the cause is to stop having more than one
+/// connection in the first place, which is what drift's own
+/// [DriftNativeOptions.shareAcrossIsolates] does: every
+/// `driftDatabase(name: 'next_transfer')` in the process converges on ONE shared
+/// connection. Drift documents this option as managing "concurrent access to the
+/// database, preventing 'database is locked' errors due to concurrent
+/// transactions" and "recommended if a drift database may be used on multiple
+/// isolates".
+///
+/// Scope: no schema change (still exactly 47), no migration-logic change, no
+/// change to `beforeOpen`/`onUpgrade`, no new dependency.
+/// `AppDatabase.forTesting` is untouched, so every existing database test keeps
+/// its own executor and behaviour.
+///
+/// Known limit, stated honestly: `shareAcrossIsolates` shares within one Flutter
+/// engine (it uses `IsolateNameServer`). It removes the three same-engine
+/// connections that caused this startup failure. A separate engine would need a
+/// different remedy; none is introduced here.
+const DriftNativeOptions kAppDatabaseNativeOptions = DriftNativeOptions(
+  shareAcrossIsolates: true,
+);
+
 @DriftDatabase(
   tables: <Type>[
     LocalProfiles,
@@ -1343,7 +1412,7 @@ final class AppDatabase extends _$AppDatabase {
       _injectSavedPlaceCustomizationMigrationFailure = false,
       _injectMapsPreferencesMigrationFailure = false,
       _injectNotificationFoundationMigrationFailure = false,
-      super(driftDatabase(name: 'next_transfer'));
+      super(driftDatabase(name: 'next_transfer', native: kAppDatabaseNativeOptions));
 
   AppDatabase.forTesting(
     super.executor, {
@@ -1404,7 +1473,7 @@ final class AppDatabase extends _$AppDatabase {
   final bool _injectNotificationFoundationMigrationFailure;
 
   @override
-  int get schemaVersion => _schemaVersionOverride ?? 46;
+  int get schemaVersion => _schemaVersionOverride ?? 47;
 
   @override
   MigrationStrategy get migration {
@@ -2460,6 +2529,47 @@ final class AppDatabase extends _$AppDatabase {
               'goal_profile_active_slot_unique '
               'ON goals (profile_id, active_slot_index)',
             );
+          }
+          if (from < 47 && to >= 47) {
+            // VS16 M7 corrective persistence repair: additive, boolean-only.
+            // The five Detailed notification content options move out of the
+            // shared Planner presentation JSON document (where planner writers
+            // silently dropped them) into typed columns on the EXISTING
+            // notification_preferences row.
+            //
+            // ADDITIVE ONLY. The pre-existing row is preserved as-is: there is
+            // no INSERT, no UPDATE, no DELETE and no backfill of any other
+            // column, so no notification value, Event, Task, Contact, Goal,
+            // Planner or Privacy content can be affected. The column defaults
+            // initialise every new field to TRUE, which reproduces the exact
+            // pre-options behaviour for an upgrading profile.
+            //
+            // The guard is the established idempotency pattern: a database that
+            // already carries one of these columns (for example a v47 image
+            // restored as v46) must not throw a duplicate-column exception and
+            // strand Startup behind loading.
+            final detailedColumns = <String, GeneratedColumn<Object>>{
+              'detailed_show_title': notificationPreferences.detailedShowTitle,
+              'detailed_show_description':
+                  notificationPreferences.detailedShowDescription,
+              'detailed_show_time': notificationPreferences.detailedShowTime,
+              'detailed_show_contacts':
+                  notificationPreferences.detailedShowContacts,
+              'detailed_show_location':
+                  notificationPreferences.detailedShowLocation,
+            };
+            for (final entry in detailedColumns.entries) {
+              if (!await _columnExists(
+                'notification_preferences',
+                entry.key,
+              )) {
+                await migrator.addColumn(notificationPreferences, entry.value);
+              }
+            }
+            // No explicit UPDATE: ADD COLUMN with a DEFAULT gives every
+            // existing row the default (TRUE) without a second write, and a
+            // profile with no notification_preferences row stays absent until
+            // the app first saves — exactly as before.
           }
         });
       },

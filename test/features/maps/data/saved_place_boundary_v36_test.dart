@@ -43,17 +43,17 @@ void main() {
             );
         await version35.close();
 
-        // Reopen at the CURRENT schema version (v38): the v36 step must add
+        // Reopen at the CURRENT schema version (v47): the v36 step must add
         // the two nullable boundary columns while preserving every persisted
-        // value, then the additive v37 Maps Preferences and v38 foundation
-        // tables are created without touching Saved Place data.
+        // value, then all later additive migrations through v47 are applied
+        // without touching Saved Place data.
         final version37 = AppDatabase.forTesting(
           NativeDatabase.opened(raw, closeUnderlyingOnClose: false),
         );
         expect(
           (await version37.customSelect('PRAGMA user_version').getSingle())
               .read<int>('user_version'),
-          38,
+          47,
         );
         final columns = await version37
             .customSelect("PRAGMA table_info(saved_places)")

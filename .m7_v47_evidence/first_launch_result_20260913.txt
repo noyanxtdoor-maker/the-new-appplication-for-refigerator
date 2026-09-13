@@ -1,0 +1,6 @@
+Starting: Intent { cmp=com.nexttransfer.rmplanner/.MainActivity }
+Status: ok
+LaunchState: UNKNOWN (0)
+Activity: com.nexttransfer.rmplanner/.MainActivity
+WaitTime: 3066
+Complete

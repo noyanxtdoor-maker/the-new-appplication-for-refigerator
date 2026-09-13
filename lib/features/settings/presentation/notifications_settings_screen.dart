@@ -4,8 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:rmplanner/app/theme/app_theme.dart';
 import 'package:rmplanner/app/theme/internal_screen.dart';
+import 'package:rmplanner/features/notifications/application/detailed_content_providers.dart';
 import 'package:rmplanner/features/notifications/application/notification_providers.dart';
+import 'package:rmplanner/features/notifications/application/reminder_notification_renderer.dart';
+import 'package:rmplanner/features/notifications/data/detailed_content_preferences_store.dart';
 import 'package:rmplanner/features/notifications/domain/notification_preferences.dart';
+import 'package:rmplanner/features/notifications/domain/reminder_policy_label.dart';
 import 'package:rmplanner/features/planner/application/event_type_providers.dart';
 import 'package:rmplanner/features/privacy/application/privacy_providers.dart';
 import 'package:rmplanner/features/privacy/domain/permission_summary.dart';
@@ -217,6 +221,9 @@ final class _NotificationsSettingsScreenState
                     ],
                   ),
                   const SizedBox(height: 18),
+                  const _SectionLabel('DETAILED CONTENT'),
+                  _DetailedContentCard(),
+                  const SizedBox(height: 18),
                   const _SectionLabel('PRIVACY'),
                   _Card(
                     children: <Widget>[
@@ -394,9 +401,210 @@ final class _NotificationsSettingsScreenState
 
   static String _leadLabel(int? minutes) {
     if (minutes == null) return 'Off';
-    if (minutes == 0) return 'At time';
+    // Existing "1 hour before" shorthand is preserved product copy (O8 keeps
+    // existing suffixes); every other numeric value goes through the shared
+    // formatter so 0/1 are never pluralised incorrectly.
     if (minutes == 60) return '1 hour before';
-    return '$minutes minutes before';
+    return ReminderPolicyLabel.offsetMinutes(minutes);
+  }
+}
+
+final class _DetailedContentCard extends ConsumerWidget {
+  const _DetailedContentCard();
+
+  /// Representative sample used by the live preview.
+  ///
+  /// It is deliberately fixed, not read from the database: the preview must
+  /// show what the chosen combination PRODUCES, and a stable sample keeps the
+  /// preview readable and testable. It exercises every field at once so that
+  /// turning a field off visibly removes exactly that line.
+  static const String _sampleEventTitle = '🦷 Dentist appointment';
+  static const String _sampleFollowUpName = 'Bea';
+  static const String _sampleLocation = 'Riverside Clinic';
+  static const String _sampleNotes =
+      'Bring the insurance card and the referral letter from the last visit, '
+      'plus the receipt for the fluoride treatment.';
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final preferences = ref.watch(detailedContentPreferencesProvider);
+    final privacy = ref.watch(privacyControllerProvider);
+    final stored = preferences.value;
+    // Privacy Lock is authoritative and is resolved WITHOUT consulting the
+    // saved Detailed choices, so the lock can never mutate them.
+    final lockActive = privacy.settings.lockEnabled;
+    final options = stored ?? DetailedContentPreferences.defaults;
+
+    return _Card(
+      children: <Widget>[
+        if (stored == null)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 18),
+            child: Center(child: CircularProgressIndicator()),
+          )
+        else ...<Widget>[
+          _DetailedToggle(
+            key: const Key('notifications-detailed-title'),
+            title: 'Show title',
+            subtitle: 'The event or task title, including its emoji',
+            value: stored.showTitle,
+            onChanged: (value) => ref
+                .read(detailedContentControllerProvider)
+                .setField(current: stored, showTitle: value),
+          ),
+          const Divider(height: 1),
+          _DetailedToggle(
+            key: const Key('notifications-detailed-description'),
+            title: 'Show description',
+            subtitle:
+                'Up to ${ReminderNotificationRenderer.maxDescriptionGraphemes} '
+                'characters',
+            value: stored.showDescription,
+            onChanged: (value) => ref
+                .read(detailedContentControllerProvider)
+                .setField(current: stored, showDescription: value),
+          ),
+          const Divider(height: 1),
+          _DetailedToggle(
+            key: const Key('notifications-detailed-time'),
+            title: 'Show time',
+            subtitle: 'When the event runs or the task is due',
+            value: stored.showTime,
+            onChanged: (value) => ref
+                .read(detailedContentControllerProvider)
+                .setField(current: stored, showTime: value),
+          ),
+          const Divider(height: 1),
+          _DetailedToggle(
+            key: const Key('notifications-detailed-contacts'),
+            title: 'Show contacts',
+            subtitle: 'Who to follow up with',
+            value: stored.showContacts,
+            onChanged: (value) => ref
+                .read(detailedContentControllerProvider)
+                .setField(current: stored, showContacts: value),
+          ),
+          const Divider(height: 1),
+          _DetailedToggle(
+            key: const Key('notifications-detailed-location'),
+            title: 'Show location',
+            subtitle: 'The saved place name as text',
+            value: stored.showLocation,
+            onChanged: (value) => ref
+                .read(detailedContentControllerProvider)
+                .setField(current: stored, showLocation: value),
+          ),
+          const Divider(height: 1),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  'Preview',
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.5,
+                    color: AppTheme.secondaryTextOf(context),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                _DetailedPreview(
+                  key: const Key('notifications-detailed-preview'),
+                  options: options,
+                  privacyLockActive: lockActive,
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  lockActive
+                      ? 'Privacy Lock is on, so notifications show the generic '
+                            'text. Your choices here are kept for when it is '
+                            'turned off.'
+                      : 'This is the exact text a notification will show.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: AppTheme.secondaryTextOf(context),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+final class _DetailedToggle extends StatelessWidget {
+  const _DetailedToggle({
+    super.key,
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final String title;
+  final String subtitle;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) => SwitchListTile(
+    title: Text(title),
+    subtitle: Text(subtitle),
+    value: value,
+    onChanged: onChanged,
+  );
+}
+
+/// Renders the live preview through the canonical renderer.
+final class _DetailedPreview extends StatelessWidget {
+  const _DetailedPreview({
+    super.key,
+    required this.options,
+    required this.privacyLockActive,
+  });
+
+  final DetailedContentPreferences options;
+  final bool privacyLockActive;
+
+  @override
+  Widget build(BuildContext context) {
+    final reminder = buildDetailedPreview(
+      isEvent: true,
+      options: options,
+      privacyLockActive: privacyLockActive,
+      sourceTitle: _DetailedContentCard._sampleEventTitle,
+      startDisplay: DateTime(2026, 1, 1, 9, 30),
+      endDisplay: DateTime(2026, 1, 1, 10, 30),
+      notes: _DetailedContentCard._sampleNotes,
+      followUpName: _DetailedContentCard._sampleFollowUpName,
+      locationText: _DetailedContentCard._sampleLocation,
+    );
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: AppTheme.surfaceVariantOf(context),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Text(
+              reminder.title,
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              reminder.body,
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -416,7 +624,6 @@ final class _CustomReminderDialog extends StatefulWidget {
   @override
   State<_CustomReminderDialog> createState() => _CustomReminderDialogState();
 }
-
 final class _CustomReminderDialogState extends State<_CustomReminderDialog> {
   late final TextEditingController _input = TextEditingController(
     text: widget.initialMinutes?.toString() ?? '',

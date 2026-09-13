@@ -1,0 +1,9 @@
+DETERMINISM CHECK (two independent full runs, same frozen tree)
+  RUN1 identities / RUN2 identities : 2196 / 2196
+  identities only in RUN1            : 0
+  identities only in RUN2            : 0
+  verdict differences between runs   : 0
+
+GATE (per run, vs accepted baseline)
+  RUN1: NEW failures+errors=0  NEW skips=0  -> PASS
+  RUN2: NEW failures+errors=0  NEW skips=0  -> PASS

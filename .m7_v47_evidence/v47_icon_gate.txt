@@ -1,0 +1,9 @@
+00:00 +0: loading C:/Users/sherl/Downloads/NT_B5_DEVELOP__deepseek-m7m8-20260911/test/android/notification_icon_test.dart
+00:00 +0: D25 notification drawable selection the gateway still selects @drawable/ic_nt_notification
+00:00 +1: D26 notification icon vector geometry is a single-path monochrome vector on the 108x108 viewport
+00:00 +2: D26 notification icon vector geometry artwork occupancy increased and does not clip the canvas
+00:00 +3: D26 notification icon vector geometry the mark is not stretched into a distorted aspect ratio
+00:00 +4: D26 notification icon vector geometry the correction is a uniform reframe, never a stretch
+00:00 +5: D26 notification icon vector geometry the corrective reframe keeps the mark visually centred
+00:00 +6: D27 launcher icons remain byte-identical every mipmap launcher file is unchanged
+00:00 +7: All tests passed!

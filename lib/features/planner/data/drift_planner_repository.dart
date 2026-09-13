@@ -1,8 +1,10 @@
 import 'dart:convert';
 
 import 'package:drift/drift.dart';
+import 'package:rmplanner/core/background/reminder_recovery_request.dart';
 import 'package:rmplanner/core/database/app_database.dart';
 import 'package:rmplanner/core/time/app_clock.dart';
+import 'package:rmplanner/features/notifications/domain/task_reminder_occurrence.dart';
 import 'package:rmplanner/features/planner/application/planner_repository.dart';
 import 'package:rmplanner/features/planner/data/task_goal_contribution_engine.dart';
 import 'package:rmplanner/features/planner/domain/outcome_reporting.dart';
@@ -25,6 +27,7 @@ final class DriftPlannerRepository
     implements
         PlannerRepository,
         PlannerTaskReminderSource,
+        PlannerTaskReminderOccurrenceSource,
         PlannerBadgeTaskSource {
   const DriftPlannerRepository({
     required this.database,
@@ -33,6 +36,7 @@ final class DriftPlannerRepository
     this.taskContextSource = const EmptyPlannerTaskContextSource(),
     this.historicalEffectReader = const NoTaskHistoricalEffects(),
     this.writeGuard = const AllowTaskWrites(),
+    this.reminderRepair,
   });
 
   final AppDatabase database;
@@ -41,6 +45,15 @@ final class DriftPlannerRepository
   final PlannerTaskContextSource taskContextSource;
   final TaskHistoricalEffectReader historicalEffectReader;
   final TaskWriteGuard writeGuard;
+
+  /// M7 section 27 durable repair intent.
+  ///
+  /// When supplied, a canonical Task mutation that can change reminder timing,
+  /// eligibility or lifecycle persists the reminder reconciliation marker in the
+  /// SAME transaction as the mutation.  A later platform failure can therefore
+  /// not erase the committed intent to reconcile.  It is optional so read-only
+  /// and test compositions stay unaffected, and absent it changes nothing.
+  final ReminderRecoveryRequest? reminderRepair;
 
   @override
   Future<TaskStatusChangeOutcome> changeTaskStatus({
@@ -138,6 +151,9 @@ final class DriftPlannerRepository
           // caller first returns the task to incomplete.
           break;
       }
+      // Section 27: completing, reopening or cancelling a Task changes reminder
+      // eligibility, so the repair intent commits with the status change.
+      await reminderRepair?.mark(database, profileId: profileId);
       await writeGuard.beforeCommit();
       return TaskStatusChangeOutcome.changed;
     });
@@ -274,6 +290,9 @@ final class DriftPlannerRepository
           'Task $taskId disappeared before hard delete completed.',
         );
       }
+      // Section 27: a deleted Task can no longer justify a pending reminder, so
+      // the repair intent commits with the delete and recovery withdraws it.
+      await reminderRepair?.mark(database, profileId: profileId);
       await writeGuard.beforeCommit();
       return TaskHardDeleteOutcome.deleted;
     });
@@ -446,6 +465,57 @@ final class DriftPlannerRepository
               ]))
             .get();
     return Future.wait(rows.map(_mapTask));
+  }
+
+  @override
+  Future<List<TaskReminderOccurrence>> readTaskReminderOccurrences({
+    required String profileId,
+    required PlannerDate startDate,
+    required PlannerDate endDate,
+  }) async {
+    if (endDate.compareTo(startDate) < 0) {
+      throw ArgumentError('Task reminder range must not end before it starts.');
+    }
+    // Reminder-specific projection (contract section 37).  The anchor filter is
+    // `anchor <= horizonEnd` rather than `anchor inside the window`, because a
+    // recurring Task whose anchor lies before the window still projects valid
+    // occurrences INSIDE it.  Date-only Tasks (no due minute) and non-incomplete
+    // Tasks are excluded here, so a date-only Task never becomes remindable.
+    final rows =
+        await (database.select(database.plannerTasks)
+              ..where(
+                (table) =>
+                    table.profileId.equals(profileId) &
+                    table.status.equals(PlannerTaskStatus.incomplete.name) &
+                    table.dueDate.isNotNull() &
+                    table.dueMinute.isNotNull() &
+                    table.dueDate.isSmallerOrEqualValue(endDate.iso8601),
+              )
+              ..orderBy(<OrderingTerm Function(PlannerTasks)>[
+                (table) => OrderingTerm.asc(table.dueDate),
+                (table) => OrderingTerm.asc(table.dueMinute),
+                (table) => OrderingTerm.asc(table.id),
+              ]))
+            .get();
+    final tasks = await Future.wait(rows.map(_mapTask));
+    final occurrences = <TaskReminderOccurrence>[];
+    for (final task in tasks) {
+      if (task.status != PlannerTaskStatus.incomplete) continue;
+      if (task.dueDate == null || task.dueMinute == null) continue;
+      // Bounded iteration over the caller's window; recurrence arithmetic stays
+      // entirely inside the canonical PlannerTask.projectsOn projection.
+      for (
+        var date = startDate;
+        date.compareTo(endDate) <= 0;
+        date = date.addDays(1)
+      ) {
+        if (!task.projectsOn(date)) continue;
+        occurrences.add(
+          TaskReminderOccurrence(task: task, projectedDate: date),
+        );
+      }
+    }
+    return occurrences;
   }
 
   @override
@@ -626,6 +696,11 @@ final class DriftPlannerRepository
           changedAt: now,
         );
       }
+      // Section 27: a Task save can change reminder timing, recurrence,
+      // lifecycle or the linked Event Type, so the repair intent commits inside
+      // this SAME transaction.  If the caller's later platform registration
+      // fails, the durable marker still guarantees reconciliation happens.
+      await reminderRepair?.mark(database, profileId: profileId);
       await writeGuard.beforeCommit();
     });
 

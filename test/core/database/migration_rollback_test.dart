@@ -789,8 +789,10 @@ void main() {
           // boundary columns, M6.2's additive v37 Maps preferences table, and
           // M1's additive v38 notification-foundation tables and the v39
           // app-owned master field and v40 Snooze duration without losing
-          // earlier owner data.
-          46,
+          // earlier owner data. VS16 M7 then advances to v47 by adding the five
+          // typed Detailed-notification columns to the existing
+          // notification_preferences row (additive, boolean-only).
+          47,
         );
         final taskColumns = await versionTen
             .customSelect('PRAGMA table_info(planner_tasks)')
@@ -947,8 +949,10 @@ void main() {
         // The historical v15 database upgrades through every current additive
         // migration; v31 itself remains explicitly covered below.
         // VS-15 M6.2 advanced to v37; M1 then adds three empty foundation
-        // tables at v38; v39 adds master state; v40 adds Snooze duration.
-        expect(version.read<int>('user_version'), 46);
+        // tables at v38; v39 adds master state; v40 adds Snooze duration;
+        // VS16 M7 advances to v47 with the five typed Detailed-notification
+        // columns on the existing notification_preferences row.
+        expect(version.read<int>('user_version'), 47);
         final taskColumns = await current
             .customSelect('PRAGMA table_info(planner_tasks)')
             .get();
@@ -1062,7 +1066,7 @@ void main() {
         expect(
           (await version33.customSelect('PRAGMA user_version').getSingle())
               .read<int>('user_version'),
-          46,
+          47,
         );
         await version33.close();
       } finally {
@@ -1125,7 +1129,7 @@ void main() {
         expect(
           (await version35.customSelect('PRAGMA user_version').getSingle())
               .read<int>('user_version'),
-          46,
+          47,
         );
         final columns = await version35
             .customSelect('PRAGMA table_info(saved_places)')
@@ -1311,7 +1315,7 @@ void main() {
         expect(
           (await version45.customSelect('PRAGMA user_version').getSingle())
               .read<int>('user_version'),
-          46,
+          47,
         );
         await version45.close();
       } finally {

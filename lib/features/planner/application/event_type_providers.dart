@@ -108,6 +108,20 @@ final eventTypeControllerProvider =
 final class EventTypeController extends Notifier<EventTypeState> {
   EventTypeRepository get _repository => ref.read(eventTypeRepositoryProvider);
 
+  /// The profile that produced the CURRENT [state], or null while the state is
+  /// only a pre-load placeholder.  Tracked so a warm entry can prove the data
+  /// it would reuse belongs to the same Local Profile (O1/O10 provenance law).
+  String? _loadedProfileId;
+
+  /// The single in-flight load for [_inflightProfileId], shared by concurrent
+  /// first callers so a warm/cold burst issues exactly one read set.
+  Future<void>? _inflight;
+  String? _inflightProfileId;
+  bool _inflightIncludeArchived = false;
+
+  /// Whether the last SUCCESSFUL load was read with archived types.
+  bool _loadedIncludeArchived = false;
+
   String get _profileId {
     final startup = ref.read(startupControllerProvider);
     if (startup is! StartupReady) {
@@ -122,18 +136,95 @@ final class EventTypeController extends Notifier<EventTypeState> {
     return const EventTypeState.loading();
   }
 
+  /// True when the current state is a SUCCESSFUL load for [profileId] — i.e.
+  /// it carries usable truth this profile may present as current creation
+  /// eligibility.  Loading, errored, or wrong-profile data never qualifies.
+  bool isReadyFor(String profileId) {
+    if (state.isLoading || state.message != null) {
+      return false;
+    }
+    return _loadedProfileId == profileId;
+  }
+
+  /// O1/O10 warm fast path: reuse the current successful same-profile load,
+  /// otherwise await the in-flight one, otherwise start exactly one.
+  ///
+  /// This is deliberately NOT "skip the load when the list is nonempty": a
+  /// cached list from another profile, a loading placeholder, or an errored
+  /// state can never establish current creation eligibility.  Existing
+  /// [load] callers keep their own explicit-reload behavior.
+  Future<void> ensureLoaded({
+    bool includeArchived = false,
+    bool requireArchived = false,
+  }) async {
+    // A not-yet-ready Local Profile is not a warm state: fall through to
+    // [load], whose existing error containment owns that outcome.
+    final profileId = _currentProfileIdOrNull();
+    if (profileId == null) {
+      await load(includeArchived: includeArchived);
+      return;
+    }
+    // A warm, trustworthy, same-profile state satisfies the caller.  An
+    // archived-inclusive request is only satisfied by an archived-inclusive
+    // load, since the narrow list may legitimately omit retired types.
+    if (isReadyFor(profileId) &&
+        (!requireArchived || _loadedIncludeArchived)) {
+      return;
+    }
+    final inflight = _inflight;
+    if (inflight != null &&
+        _inflightProfileId == profileId &&
+        (!requireArchived || _inflightIncludeArchived)) {
+      await inflight;
+      return;
+    }
+    await load(includeArchived: includeArchived);
+  }
+
   Future<void> load({bool includeArchived = false}) async {
+    // Coalesce: while one load is in flight, a second caller for the SAME
+    // profile (and the same archive scope) awaits that work instead of issuing
+    // a duplicate read set.  A caller that needs a broader scope still starts
+    // its own read, so `load(includeArchived: true)` keeps its own behavior.
+    final inflight = _inflight;
+    final inflightProfileId = _inflightProfileId;
+    if (inflight != null &&
+        inflightProfileId != null &&
+        inflightProfileId == _currentProfileIdOrNull() &&
+        (!includeArchived || _inflightIncludeArchived)) {
+      await inflight;
+      return;
+    }
     state = state.copyWith(isLoading: true, clearMessage: true);
+    final work = _performLoad(includeArchived: includeArchived);
+    _inflight = work;
     try {
+      await work;
+    } finally {
+      if (identical(_inflight, work)) {
+        _inflight = null;
+        _inflightProfileId = null;
+        _inflightIncludeArchived = false;
+      }
+    }
+  }
+
+  Future<void> _performLoad({required bool includeArchived}) async {
+    try {
+      final profileId = _profileId;
+      _inflightProfileId = profileId;
+      _inflightIncludeArchived = includeArchived;
       final results = await Future.wait<Object>(<Future<Object>>[
         _repository.readEventTypes(
-          profileId: _profileId,
+          profileId: profileId,
           includeArchived: includeArchived,
         ),
-        _repository.readPlannerSettings(profileId: _profileId),
-        _repository.readEventColorPreferences(profileId: _profileId),
-        _repository.readContactGroupColors(profileId: _profileId),
+        _repository.readPlannerSettings(profileId: profileId),
+        _repository.readEventColorPreferences(profileId: profileId),
+        _repository.readContactGroupColors(profileId: profileId),
       ]);
+      _loadedProfileId = profileId;
+      _loadedIncludeArchived = includeArchived;
       state = EventTypeState(
         isLoading: false,
         eventTypes: results[0] as List<EventType>,
@@ -142,12 +233,20 @@ final class EventTypeController extends Notifier<EventTypeState> {
         groupColors: results[3] as Map<String, int>,
       );
     } on Object {
+      // The errored state is explicitly NOT ready for any profile: a failed
+      // read can never establish current creation eligibility.
+      _loadedProfileId = null;
       state = state.copyWith(
         isLoading: false,
         message:
             'Planner settings could not be opened. Retry without data loss.',
       );
     }
+  }
+
+  String? _currentProfileIdOrNull() {
+    final startup = ref.read(startupControllerProvider);
+    return startup is StartupReady ? startup.profile.id : null;
   }
 
   Future<EventType?> exactTypeForIndicator(String indicatorKey) {

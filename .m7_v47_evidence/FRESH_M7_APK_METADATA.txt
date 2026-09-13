@@ -1,0 +1,96 @@
+================================================================================
+VS16 M7 FINAL — FRESH M7 APK METADATA (post migration-race corrective)
+================================================================================
+
+VARIANT             : debug
+FILENAME            : app-debug.apk
+
+ABSOLUTE PATH       : C:\Users\sherl\Downloads\NT_B5_DEVELOP__deepseek-m7m8-20260911\
+                      build\app\outputs\flutter-apk\app-debug.apk
+
+EXACT BYTES         : 241,015,121
+SHA-256             : f8450460de4ed70ab2ab03034ddb5b22dfd573d5ed12f1505a2c07e2c26a0c21
+
+FILE TIMESTAMP      : 2026-09-13 08:50:27 +0800
+BUILD COMMAND       : flutter build apk --debug
+BUILD DURATION      : 5m 17s wall (Gradle assembleDebug 311.4s)
+BUILD EXIT          : 0
+BUILD LOG           : .m7_v47_evidence/fresh_apk_build_log.txt
+
+--------------------------------------------------------------------------------
+PACKAGE IDENTITY (aapt2 dump badging)
+--------------------------------------------------------------------------------
+PACKAGE             : com.nexttransfer.rmplanner
+VERSION NAME        : 0.1.0
+VERSION CODE        : 1
+MIN SDK             : 24
+TARGET SDK          : 36
+COMPILE SDK         : 36
+APPLICATION LABEL   : Next Transfer
+LAUNCHABLE ACTIVITY : com.nexttransfer.rmplanner.MainActivity
+SCHEMA VERSION      : 47
+  source of truth: lib/core/database/app_database.dart
+                   int get schemaVersion => _schemaVersionOverride ?? 47;
+
+--------------------------------------------------------------------------------
+PERMISSIONS (complete, as declared in the built APK)
+--------------------------------------------------------------------------------
+  android.permission.INTERNET
+  android.permission.USE_BIOMETRIC
+  android.permission.READ_CONTACTS
+  android.permission.ACCESS_COARSE_LOCATION
+  android.permission.ACCESS_FINE_LOCATION
+  android.permission.POST_NOTIFICATIONS
+  android.permission.RECEIVE_BOOT_COMPLETED
+  android.permission.VIBRATE
+  android.permission.FOREGROUND_SERVICE
+  android.permission.FOREGROUND_SERVICE_SHORT_SERVICE
+  android.permission.WAKE_LOCK
+  android.permission.ACCESS_NETWORK_STATE
+  android.permission.USE_FINGERPRINT
+  android.permission.ACCESS_WIFI_STATE
+  com.nexttransfer.rmplanner.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
+
+NO UNAUTHORIZED DELTA. This set is IDENTICAL, element for element, to the
+permission set recorded for the previously certified v47 APK in
+.m7_v47_evidence/V47_APK_METADATA.txt (15 entries, same order, same names).
+
+No exact-alarm permission (SCHEDULE_EXACT_ALARM / USE_EXACT_ALARM).
+No background-location permission (ACCESS_BACKGROUND_LOCATION).
+No geofence permission. No new permission of any kind.
+
+--------------------------------------------------------------------------------
+WHY THIS ARTEFACT REPLACES THE STALE ONE
+--------------------------------------------------------------------------------
+STALE (must NOT be reused, must NOT be installed):
+    bytes  : 241,013,960
+    sha256 : 8506eb67143793bd560a67c42606b7392289eb9884781f2becf91ee2a201100a
+    mtime  : 2026-09-12 22:24:38 +0800
+    reason : PREDATES the applied migration-race corrective
+             (DriftNativeOptions(shareAcrossIsolates: true) at the production
+             AppDatabase.defaults() path).
+
+THIS ARTEFACT (fresh):
+    bytes  : 241,015,121
+    sha256 : f8450460de4ed70ab2ab03034ddb5b22dfd573d5ed12f1505a2c07e2c26a0c21
+
+RESULT  : DISTINCT. Both the byte size and the SHA-256 differ from the stale
+          artefact, so the fresh build demonstrably incorporates the corrective.
+
+--------------------------------------------------------------------------------
+ARTEFACT LINEAGE (five distinct artefacts — do not confuse)
+--------------------------------------------------------------------------------
+  PRE-CORRECTIVE CERTIFIED   240,957,877   1834134208...  (2026-09-12 15:59)
+  CORRECTIVE (DISQUALIFIED)  208,136,378   a7c02b97...    (2026-09-12 19:14) unsafe v46
+  V47 REPAIR (STALE)         241,013,960   8506eb67...    (2026-09-12 22:24)
+  FRESH M7 (THIS)            241,015,121   f8450460...    (2026-09-13 08:50)
+
+--------------------------------------------------------------------------------
+TOOLCHAIN
+--------------------------------------------------------------------------------
+TOOLCHAIN ROOT      : C:/Users/sherl/AppData/Local/NextTransferFlutter
+JDK                 : Temurin 21.0.12.1+1
+ANDROID BUILD TOOLS : 36.0.0
+GRADLE TASK         : assembleDebug
+
+================================================================================

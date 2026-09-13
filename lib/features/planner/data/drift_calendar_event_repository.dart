@@ -1,4 +1,5 @@
 import 'package:drift/drift.dart';
+import 'package:rmplanner/core/background/reminder_recovery_request.dart';
 import 'package:rmplanner/core/database/app_database.dart';
 import 'package:rmplanner/core/time/app_clock.dart';
 import 'package:rmplanner/features/goals/data/live_goal_event_type_bindings.dart';
@@ -55,6 +56,7 @@ final class DriftCalendarEventRepository
     this.duplicateContextTransfer =
         const EmptyCalendarEventDuplicateContextTransfer(),
     this.writeGuard = const AllowCalendarEventWrites(),
+    this.reminderRepair,
   });
 
   final AppDatabase database;
@@ -65,6 +67,12 @@ final class DriftCalendarEventRepository
   final CalendarEventLinkContextTransfer linkContextTransfer;
   final CalendarEventDuplicateContextTransfer duplicateContextTransfer;
   final CalendarEventWriteGuard writeGuard;
+
+  /// M7 section 27 repair-intent port.  Every Event mutation below can change a
+  /// reminder's timing, eligibility or live link, so the intent to reconcile
+  /// commits INSIDE the mutation's own transaction.  Absent in read-only and
+  /// test compositions.
+  final ReminderRecoveryRequest? reminderRepair;
 
   @override
   String get displayTimeZoneId => timeZones.displayTimeZoneId;
@@ -279,10 +287,17 @@ final class DriftCalendarEventRepository
     final start = PlannerDate.parse(row.startDate);
     // M2's scheduled occurrence horizon is 90 days; routing resolves the
     // same bounded canonical projection rather than reversing UUIDv5 IDs.
+    //
+    // Section 64: an Event reminder's target is T = start - offset, which can
+    // fall on the PREVIOUS local day (an early-morning Event with a long lead).
+    // Starting the scan at today would make that occurrence unresolvable for
+    // report-reminder routes, so the window opens one day earlier.  The upper
+    // bound is unchanged; only the lower bound widens.
     final today = PlannerDate.fromDateTime(clock.nowUtc().toLocal());
-    final first = start.compareTo(today) < 0 ? today : start;
+    final scanFloor = today.addDays(-1);
+    final first = start.compareTo(scanFloor) < 0 ? scanFloor : start;
     final rule = _ruleFromRow(row);
-    for (var offset = 0; offset <= 90; offset++) {
+    for (var offset = 0; offset <= 91; offset++) {
       final date = first.addDays(offset);
       if (rule.occurrenceIndexOn(startDate: start, targetDate: date) == null) {
         continue;
@@ -337,6 +352,9 @@ final class DriftCalendarEventRepository
         selectionContext: _CalendarEventSelectionContext.newSelection,
         liveBindings: bindings,
       );
+      // Section 27: a new/edited Event changes reminder eligibility and timing,
+      // so the repair intent commits with the source write.
+      await reminderRepair?.mark(database, profileId: profileId);
       await writeGuard.beforeCommit();
     });
     return normalized;
@@ -536,6 +554,9 @@ final class DriftCalendarEventRepository
         occurrenceId: current.id,
         command: 'edit:${resolvedScope.name}',
       );
+      // Section 27: this mutation can change a reminder's timing, eligibility
+      // or live link, so the repair intent commits with the source write.
+      await reminderRepair?.mark(database, profileId: profileId);
       await writeGuard.beforeCommit();
       return CalendarEventMutationOutcome.changed;
     });
@@ -605,6 +626,9 @@ final class DriftCalendarEventRepository
         occurrenceId: current.id,
         command: 'cancel:${scope.name}',
       );
+      // Section 27: this mutation can change a reminder's timing, eligibility
+      // or live link, so the repair intent commits with the source write.
+      await reminderRepair?.mark(database, profileId: profileId);
       await writeGuard.beforeCommit();
       return CalendarEventMutationOutcome.changed;
     });
@@ -675,6 +699,8 @@ final class DriftCalendarEventRepository
           occurrenceId: current.id,
           command: 'reschedule:occurrence',
         );
+        // Section 27: same repair intent as the series reschedule.
+        await reminderRepair?.mark(database, profileId: profileId);
         await writeGuard.beforeCommit();
         return CalendarEventMutationOutcome.changed;
       }
@@ -745,6 +771,9 @@ final class DriftCalendarEventRepository
         occurrenceId: current.id,
         command: 'reschedule:${scope.name}',
       );
+      // Section 27: this mutation can change a reminder's timing, eligibility
+      // or live link, so the repair intent commits with the source write.
+      await reminderRepair?.mark(database, profileId: profileId);
       await writeGuard.beforeCommit();
       return CalendarEventMutationOutcome.changed;
     });
@@ -862,6 +891,9 @@ final class DriftCalendarEventRepository
         occurrenceId: current.id,
         command: 'duplicate',
       );
+      // Section 27: this mutation can change a reminder's timing, eligibility
+      // or live link, so the repair intent commits with the source write.
+      await reminderRepair?.mark(database, profileId: profileId);
       await writeGuard.beforeCommit();
       return CalendarEventMutationOutcome.changed;
     });

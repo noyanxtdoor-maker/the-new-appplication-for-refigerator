@@ -1,0 +1,7 @@
+=== PRE-BUILD GIT STATE ===
+branch: develop/vs16-m7-m8-deepseek-20260911
+HEAD:   7b1395c10232b51f7d59464214ffe915415c4bb1
+timestamp: 2026-09-12T14:16:09Z  (2026-09-12 22:16:09 local)
+tracked modified: 38
+untracked: 233
+schemaVersion: 1429-

@@ -1,4 +1,5 @@
 import 'package:drift/drift.dart';
+import 'package:rmplanner/core/background/reminder_recovery_request.dart';
 import 'package:rmplanner/core/database/app_database.dart';
 import 'package:rmplanner/core/time/app_clock.dart';
 import 'package:rmplanner/features/planner/application/calendar_event_repository.dart';
@@ -33,11 +34,18 @@ final class DriftOutcomeReportingRepository
     required this.database,
     required this.clock,
     this.writeGuard = const AllowOutcomeReportingWrites(),
+    this.reminderRepair,
   });
 
   final AppDatabase database;
   final AppClock clock;
   final OutcomeReportingWriteGuard writeGuard;
+
+  /// M7 section 27 repair-intent port.  Submitting or clearing a Report
+  /// changes the Awaiting Report reminder's eligibility, so the intent to
+  /// reconcile commits INSIDE the report transaction.  Absent in read-only
+  /// and test compositions.
+  final ReminderRecoveryRequest? reminderRepair;
 
   @override
   Future<bool> hasReportOrLedgerEffect(String taskId) async {
@@ -655,6 +663,8 @@ final class DriftOutcomeReportingRepository
         operationId: operationId,
         now: now,
       );
+      // Section 27: a submission changes Awaiting Report eligibility.
+      await reminderRepair?.mark(database, profileId: profileId);
       await writeGuard.beforeCommit();
 
       final reportRow = await _requireReportRow(profileId, submittedId);
@@ -730,6 +740,8 @@ final class DriftOutcomeReportingRepository
               mode: InsertMode.insertOrIgnore,
             );
       }
+      // Section 27: clearing the submitted status re-opens Awaiting Report.
+      await reminderRepair?.mark(database, profileId: profileId);
       return true;
     });
   }

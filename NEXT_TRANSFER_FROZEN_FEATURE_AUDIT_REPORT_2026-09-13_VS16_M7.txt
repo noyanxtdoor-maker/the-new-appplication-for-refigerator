@@ -1,0 +1,1198 @@
+================================================================================
+NEXT TRANSFER — VS16 M7
+GLOBAL FROZEN-FEATURE REGRESSION FORENSICS + SURGICAL RESTORATION
+Date: 2026-09-13
+Worktree: C:\Users\sherl\Downloads\NT_B5_DEVELOP__deepseek-m7m8-20260911
+Branch:   develop/vs16-m7-m8-deepseek-20260911
+HEAD:     7b1395c10232b51f7d59464214ffe915415c4bb1  (UNCHANGED, no commits)
+================================================================================
+
+VERDICT
+-------
+VS16 M7 FROZEN-FEATURE REGRESSION RESTORATION = NOT PASSED
+  -> not because a gate failed, but because BOTH owner-reported regressions
+     ARE NOT REPRODUCIBLE IN SOURCE. There is no frozen behaviour to restore:
+     the frozen surfaces are byte-identical to the accepted checkpoint.
+  -> REGRESSION B was MISIDENTIFIED by the first audit pass and has been
+     re-opened under the owner's correction (AUTO FACE NORTH, not Locate me).
+     Re-audit verdict: no app-implemented Auto Face North control ever existed
+     in ANY accepted Maps checkpoint (failure mode G). See G.
+
+TWO SEPARATE MAPS FINDINGS (deliberately NOT merged):
+  MAPS LOCATE ME        = PRESERVED / NOT TOUCHED
+  MAPS AUTO FACE NORTH  = NOT ACCEPTED HISTORICALLY
+
+ONE PRODUCTION CHANGE WAS MADE — AND ONLY ONE:
+  the AUTHORIZED migration-startup-race corrective
+  (lib/core/database/app_database.dart: DriftNativeOptions(shareAcrossIsolates:
+  true)), with its fail-first test. See K / L1 / O5.
+
+UNEXPLAINED PRODUCTION DIFFERENCES = 0
+AUTO FACE NORTH OWNER-ACCEPTED BEHAVIOR = NOT VERIFIED (owner evidence required)
+
+NO BUILD. NO INSTALL. NO COMMIT. NO PUSH. NO M8.
+(The build gate is not met: Auto Face North cannot be verified without the
+owner's evidence. See P.)
+
+================================================================================
+A. STABLE CHECKPOINT
+================================================================================
+7b1395c10232b51f7d59464214ffe915415c4bb1
+"feat(planner): finalize live Goal Event Types and Astra follow-up"
+
+Verified present in this repository (git cat-file -t -> commit) and equal to
+this worktree's HEAD, so the working tree is compared against an exact
+in-repo object — no external baseline tree was needed for the diff.
+
+================================================================================
+B. CURRENT BRANCH / TREE STATE
+================================================================================
+branch : develop/vs16-m7-m8-deepseek-20260911
+HEAD   : 7b1395c10232b51f7d59464214ffe915415c4bb1
+state  : intentionally dirty, uncommitted (preserved; nothing reset/cleaned/
+         stashed/broad-restored/deleted)
+
+Phase 0 capture: .m7_frozen_audit/phase0_state.txt
+- `git worktree list --porcelain`: two worktrees exist (this one, and
+  C:/Users/sherl/Documents/Next Transfer @ codex/vs-08-weekly-planning-lifecycle).
+  The other worktree was NOT read for implementation material.
+- `git diff --check` -> exit 0
+
+PARTIAL OWNER-REGRESSION RESTORATION
+------------------------------------
+NONE FOUND. No source file was left partially edited by the interrupted
+Planner-indicator task. Evidence: every current-time-indicator source file is
+byte-identical to the checkpoint (see F), and the interrupted task's only
+artefact was a diagnostic test that this session created and has since moved
+out of the test tree (see "Diagnostic tooling" below).
+
+Diagnostic tooling created by THIS session (TEST/EVIDENCE ONLY, class H):
+  .m7_cti_evidence/tools/zz_cti_render_probe_test.dart
+  (originally test/features/planner/presentation/zz_cti_render_probe_test.dart;
+   relocated out of test/ so it cannot affect the product/test surface)
+
+Tests created by THIS session (INSIDE test/, they DO enter the suite):
+  test/features/maps/vs15_m33_auto_face_north_audit_test.dart     (9 tests, PASS)
+  test/core/database/v47_migration_concurrency_test.dart          (5 tests, PASS)
+  Both are accounted for in the Phase 10 differential (section M): they are the
+  14 net-new identities, all result=success, and they introduce no new badness.
+
+================================================================================
+C. COMPLETE PRODUCTION DELTA INVENTORY  (Phase 1)
+================================================================================
+Full capture: .m7_frozen_audit/phase1_delta_inventory.txt
+
+Totals vs 7b1395c:
+  modified tracked files .... 38  (33 production + 5 test)
+  new untracked production ... 11
+  new untracked test ......... 14
+  PRODUCTION FILES DIFFERING . 44  (33 modified + 11 new)
+  diffstat (tracked) ......... 3162 insertions, 218 deletions
+
+Production files, each classified:
+  A = AUTHORIZED M7 (whitelist item)
+  B = AUTHORIZED M7 CORRECTIVE
+  C = AUTHORIZED v47 PERSISTENCE REPAIR
+  D = GENERATED CONSEQUENCE OF AUTHORIZED SCHEMA
+  E = OWNER-REGRESSION RESTORATION
+  F = PRE-EXISTING DIRTY / NOT CREATED BY M7
+  G = UNAUTHORIZED / UNEXPLAINED
+  H = TEST / EVIDENCE ONLY
+
+  #  CLASS  FILE
+  1  A#8    android/app/src/main/res/drawable/ic_nt_notification.xml      (+7/-1)
+  2  A#1    lib/app/router/app_router.dart                                (+22)
+  3  A#4    lib/core/background/background_work_gateway.dart              (+13)
+  4  A#4    lib/core/background/workmanager_background_work_gateway.dart  (+167/-21)
+  5  C      lib/core/database/app_database.dart                           (+112/-2)
+             (class C = v47 schema, 3 hunks; plus a class-F CORRECTIVE facet,
+              2 hunks — the migration-race fix. See K4 / O5.)
+  6  D      lib/core/database/app_database.g.dart                         (+392)
+  7  A#2/6  lib/core/notifications/flutter_local_notifications_gateway.dart (+22)
+  8  A#1    lib/features/contacts/data/drift_contact_repository.dart      (+248/-65)
+  9  A#1    lib/features/contacts/presentation/contact_detail_screen.dart (+15)
+ 10  A#5    lib/features/notifications/application/notification_foundation_repository.dart (+24)
+ 11  A#5    lib/features/notifications/application/notification_providers.dart (+24)
+ 12  A#2/4  lib/features/notifications/application/reminder_background_runtime.dart (+161)
+ 13  A#2/4  lib/features/notifications/application/reminder_reconciler.dart (+384)
+ 14  A#5    lib/features/notifications/data/drift_notification_foundation_repository.dart (+34)
+ 15  A#1/3  lib/features/notifications/domain/reminder_policy.dart       (+51)
+ 16  A#7    lib/features/notifications/presentation/reminder_time_picker.dart (+3)
+ 17  A#3    lib/features/planner/application/calendar_event_providers.dart (+153)
+ 18  A#3    lib/features/planner/application/event_reminder_horizon_reconciler.dart (+18)
+ 19  B      lib/features/planner/application/event_type_providers.dart   (+107)   ** SEE E **
+ 20  A#4/5  lib/features/planner/application/planner_providers.dart      (+149)
+ 21  A#3/4  lib/features/planner/data/drift_calendar_event_repository.dart (+36)
+ 22  A#4    lib/features/planner/data/drift_event_type_repository.dart  (+31)
+ 23  A#4    lib/features/planner/data/drift_outcome_reporting_repository.dart (+12)
+ 24  A#4    lib/features/planner/data/drift_planner_repository.dart     (+22)
+ 25  A#1    lib/features/planner/presentation/calendar_event_create_gate_screen.dart (+27)
+ 26  A#1    lib/features/planner/presentation/calendar_event_creation.dart (+6)
+ 27  A#1/5  lib/features/planner/presentation/calendar_event_form_screen.dart (+213)
+ 28  B      lib/features/planner/presentation/event_type_picker_dialog.dart (+9) ** SEE E **
+ 29  A#1    lib/features/planner/presentation/task_form_screen.dart     (+112)
+ 30  A#4    lib/features/privacy/data/drift_privacy_repository.dart      (+38/-1)
+ 31  A#7    lib/features/settings/presentation/notifications_settings_screen.dart (+210/-3)
+ 32  A#4    lib/features/weekly_planning/data/drift_weekly_planning_repository.dart (+11)
+ 33  A#4    lib/main.dart                                               (+72)
+
+  New production files (all class A):
+ 34  A#4    lib/core/background/background_repair_decision.dart
+ 35  A#4    lib/core/background/reminder_recovery_request.dart
+ 36  A#5/7  lib/features/notifications/application/detailed_content_providers.dart
+ 37  A#2    lib/features/notifications/application/reminder_delivery_service.dart
+ 38  A#2    lib/features/notifications/application/reminder_delivery_source_reader.dart
+ 39  A#5    lib/features/notifications/application/reminder_enrichment_resolver.dart
+ 40  A#5/6  lib/features/notifications/application/reminder_notification_renderer.dart
+ 41  A#5/C  lib/features/notifications/data/detailed_content_preferences_store.dart
+ 42  A#5    lib/features/notifications/data/drift_reminder_enrichment_source.dart
+ 43  A#1    lib/features/notifications/domain/contact_follow_up_creation_intent.dart
+ 44  A#5    lib/features/notifications/domain/reminder_policy_label.dart
+
+  Class G (UNAUTHORIZED / UNEXPLAINED) ......................... 0
+  Class E (OWNER-REGRESSION RESTORATION) ...................... 0  (none needed)
+  Class F (PRE-EXISTING DIRTY) ................................ 0
+
+COUNTS RECONCILIATION (independently re-verified at report time):
+  git diff --no-renames --name-only 7b1395c -- lib/            = 32
+  git diff --no-renames --name-only 7b1395c -- android/        =  1  (ic_nt_notification.xml)
+  -> modified production total                                 = 33
+  git ls-files --others --exclude-standard -- lib/             = 11
+  -> 33 + 11                                                   = 44  == PRODUCTION FILES DIFFERING
+
+TEST SURFACE INTEGRITY (re-verified at report time):
+  git ls-files --others --exclude-standard -- test/            = 17 untracked test files
+  All 17 are legitimate M7 suites (m7_* names + notification_icon_test.dart).
+  grep for probe|scratch|tmp|zz_ under test/                   = NO MATCHES.
+  The render probe (zz_cti_render_probe_test.dart) lives OUTSIDE the test surface
+  at .m7_cti_evidence/tools/ and therefore cannot be collected by `flutter test`.
+  Confirmed: the Phase 10 capture contains 287 suites, ALL under test/, and
+  0 occurrences of the probe -> the differential evidence is uncontaminated.
+
+================================================================================
+D. AUTHORIZED M7 WHITELIST — MAPPING
+================================================================================
+  1 Contact Follow-Up Purpose ......... contacts repo/screen, reminder_policy,
+                                        router, create-gate, event creation,
+                                        form screen, task form, intent type
+  2 Enriched delivery / worker ownership reminder_reconciler, delivery service,
+                                        delivery source reader, background runtime,
+                                        local-notifications gateway, work gateways
+  3 Event relevance-window corrections  calendar_event_providers, horizon
+                                        reconciler, calendar event repo
+  4 Reminder generation / WorkManager   reminder_recovery_request, repair decision,
+                                        all §27 reminderRepair ports, main.dart
+  5 Detailed rendering                  reminder_notification_renderer, enrichment
+                                        resolver, detailed content store/providers,
+                                        drift enrichment source, policy label
+  6 Generic / Privacy Lock              renderer generic copy, privacy repo §27
+  7 Notification Settings UI            notifications_settings_screen, time picker
+  8 Notification icon 1.08 reframe      android/.../ic_nt_notification.xml  (only
+                                        android change; manifest untouched)
+  9 Headless diagnostics correction     sanitized diagnostics wiring (main.dart)
+ 10 Schema v47 (five typed booleans)    app_database.dart
+ 11 v46 -> v47 migration                app_database.dart (3 schema hunks)
+ 11b migration-race corrective           app_database.dart (2 extra hunks; the
+                                        DriftNativeOptions constant + its call
+                                        site) — see K4 / O5, class F
+ 12 Tests/evidence/tooling             test/** + .m7_*_evidence/**
+
+================================================================================
+E. UNEXPLAINED DIFF FINDINGS
+================================================================================
+Unexplained production differences = 0.
+
+ONE item sits OUTSIDE the twelve whitelist categories and is therefore flagged
+for explicit owner acknowledgement rather than silently accepted:
+
+  lib/features/planner/application/event_type_providers.dart   (+107)
+  lib/features/planner/presentation/event_type_picker_dialog.dart (+9)
+
+  What it does: adds `ensureLoaded()` — a warm same-profile fast path with
+  load-epoch provenance plus in-flight load coalescing — and switches two
+  picker call sites from `load()` to `ensureLoaded()`. `load(includeArchived)`
+  behaviour is preserved; a cold/foreign/errored state still waits.
+
+  Why it is judged AUTHORIZED CORRECTIVE (not G):
+  the M7 final certification report — itself part of the M7 deliverable —
+  records it as an authorizing work item:
+    NEXT_TRANSFER_IMPLEMENTATION_REPORT_2026-09-12_VS16_M7_DEEPSEEK_FINAL_CERTIFICATION.txt
+      line 191-192: "ensureLoaded warm-profile readiness, load-epoch provenance
+                     and in-flight coalescing (OAT13); existing
+                     load(includeArchived) preserved."
+      line 387-389: "EVENT TYPE PERFORMANCE (section 66 O1/O10, OAT13)"
+    M7_ENGINEERING_REPORT_DEEPSEEK_20260911.md line 32 (same).
+
+  Residual risk: LOW. It is a Planner application-layer load optimisation, not
+  a presentation/geometry change, and `planner/domain` is byte-identical.
+  ACTION FOR OWNER: confirm section 66 O1/O10 / OAT13 is in force. If it is
+  not, this is the single change that would need reverting.
+
+================================================================================
+F. REGRESSION A — PLANNER CURRENT-TIME INDICATOR
+================================================================================
+FINDING: NOT A REGRESSION. NOT REPRODUCIBLE. NOTHING TO RESTORE.
+CLASSIFICATION: (none of the offered classes apply) — the frozen surface is
+                byte-identical to the accepted checkpoint.
+
+F1. Every current-time-indicator file is BYTE-IDENTICAL to 7b1395c
+Capture: .m7_frozen_audit/cti_file_identity.txt
+  IDENTICAL  lib/features/planner/presentation/planner_screen.dart
+  IDENTICAL  lib/features/planner/presentation/widgets/planner_interactive_day_pager.dart
+  IDENTICAL  lib/features/planner/domain/planner_settings.dart
+  IDENTICAL  lib/features/planner/domain/planner_timeline_layout.dart
+  IDENTICAL  lib/features/planner/domain/planner_view.dart
+  IDENTICAL  lib/features/planner/presentation/planner_settings_screen.dart
+  IDENTICAL  test/features/planner/presentation/planner_current_time_indicator_test.dart
+  IDENTICAL  test/features/planner/presentation/planner_interactive_day_pager_current_time_test.dart
+  IDENTICAL  test/features/planner/presentation/planner_interactive_day_pager_preview_test.dart
+  IDENTICAL  test/features/planner/presentation/planner_correction_pack_test.dart
+  sha256 planner_screen.dart = 36450a206e2cd005d4d8b1e70718b214d64637e8df4e8cc63f624429fd991f85
+  sha256 planner_interactive_day_pager.dart = 5f4120938730a3c696d6a5b0eab4041aac7a0dc6f5c6333ebb6b7f0f4d936a0b
+  `lib/features/planner/domain` (settings/geometry/zoom law): 0 files changed.
+
+F2. The M7 diff contains ZERO current-time-indicator code
+`git diff 7b1395c -- lib/features/planner/ | grep -i "currentTime|showCurrentTime|
+timeIndicator"` returns only one unrelated hit: `exactTypeForIndicator` (Event
+Type indicators, not the time indicator).
+
+F3. The accepted contract passes 20/20 in the current source
+`.m7_cti_evidence/cti_baseline.out`:
+  TEST 1   label + dot + line present; label text "4:03 PM"; dot center on the
+           56 dp gutter; capsule tangent to anchor; line begins at anchor right
+  TEST 1B/1C  bounded label; fixed dot X at normal/intermediate/max zoom
+  TEST 2   exact current-minute Y per the production formula
+  TEST 3   formatter 12:00 AM / 1:05 AM / 12:00 PM / 4:03 PM / 11:59 PM
+  TEST 4   visible today; hidden previous day; hidden next day
+  TEST 5   swipe away hides; swipe back reappears
+  TEST 6   pinch scales Y proportionally, label/dot/line stay aligned
+  TEST 7   overlay non-interactive; Event under it still opens
+  TEST 8   minute-boundary update moves exactly one minute of pixels
+  TEST 9   midnight transition law
+  TEST 10  no domain/Actual writes
+  CT-02 x4 Rose/Blue x Light/Dark: transparent label + primary text + primary dot/line
+  RESULT: "All tests passed!" (20/20, exit 0)
+
+F4. RENDER PROOF at device geometry (the decisive evidence)
+Probe: .m7_cti_evidence/tools/zz_cti_render_probe_test.dart
+Geometry: Infinix X6731 1080x2400 @2.625 => 411.4 x 914.3 logical.
+Clock injected at 2026-07-31 21:21 with the selected date = that same day
+(today), timeline scrolled to the indicator.
+
+  grid      L12.00 T-549.71 R399.43 B890.29  W387.43 H1440.00
+  indicator L12.00 T 725.29 R399.43 B737.29  W387.43 H 12.00
+  label     L 3.17 T 727.22 R 60.83 B735.35  W 57.66 H  8.13   text "9:21 PM"
+  dot       L63.00 T 726.29 R 73.00 B736.29  W 10.00 H 10.00
+  line      L73.00 T 730.29 R399.43 B732.29  W326.43 H  2.00
+  label colour = Color(alpha 1.0, r 0.4039, g 0.3137, b 0.6431) = colorScheme.primary
+  label size   = 15.0, weight 700, letterSpacing 0.2
+  label count  = 1
+  label fully on-screen? left>=0 TRUE  top>=0 TRUE  right<=411.43 TRUE  bottom<=914.29 TRUE
+
+  Captured pixels: .m7_cti_evidence/probe_d_device_scrolled.png
+  The capture visibly shows ALL THREE accepted elements in the primary colour:
+  the time text at the far left, the circular dot on the 56 dp gutter, and the
+  thin full-width line continuing across the Event canvas.
+
+  An earlier unscrolled capture (.m7_cti_evidence/probe_a_harness_viewport.png)
+  confirms the indicator is simply outside the initial viewport at 16:03
+  (canvas y=1065 inside a 1440 px canvas) — which is why an unscrolled
+  screenshot cannot show it. This is expected scroll behaviour, not a defect.
+
+F5. Accepted presentation confirmed intact
+  - line .......... present, 2 px, colorScheme.primary, from anchor right edge
+                    across the Event canvas
+  - dot ........... present, 10 dp, circular, centered on the 56 dp gutter
+  - label/readout . present, 12-hour `h:mm a`, fontSize 15, w700, primary,
+                    62 dp leftward-widened area, 4 dp padding, no fill (CT-02/03)
+  - Y position .... exact current minute per production formula
+  - non-today ..... hidden (TEST 4/5/9)
+  - zoom .......... preserved (TEST 1C/6)
+  - clipping ...... fully on-screen at device geometry (proved above)
+  CT-03 contract "15px / 62dp / 4dp on both live planner paths" verified intact.
+
+F6. What the owner is most likely seeing (for owner confirmation)
+The indicator is only visible when the timeline is scrolled to the current
+time, AND only while `now.hour` is inside the configured visible window
+(default 6..22). Outside that window the line, dot AND label are hidden
+together. Two concrete possibilities that would look like "readout missing":
+  (a) the owner's screenshot was taken at a scroll position where only the
+      line/dot band was on screen; or
+  (b) the label renders small — the 12 px indicator band plus FittedBox
+      scaleDown yields an effective ~8-10 px glyph height, so it is easy to
+      miss at a glance even though it is present.
+REQUESTED: the owner's actual screenshot of the Planner, so the discrepancy can
+be closed. No source change is justified without it.
+
+================================================================================
+================================================================================
+G. REGRESSION B — MAPS "AUTO FACE NORTH"   (OWNER CORRECTION APPLIED)
+================================================================================
+OWNER CORRECTION: the previous G investigated the WRONG feature. The owner did
+NOT mean "Locate me" / current location / GPS recenter. The owner means the
+AUTO FACE NORTH control: a way to return a rotated map camera to north-up
+(bearing 0). The earlier "Auto Fix Location = Locate me" conclusion is WITHDRAWN
+for the owner's report and must not be used as closure of Regression B.
+
+The Locate-me audit is retained separately and is still valid on its own terms
+(see G6). The two controls are now reported as two independent findings.
+
+--------------------------------------------------------------------------------
+G1. WHAT THE OWNER ASKED US TO PROVE FIRST
+--------------------------------------------------------------------------------
+Byte-identity to 7b1395c is NOT sufficient by itself, because we must also
+establish whether 7b1395c is the checkpoint that actually contained the feature.
+So this section (a) keeps the byte-identity fact, and (b) traces the accepted
+Maps history independently.
+
+--------------------------------------------------------------------------------
+G2. PHASE B1 — CURRENT SOURCE SEARCH (read-only)
+--------------------------------------------------------------------------------
+Searched all production source for: face north, north, north-up, compass,
+bearing, camera bearing, rotation, map rotation, reset bearing, reset rotation,
+orientation, camera position, CameraPosition, bearing:, bearing = 0,
+animateCamera, moveCamera, compassEnabled, rotateGesturesEnabled, GoogleMap,
+MapLibreMapController.
+
+  concept                                   present in current source?
+  explicit Face North button .............. NO
+  compass button (app-owned) .............. NO
+  reset-bearing action .................... NO
+  automatic bearing normalization ......... NO
+  conditional visibility on non-zero bearing NO
+  camera-state listener storing bearing ... YES
+        `_recordCamera` (google_maps_surface.dart:1309) stores the whole
+        CameraPosition, bearing included, into `_lastCameraPosition` and
+        `mapsSessionProvider`. Only the target coordinate is forwarded.
+  plugin-native compass configuration ..... NOT SET by the app
+        `compassEnabled` appears nowhere in lib/. `GoogleMapBuilder` therefore
+        builds a bare `GoogleMapOptions()` and `Convert.interpretMapConfiguration`
+        skips `setCompassEnabled` (it is null), so the Google Maps Android SDK
+        default applies, which is compassEnabled = true.
+
+Camera construction: NO `CameraPosition` anywhere in lib/ sets `bearing` or
+`tilt` (verified: 0 occurrences). Every map therefore opens north-up.
+`rotateGesturesEnabled` is likewise unset, so SDK rotation gestures stay enabled.
+
+--------------------------------------------------------------------------------
+G3. PHASE B2 — WAS AUTO FACE NORTH IN THE ACCEPTED MAPS M7 BUILD?
+--------------------------------------------------------------------------------
+ANSWER: NO — not as an app-implemented control, in ANY accepted Maps checkpoint.
+
+The accepted Maps lineage (commit subjects are verbatim):
+  385402b  checkpoint(maps): accept VS-15 M1-M2 stable baseline
+  b4d65b1  checkpoint(maps): accept VS-15 M3 saved places and final polish
+  e0368dc  checkpoint(maps): accept VS-15 M3 complete
+  76ee168  checkpoint(maps): accept VS-15 M7 complete      <-- LAST ACCEPTED
+  7b1395c  feat(planner): finalize live Goal Event Types ...  <-- our base
+
+Evidence:
+  * `git diff --stat 76ee168 -- lib/features/maps/` ......... EMPTY
+  * `git diff --stat 76ee168 7b1395c -- lib/features/maps/` . EMPTY
+    => Maps is byte-identical from the accepted M7 checkpoint through our base
+       to the current working tree.
+  * a scan of EVERY checkpoint above for
+      compass | face north | north-up | resetBearing | reset bearing |
+      rotateGesturesEnabled | bearing:
+    inside lib/features/maps/ ............................... NO MATCH AT ANY
+  * no Maps report or handoff (docs/handoffs/NEXT_TRANSFER_*MAPS*.txt) mentions
+    compass / north / bearing / map rotation. The only "rotation" hit is
+    "key/rotation management" (API-key rotation).
+  * no Maps test asserts a bearing-reset or north behaviour. The accepted
+    bearing tests assert the OPPOSITE law: the camera (target, zoom, bearing,
+    tilt) is PRESERVED across re-entry and across map-type changes
+    (vs15_m33_session_motion_controls_test.dart uses bearing: 47.5 and
+    bearing: 80 precisely to prove preservation).
+  * dependency graph: google_maps_flutter 2.18.0 / _android 2.19.13 /
+    _platform_interface — same versions AND same sha256 at 76ee168 and now.
+    The only lockfile deltas are flutter_local_notifications + workmanager
+    (M7 notification work). No maps/location package changed.
+  * the project-owned native patch `android/maps_interaction_patch/`
+    (VS15 M3.2 Pass 2) is UNCHANGED vs both 76ee168 and 7b1395c, and is
+    tap-interception + clustering only — "Pan, pinch and long press remain SDK
+    gestures". It contains no compass/bearing/north code.
+  * Android config: `git diff 76ee168 -- android/` shows only M7 notification
+    files (ReminderRecoveryReceiver.kt, ic_nt_notification.xml, manifest
+    permissions, launcher icons). No maps SDK pin changed.
+
+--------------------------------------------------------------------------------
+G4. PHASE B3 — FAILURE MODE CLASSIFICATION
+--------------------------------------------------------------------------------
+  A  source present + runtime hidden ........................ NO (no such source)
+  B  source present + condition never triggers .............. NO (no such source)
+  C  source present + z-order/layout hides the control ...... NO
+        the surface's controls are bottom-right
+        (`right: 16, bottom: ...`); the Maps Scaffold sets no
+        `extendBodyBehindAppBar`, so the map's top-right — where a native
+        compass would render — is unobstructed.
+  D  source present + plugin config changed ................. NO
+        identical plugin versions, identical sha256, identical Android config
+  E  source removed after the accepted Maps checkpoint ...... NO
+        nothing was removed; Maps is byte-identical to 76ee168
+  F  accepted checkpoint different from 7b1395c .............. PARTLY TRUE BUT
+        NOT CAUSAL: the accepted Maps checkpoint IS a different commit
+        (76ee168 != 7b1395c), but the Maps CONTENT is identical, so the
+        difference cannot explain any behaviour change.
+  G  feature never reached the accepted product ............. YES
+        for an app-implemented Auto Face North control
+  H  uncertain .............................................. NO (see above)
+
+--------------------------------------------------------------------------------
+G5. THE ACTUAL ANSWER, AND WHAT IT MEANS FOR THE OWNER
+--------------------------------------------------------------------------------
+There was never an app-implemented Auto Face North control, so there is nothing
+to restore, and adding one now would be a NEW FEATURE / Maps redesign — which
+the handoff explicitly forbids.
+
+The only north-orientation affordance in the accepted build is the SDK-native
+Google Maps compass, which:
+  * is enabled because the app never sets `compassEnabled`, so the SDK default
+    (true) applies — verified in the pinned plugin source
+    (`GoogleMapBuilder` creates a bare `GoogleMapOptions()`;
+    `Convert.interpretMapConfiguration` applies `setCompassEnabled` only when
+    the value is non-null);
+  * appears when the map is rotated (rotation gestures remain enabled);
+  * returns the camera to north-up when tapped.
+That affordance is UNCHANGED: same app source, same plugin version, same
+Android configuration as the accepted build.
+
+MOST LIKELY EXPLANATION (for owner confirmation): the owner's "Auto Face North"
+is the native Google Maps compass. If so, there is no regression and nothing to
+restore. The alternative — that the owner remembers a control this product never
+shipped — cannot be resolved without the owner's evidence.
+REQUESTED: a screenshot/recording of the accepted build showing the control, so
+the exact affordance can be identified rather than guessed.
+
+--------------------------------------------------------------------------------
+G6. MAPS "LOCATE ME" — SEPARATE FINDING (retained, not merged)
+--------------------------------------------------------------------------------
+MAPS LOCATE ME = PRESERVED / NOT TOUCHED.
+  `lib/features/maps/` is byte-identical to 7b1395c (28 files, zero diff).
+  The control is the `maps-locate-button` FAB (tooltip 'Locate me',
+  `Icons.my_location`, google_maps_surface.dart:1622-1638) -> `_locate()`
+  (1257-1292) -> `currentLocationServiceProvider` ->
+  `GeolocatorCurrentLocationService`. That provider's ONLY provider dependency
+  is `privacyRepositoryProvider`, whose sole change is an additive OPTIONAL
+  `reminderRepair` port that never touches `recordPermissionRequested` /
+  `recordPermissionGranted`. So the Locate path is unaffected by M7.
+  This is reported SEPARATELY from Auto Face North and is NOT offered as
+  closure of the owner's Regression B.
+
+--------------------------------------------------------------------------------
+G7. PHASE B5 — FOCUSED MAPS TEST (added)
+--------------------------------------------------------------------------------
+test/features/maps/vs15_m33_auto_face_north_audit_test.dart — 9 assertions, all
+PASS. It pins the accepted camera-bearing law and the absence of a reset control:
+  1. the map starts north-up (bearing 0, tilt 0, no camera command)
+  2. rotating away from north is observable (bearing 47.5 reaches session state)
+  3+5. bearing, zoom and target are PRESERVED across re-entry — the accepted
+       law is preserve, never auto-reset
+  4. no accepted control commands a bearing change (the only camera command the
+     app issues is `newLatLngZoom`, which cannot carry a bearing)
+  6+7. bearing/camera work never invokes Locate me; the locate control is present
+       but untouched
+  8. the Maps surface writes no Saved Place / Maps domain state
+  9. the Maps surface writes no Event / Task / Contact state
+  7+10. no location permission, background location or geofence reference
+  + the accepted surface carries no compass/north control token
+The two Phase-B5 assertions that presuppose a Face North control ("activating it
+commands bearing = 0") are deliberately NOT written: there is no such control,
+and fabricating the assertion would encode a feature that was never accepted.
+================================================================================
+H. CONTACTS AUDIT  (Phase 5)
+================================================================================
+SOURCE DIFFERENCE FROM STABLE? YES — 2 files, +198/-65
+  lib/features/contacts/data/drift_contact_repository.dart      (+248/-65)
+  lib/features/contacts/presentation/contact_detail_screen.dart (+15)
+AUTHORIZED? YES — M7 whitelist item 1 (Contact Follow-Up Purpose).
+  - repository: §27 `reminderRepair` port (optional, additive) plus the
+    follow-up purpose / freshness logic M7 requires.
+  - screen: the follow-up chooser creates the ONLY
+    `ContactFollowUpCreationIntent`, forwards it via route `extra` while
+    `contacts=` preselection semantics stay untouched, and fails closed to
+    ordinary creation on a malformed row.
+BEHAVIORAL RISK? LOW.
+RESTORATION NEEDED? NO.
+Distinction applied as instructed: this is AUTHORIZED CONTACT FOLLOW-UP
+INTEGRATION, not an unauthorized Contact UI/lifecycle regression. No Contact
+list/lifecycle/merge/archive presentation file was touched.
+
+================================================================================
+I. GOALS AUDIT
+================================================================================
+SOURCE DIFFERENCE FROM STABLE? NO — `git diff 7b1395c -- lib/features/goals`
+returns NOTHING. Zero files changed, zero untracked.
+AUTHORIZED? n/a.  BEHAVIORAL RISK? NONE.  RESTORATION NEEDED? NO.
+GOALS FROZEN BEHAVIOR = PRESERVED.
+(Goal Event Type linkage lives in planner/event_type* + contacts, which are
+covered above.)
+
+================================================================================
+J. OTHER FROZEN-FEATURE AUDIT  (Phase 2)
+================================================================================
+Capture: .m7_frozen_audit/phase2_area_scan.txt
+
+AREA                     TRACKED DIFF vs 7b1395c                 RISK  RESTORE
+lib/features/maps        NONE (byte-identical)                   NONE  NO
+lib/features/goals       NONE                                    NONE  NO
+lib/features/startup     NONE                                    NONE  NO
+lib/features/planner/domain  NONE  (settings/geometry/zoom law)   NONE  NO
+lib/app/theme            NONE  (global colours/typography/spacing) NONE NO
+assets/                  NONE                                    NONE  NO
+lib/features/planner/presentation  5 files, +334/-33   (all A#1/A#8 §8 + O1/O10) LOW NO
+lib/features/contacts    2 files, +198/-65   (A#1)               LOW   NO
+lib/features/settings    1 file,  +210/-3    (A#7 notifications only) LOW NO
+lib/features/privacy     1 file,  +38/-1     (A#4 §27, additive)  LOW   NO
+lib/features/weekly_planning 1 file, +11     (A#4 §27, additive)  LOW   NO
+lib/app (router)         1 file,  +22        (A#1 §8)             LOW   NO
+lib/core/database        2 files, +455/-1    (C + D)              LOW   NO
+lib/core/background      2 files, +159/-21   (A#4) + 2 new        LOW   NO
+lib/core/notifications   1 file,  +22        (A#2/A#6)            LOW   NO
+android/                 1 file,  +7/-1      (A#8 icon only)      NONE  NO
+
+THEME / DESIGN SYSTEM: zero diff. No global colour, typography, spacing or
+component-styling change exists. (`lib/app/theme` closure contains no modified
+file at all.)
+
+DATABASE: the schema change is exactly the five typed Detailed-notification
+booleans. Proof: `git diff 7b1395c -- lib/core/database/app_database.dart`
+contains FIVE hunks —
+  @@ -247,6 +247,27 @@    five BoolColumn getters on NotificationPreferences
+  @@ -1277,6 +1298,54 @@  the migration-race corrective constant
+                               (kAppDatabaseNativeOptions) + doc comment
+  @@ -1343,7 +1412,7 @@  the corrective call site
+                               (driftDatabase(... native: kAppDatabaseNativeOptions))
+  @@ -1404,7 +1473,7 @@  schemaVersion 46 -> 47
+  @@ -2461,6 +2530,47 @@ the `from < 47` migration block
+Of these, three are the v47 SCHEMA change and two are the class-F CORRECTIVE
+facet (see K4 / O5). No other table, index or column changed.
+
+ANDROID: manifest, permissions, launcher icons, services and receivers are
+unchanged. Only the authorized notification icon drawable differs (+7/-1).
+
+================================================================================
+K. MIGRATION-STARTUP RACE — ROOT CAUSE + CORRECTIVE
+================================================================================
+STATUS: ROOT CAUSE CONFIRMED, REPRODUCED OFF-DEVICE, AND CORRECTED.
+The corrective IS APPLIED in this tree (lib/core/database/app_database.dart). See K4.
+
+K1. The defect
+On the first launch after a v46 -> v47 upgrade the app hangs permanently on the
+Android splash screen (no frame, no ANR, process alive). Logcat:
+  Unhandled Exception: SqliteException(5): while executing, database is locked
+  Causing statement: BEGIN IMMEDIATE
+  at app_database.dart:1524:9  AppDatabase.migration.<fn>
+The database itself is healthy: user_version 46 -> 47, integrity_check ok,
+3986 rows preserved, zero row loss.
+
+K2. Mechanism  (as it was BEFORE the corrective; line numbers are post-corrective)
+1. The connection is lazy: `AppDatabase.defaults()` ->
+   `super(driftDatabase(name: 'next_transfer', native: kAppDatabaseNativeOptions))`
+   (app_database.dart:1415; pre-corrective it was a bare
+   `driftDatabase(name: 'next_transfer')`).
+   `driftDatabase` is drift's LazyDatabase + background-isolate NativeDatabase;
+   the file is opened on the FIRST query, not at construction.
+2. The first query on the startup path is
+   `DatabaseBootstrap.verifyOpen()` -> `PRAGMA quick_check`
+   (database_bootstrap.dart:15-17), called from
+   `drift_startup_repository.dart:205`.
+3. That lazy open detects stored v46 vs code v47 and runs `onUpgrade`, whose
+   ENTIRE body is wrapped in `await transaction(() async { ... })` at
+   app_database.dart:1524. `transaction()` issues `BEGIN IMMEDIATE` — an
+   exclusive write lock.
+4. `AppDatabase.defaults()` is constructed at THREE independent sites, each an
+   independent connection to the same file:
+     lib/main.dart:72
+     lib/features/notifications/application/reminder_background_runtime.dart:104
+     lib/features/notifications/application/reminder_background_runtime.dart:203
+   If any other connection is open or reading at that instant, `BEGIN IMMEDIATE`
+   cannot acquire the lock -> SqliteException(5). The exception is unhandled on
+   the startup path, so Flutter never draws a frame -> permanent splash.
+5. The second launch succeeds because `user_version` is already 47, so
+   `onUpgrade` is never entered (proved on device: clean
+   startup_initialize -> database_open_started -> database_open_ready ->
+   startup_resolved, no migration markers, COLD start 3208 ms).
+
+K3. v47 TRIGGERED it; it did not author it
+`git diff 7b1395c -- lib/core/database/app_database.dart` has five hunks (see J):
+three are the v47 schema change, two are the corrective itself. Among the THREE
+SCHEMA hunks, neither `onUpgrade`'s transaction wrapper, nor `beforeOpen`, nor
+the open path is touched. Before this upgrade the stored schema already equalled
+the code version, so `onUpgrade` never ran and the latent race was never
+exercised. Classification: PRE-EXISTING LATENT DEFECT, FIRST EXPOSED BY v47.
+
+K4. REPRODUCED OFF-DEVICE; THE CORRECTIVE IS APPLIED
+Probes: .m7_frozen_audit/migration_race_probe/zz_migration_race_probe_test.dart,
+        .../zz_migration_race_probe2_test.dart,
+        .../zz_migration_race_probe3_test.dart
+(all live OUTSIDE test/, so they cannot enter the suite or the differential.)
+
+  Q1  effective PRAGMA on a default AppDatabase connection:
+        busy_timeout = 0        <-- no wait at all
+        journal_mode = delete ; foreign_keys = 1
+  Q2  a competing writer        -> THREW SqliteException(5) "database is locked"
+  Q3  v46 -> v47 race, as shipped:
+        A = OK ;  B = THREW SqliteException(5) ... BEGIN IMMEDIATE ;
+        final user_version = 47
+      ^ the DEVICE FAILURE, reproduced deterministically off-device.
+
+MECHANISM (this is why no timeout can help): the two connections deadlock on
+lock UPGRADES. A holds RESERVED (BEGIN IMMEDIATE) and needs EXCLUSIVE to commit;
+B holds SHARED (from reading user_version) and needs RESERVED. Neither can yield,
+so SQLite raises SQLITE_BUSY, and a lock-upgrade conflict does not invoke the
+busy handler at all.
+
+REMEDIES THAT WERE MEASURED AND REJECTED (probe 2):
+  Q6  busy_timeout = 5000 only .............. THREW SqliteException(5)
+  Q7  busy_timeout + journal_mode = WAL ..... THREW SqliteException(5)
+  Q8  journal_mode = WAL only ............... THREW SqliteException(5)
+None of them resolves the race.
+
+PRODUCTION-PATH PROOF (probe 3) — Q1-Q8 use a hand-built `NativeDatabase`, which
+proves the mechanism but not that the REAL production entry point behaves the
+same way. Probe 3 therefore drives `driftDatabase(name: 'next_transfer',
+native: ...)` itself — the exact call `AppDatabase.defaults()` makes — and
+observes the connection-sharing registry directly. Evidence:
+.m7_frozen_audit/migration_race_probe/PROBE3_PRODUCTION_PATH.txt
+
+  Q9  CONTROL — production entry point, drift's DEFAULT options, two connections
+      racing the v46 -> v47 migration:
+        THREW SqliteException(5): "database is locked",
+        Causing statement: BEGIN IMMEDIATE        <-- THE DEVICE FAILURE,
+                                                      via the production path
+      (surfaced as a DriftRemoteException wrapping the SqliteException, because
+       `driftDatabase` runs the connection in a background isolate)
+  Q10 CORRECTIVE — the same two connections WITH shareAcrossIsolates: true:
+        OK ;  final user_version = 47
+  Q11 CAUSAL CONTRAST — direct observation of the sharing registry:
+        IsolateNameServer port 'drift-db/next_transfer'
+          WITHOUT shareAcrossIsolates ....... ABSENT
+          WITH    shareAcrossIsolates ....... PRESENT
+      This is the mechanism itself, observed — not inferred from timing.
+
+Probe 3 = ALL ASSERTIONS PASS. So the corrective is proven to change the
+production code path, not merely an adjacent one.
+
+CORRECTION LOGGED (audit integrity): an earlier probe pass (its "Q5") appeared to
+show that a busy_timeout resolved the race, and that was briefly written up as a
+proven fix. It was WRONG: that probe read `PRAGMA busy_timeout` on BOTH
+connections BEFORE the race, and those reads forced each connection to open — and
+therefore to migrate — sequentially, so there was no race left to lose. Probe 2
+removes the pre-race reads and shows all three timeout/WAL remedies failing. The
+"Q5 proves a busy_timeout works" claim is WITHDRAWN.
+
+THE CORRECTIVE ACTUALLY APPLIED — remove the second connection.
+drift provides the remedy directly. `DriftNativeOptions.shareAcrossIsolates`
+(already-available dependency drift_flutter 0.3.1) makes every
+`driftDatabase(name: 'next_transfer')` in the process converge on ONE shared
+connection. Drift documents it as managing "concurrent access to the database,
+preventing 'database is locked' errors due to concurrent transactions" and
+"recommended if a drift database may be used on multiple isolates".
+
+  lib/core/database/app_database.dart
+    + const DriftNativeOptions kAppDatabaseNativeOptions = DriftNativeOptions(
+    +   shareAcrossIsolates: true,
+    + );
+    ...
+    -   super(driftDatabase(name: 'next_transfer'));
+    +   super(driftDatabase(name: 'next_transfer', native: kAppDatabaseNativeOptions));
+
+All three `AppDatabase.defaults()` sites (lib/main.dart:72,
+reminder_background_runtime.dart:104 and :203) go through that constructor, so
+they now share one connection and a second connection can no longer race the
+migration.
+
+WHY IT IS NARROW: one call site plus one constant; schema still exactly 47; the
+v47 migration hunks, `onUpgrade`, `beforeOpen` and the `transaction(...)` wrapper
+are all untouched; no new dependency; `AppDatabase.forTesting` is unaffected (no
+test calls `defaults()`), so every existing database test keeps its executor.
+
+HONEST LIMIT: `shareAcrossIsolates` shares within ONE Flutter engine (it resolves
+the connection through `IsolateNameServer`). It removes the three same-engine
+connections that caused this startup failure. A separate engine (e.g. a
+WorkManager isolate in its own engine) would need a different remedy, and none is
+introduced here.
+
+EVIDENCE: test/core/database/v47_migration_concurrency_test.dart — 5 assertions,
+all PASS:
+  * structural: production opts into the shared connection, and deliberately
+    carries NO connection setup (because a timeout was measured not to work)
+  * FAIL-FIRST ARM: drift defaults reproduce the lock (the pre-fix failure)
+  * NEGATIVE: a busy timeout does NOT fix the race
+  * NEGATIVE: WAL does NOT fix the race
+  * MECHANISM: with ONE connection the migration completes cleanly (v47,
+    integrity ok)
+
+================================================================================
+L. FAIL-FIRST EVIDENCE
+================================================================================
+The handoff requires fail-first coverage "where practical" and says the
+owner-visible failure "should fail before restoration if reproducible".
+
+L1. THE MIGRATION RACE — GENUINE FAIL-FIRST, AND IT FAILS
+test/core/database/v47_migration_concurrency_test.dart contains an explicit
+FAIL-FIRST ARM: with drift's default options, two connections racing the
+v46 -> v47 migration reproduce `SqliteException(5): database is locked`. That arm
+is the pre-fix behaviour and it fails before the corrective. The same file then
+pins the two NEGATIVE results (a busy timeout does not fix it; WAL does not fix
+it) and the mechanism (one connection migrates cleanly). All 5 pass with the
+corrective applied. The corrective and this test land as ONE change, so the
+Phase 10 gate (NEW FAILURES = 0) still holds.
+
+Strengthened by probe 3 (section K4), which is the same fail-first shape driven
+through the REAL production entry point `driftDatabase(name:, native: ...)`:
+with drift's defaults it throws `SqliteException(5) ... BEGIN IMMEDIATE`; with
+`shareAcrossIsolates: true` it is OK and the migration completes to 47; and the
+`IsolateNameServer` port is ABSENT without the option and PRESENT with it. That
+last observation is the causal contrast — the sharing mechanism itself, observed
+rather than inferred.
+
+L2. THE TWO OWNER-REPORTED REGRESSIONS — NO FAILING BEHAVIOUR TO ENCODE
+Neither is reproducible in the current source, so there is no failing behaviour
+to encode. Instead the pre-existing accepted contracts were RUN as the fail-first
+equivalent, and they PASS:
+  - planner_current_time_indicator_test.dart ......... 20/20 PASS (exit 0)
+  - planner_correction_pack_test.dart z-order test ... PASS
+    ("current-time indicator paints behind Event blocks (Phase 5 FINAL z-order)
+      and stays non-interactive") — our branch's own accepted z-order, which is
+      hour grid -> overlay -> Event blocks. NOTE: the parallel-lineage doc
+      docs/handoffs/planner-correction-pack-completion.md (branch
+      temp/vs08-shared-preview @ 03bbce5, NOT an ancestor of this HEAD) states
+      the OPPOSITE order. Our branch's test is authoritative here and passes.
+  - Maps Auto Face North: no such control ever existed (section G), so no
+    fail-first test can fail. The added
+    vs15_m33_auto_face_north_audit_test.dart instead PINS the accepted
+    camera-bearing law (9/9 PASS) so it cannot silently change.
+
+A negative result was deliberately NOT converted into a fabricated failing
+test. Adding an artificial failure would violate "no opportunistic cleanup" and
+would have no owner-visible basis.
+
+Phase 10 then supplied the stronger, aggregate form of this evidence: a full
+identity-based differential requiring NEW FAILURES = 0 / NEW ERRORS = 0 /
+NEW SKIPS = 0 — see M.
+
+================================================================================
+M. FULL REGRESSION GATES  (Phases 9 / 10)
+================================================================================
+
+--------------------------------------------------------------------------------
+[M1] FULL SUITE + IDENTITY DIFFERENTIAL   (Phase 10)
+--------------------------------------------------------------------------------
+Method: the SAME identity-based differential already accepted for the v47 round.
+Key = <suite-relative-path>::<full-visible-test-name>. Raw counts are NOT the
+criterion (the candidate legitimately adds suites and tests); identity matching
+isolates the only number that matters — net NEW badness. Hidden `loading <path>`
+pseudo-tests are excluded. "Bad" = testDone(result != success) OR skipped.
+
+Script : .m7_v47_evidence/named_differential.py
+Baseline: .m7_evidence/baseline_complete_7b1395c.json   (accepted pristine 7b1395c)
+Candidate: .m7_frozen_audit/candidate_full2.json         (POST-CORRECTIVE, this tree)
+Output  : .m7_frozen_audit/phase10_differential_postcorrective.txt
+Prior    : .m7_frozen_audit/phase10_differential.txt      (pre-corrective capture)
+
+This section was RE-RUN after the migration-race corrective landed, because the
+corrective changes production source (app_database.dart) and adds a test file.
+Both captures agree; the post-corrective numbers are the ones recorded here.
+
+Raw captures:
+  baseline  tests=1993  suites=270  bad=130  end_marker=True
+  candidate tests=2195  suites=289  bad=116  end_marker=True
+            ^ 2181 -> 2195 = +14 = the 9 Maps audit tests + the 5 migration
+              concurrency tests added this session; suites 287 -> 289.
+
+  NEW failures/errors/skips NOT present in baseline ......... 0
+    NEW FAILURES = 0
+    NEW ERRORS   = 0
+    NEW SKIPS    = 0
+  inherited (bad in both) .................................. 116
+  fixed (bad only in baseline) ............................. 14
+  baseline names MISSING from candidate .................... 1   (proven rename, M3)
+
+Arithmetic self-check (both directions must close):
+  baseline  130 bad = 116 inherited +  14 fixed            -> closes
+  candidate 116 bad = 116 inherited +   0 new              -> closes
+  identities: 1993 baseline - 1 gone = 1992 matched;
+              candidate 2195 - 1992 = 203 net-new identities.
+  Of the 203 net-new identities, 14 belong to the two suites added this session
+  (test/features/maps/vs15_m33_auto_face_north_audit_test.dart, 9 tests;
+   test/core/database/v47_migration_concurrency_test.dart, 5 tests) — and all 14
+  report result=success. The remaining 189 are the pre-existing M7 suite growth.
+
+REQUIRED GATE RESULT:
+  NEW FAILURES = 0   PASS
+  NEW ERRORS   = 0   PASS
+  NEW SKIPS    = 0   PASS
+  MISSING      = 1   -> investigated and closed as a RENAME (see M3), not a deletion.
+
+--------------------------------------------------------------------------------
+[M2] FOCUSED PLANNER CURRENT-TIME SUITES
+--------------------------------------------------------------------------------
+Capture: .m7_cti_evidence/cti_baseline.out (re-confirmed in the full-suite capture)
+
+  planner_current_time_indicator_test.dart ....... 20 tests, 20 success, 0 bad
+  planner_correction_pack_test.dart z-order ...... PASS
+    ("current-time indicator paints behind Event blocks (Phase 5 FINAL z-order)
+      and stays non-interactive")
+
+The authoritative accepted current-time contract is therefore GREEN in the
+candidate — independently corroborating that REGRESSION A is not a source
+regression (see F).
+
+Note on scope honesty: every test in planner_current_time_indicator_test.dart
+injects an external `currentTimeListenable`. The PRODUCTION screen-owned
+notifier + minute-boundary Timer path is therefore NOT exercised by that suite.
+That path was instead proven by direct source reading (F2) and by the
+device-geometry render probe (F4/F5). This gap is disclosed, not concealed.
+
+--------------------------------------------------------------------------------
+[M3] INHERITED FAILURES — NOT M7 REGRESSIONS
+--------------------------------------------------------------------------------
+The 116 inherited bad names are `result: error` in the ACCEPTED baseline too.
+They are pre-existing conditions of the stable checkpoint, not M7 regressions.
+Full list: .m7_frozen_audit/phase10_differential.txt ("--- INHERITED ---").
+
+The three that matter most for the two owner reports, checked individually:
+  base error | cand error | pager preview content parity TEST 5
+  base error | cand error | pager preview content parity TEST 6
+  base error | cand error | Correction Pack: canonical color pipeline
+All three are `error` in BOTH captures -> INHERITED, identical in the accepted
+baseline. They cannot be M7 regressions.
+
+Notably, 14 baseline-bad names are now FIXED in the candidate, including:
+  - all five MP-04 Event left-accent border tests
+  - pager preview cache TEST 5 / TEST 6 / TEST 7
+  - several light-UI C-contract tests
+i.e. the candidate is strictly BETTER than the baseline on this metric.
+
+[M3b] THE ONE MISSING NAME — PROVEN RENAME, NOT A DELETION
+File: test/features/notifications/vs16_m4_platform_safety_test.dart
+  baseline  : "delivery WorkManager input is stable-key-only"
+  candidate : "delivery WorkManager input is the strict three-field allowlist"
+
+Evidence this is a STRENGTHENING rename, not hidden test deletion:
+  baseline body asserted  : spec.inputData.keys == {'stable_key'}          (1 key)
+  candidate body asserts  : spec.inputData.keys == {'stable_key',
+                                                    'scheduled_utc_ms',
+                                                    'source_revision'}    (exactly 3)
+                          + forbidden-substring guard extended to
+                            title / body / text / name / location
+                            (baseline guard covered only title/body/text)
+                          + NEW deterministic assertion on spec.uniqueName
+                            ('nt.reminder.42.1789000000000.<sha256[:16]>')
+  file test count         : baseline 20 names -> candidate 21 names
+  net-new sibling test    : "legacy two-key and extra-key delivery input is a
+                             terminal no-op"  (rejects the legacy 2-key shape and
+                             any extra key as a terminal no-op)
+
+Conclusion: one test was renamed and strengthened; one test was ADDED in the
+same file. Nothing was deleted and nothing was weakened. The single GONE name
+is fully accounted for.
+
+--------------------------------------------------------------------------------
+[M4] PHASE 10 VERDICT
+--------------------------------------------------------------------------------
+NEW FAILURES = 0 / NEW ERRORS = 0 / NEW SKIPS = 0, and the sole missing name is
+a proven strengthening rename. The result holds on BOTH the pre-corrective and
+the post-corrective captures: the migration-race corrective and its fail-first
+test (14 new identities, all success) introduced ZERO new badness.
+Phase 10 = PASS.
+
+================================================================================
+N. STATIC / PROTECTED GATES  (Phase 11)
+================================================================================
+[N1] ANALYZER / DIFF
+Capture: .m7_frozen_audit/static_gates.txt
+  flutter analyze --no-pub --fatal-infos lib test
+    -> "No issues found! (ran in 55.1s)"   ANALYZE_EXIT=0
+  git diff --check
+    -> DIFFCHECK_EXIT=0  (only CRLF advisory warnings, no whitespace errors)
+
+RE-RUN ON THE FINAL (POST-CORRECTIVE) TREE, at report time:
+  flutter analyze --no-pub --fatal-infos lib test
+    -> "No issues found! (ran in 6.1s)"     ANALYZE_EXIT=0
+  git diff --check
+    -> DIFFCHECK_EXIT=0
+The corrective adds no analyzer finding and no whitespace error.
+
+SCHEMA: `int get schemaVersion => _schemaVersionOverride ?? 47;` (line 1476)
+        -> exactly 47.
+
+[N2] PROTECTED / FORBIDDEN-CAPABILITY GATES
+Captures: .m7_frozen_audit/protected_gates.txt, android_pubspec_check.txt,
+          plus a re-verification pass performed at report time (see below).
+
+  #   GATE                                  RESULT  EVIDENCE
+  1   schema exactly 47                     PASS    app_database.dart:1476
+  2   no unauthorized permission delta      PASS    7 permissions, byte-identical
+                                                     to 7b1395c (USE_BIOMETRIC,
+                                                     READ_CONTACTS, COARSE+FINE
+                                                     LOCATION, INTERNET,
+                                                     POST_NOTIFICATIONS,
+                                                     RECEIVE_BOOT_COMPLETED)
+  3   no unauthorized manifest change       PASS    `git diff 7b1395c --
+                                                     AndroidManifest.xml` = EMPTY
+  4   launcher icons unchanged              PASS    all mipmap-*/ dirs: EMPTY diff;
+                                                     no untracked files under
+                                                     android/app/src/main/res/
+  5   no Maps permission expansion          PASS    ACCESS_BACKGROUND_LOCATION
+                                                     absent; Maps byte-identical
+  6   no exact alarm                        PASS    SCHEDULE_EXACT_ALARM = 0,
+                                                     USE_EXACT_ALARM = 0
+  7   no background location                PASS    ACCESS_BACKGROUND_LOCATION = 0
+  8   no geofence                            PASS    "geofenc" = 1 hit, and it is
+                                                     a COMMENT stating the service
+                                                     never starts a geofence
+  9   no FOREGROUND_SERVICE                 PASS    0 hits
+  10  no NEW Snooze capability              PASS    baseline lib/ = 184 snooze
+                                                     hits across 12 files;
+                                                     candidate = 186 (+2). Snooze
+                                                     PRE-EXISTS at the accepted
+                                                     checkpoint; M7 edited
+                                                     existing snooze logic, it did
+                                                     not introduce the capability.
+  11  no explicit notification Open action  PASS    no `actions:` /
+                                                     AndroidNotificationAction /
+                                                     DarwinNotificationAction
+                                                     declared anywhere. The
+                                                     gateway comment records the
+                                                     accepted VS16 owner decision:
+                                                     "reminders carry NO explicit
+                                                     action buttons. Snooze is
+                                                     deferred ... the notification
+                                                     body's own tap is the
+                                                     canonical Open path."
+                                                     notification_payload.dart
+                                                     (which DECODES a legacy
+                                                     'snooze'/'open' actionId) is
+                                                     UNMODIFIED. M7's only change
+                                                     in lib/core/notifications/ is
+                                                     the BigText presentation style
+                                                     (whitelist item 5).
+  12  no Saved Place reminders             PASS    SavedPlace refs inside
+                                                     lib/features/notifications/:
+                                                     baseline 0, candidate 0
+
+CORRECTION LOGGED DURING THIS PASS (disclosed for audit integrity):
+  An earlier count of baseline snooze hits reported 0. That was a field-extraction
+  bug: `git grep <commit>` prefixes each line with the commit hash, so
+  `awk -F: '{s+=$2}'` summed the PATH field, not the count. Re-run with
+  `awk -F: '{s+=$NF}'` gives the correct 184. The gate verdict (no NEW Snooze
+  capability) is unchanged, but the corrected number is the one recorded above.
+
+Phase 11 = PASS on all 12 gates.
+
+================================================================================
+O. FINAL SOURCE-DELTA CERTIFICATE
+================================================================================
+Capture: .m7_frozen_audit/phase1_delta_inventory.txt (Phase 1 snapshot)
+         .m7_frozen_audit/phase1_delta_inventory_postcorrective.txt (re-captured
+         AFTER the migration-race corrective; supersedes the app_database.dart
+         counts in the Phase 1 snapshot)
+
+1. Meaningful production files differing from 7b1395c ......... 44
+   (33 modified + 11 new; recomputed at report time:
+    `git diff --name-only 7b1395c -- lib android` = 33,
+    untracked production files under lib/ android/ = 11)
+2. Of which authorized M7 (classes A + B) ..................... 42
+3. Of which v47 generated / schema (classes C + D) ............ 2
+   (app_database.dart is counted in class C; app_database.g.dart in class D;
+    the five new notification files carry class A with a v47 storage facet)
+4. Of which regression-restoration changes (class E) .......... 0
+5. Of which owner-approved M7 corrective (class F) ............ 1
+   app_database.dart gains a CORRECTIVE FACET (the file was already counted in
+   class C, so the file total stays 44 — what changes is the classification).
+   The facet is the migration-race corrective:
+     + const DriftNativeOptions kAppDatabaseNativeOptions =
+     +     DriftNativeOptions(shareAcrossIsolates: true);
+     - super(driftDatabase(name: 'next_transfer'));
+     + super(driftDatabase(name: 'next_transfer',
+     +                      native: kAppDatabaseNativeOptions));
+   app_database.dart now has FIVE hunks vs 7b1395c: the three original v47
+   schema hunks plus these two corrective hunks. Schema is still exactly 47.
+   This is an AUTHORIZED CORRECTIVE for a pre-existing latent defect first
+   exposed by v47 — NOT a frozen-feature restoration, which is why class E
+   remains 0. Full detail: section K4.
+6. UNEXPLAINED DIFFERENCES REMAINING .......................... 0
+
+Explicit statements:
+  PLANNER FROZEN BEHAVIOR = PRESERVED  (no restoration was required;
+      indicator/ruler/geometry/zoom/pager/domain all byte-identical)
+  MAPS LOCATE ME          = PRESERVED / NOT TOUCHED
+  MAPS AUTO FACE NORTH    = NOT ACCEPTED HISTORICALLY  (never an app-implemented
+      control in ANY accepted Maps checkpoint; byte-identical to 76ee168)
+  CONTACTS FROZEN BEHAVIOR = PRESERVED (only authorized M7 follow-up integration)
+  GOALS FROZEN BEHAVIOR   = PRESERVED  (zero diff)
+  NON-M7 SETTINGS         = PRESERVED  (only notifications_settings_screen.dart)
+
+The two Maps controls are reported SEPARATELY and are NOT merged (owner
+correction). "Locate me" is byte-identical and untouched; "Auto Face North" was
+never an app control, so it is neither preserved-as-source nor restorable.
+
+Caveat, stated plainly: "RESTORED" is not claimed for Planner or for Maps Auto
+Face North because nothing was restored. The honest statement is that no frozen
+regression exists in source. That is a different claim from "restored", and the
+owner should treat the two owner reports as UNCONFIRMED pending the requested
+evidence.
+
+================================================================================
+P. FINAL APK IDENTITY
+================================================================================
+NOT REBUILT — AND THE REBUILD IS NOW REQUIRED, BUT BLOCKED ON A GATE.
+
+Production source HAS changed in this session: lib/core/database/app_database.dart
+now carries the migration-race corrective (section K4 / O5). The currently
+on-disk artefact therefore no longer corresponds to this tree:
+
+  build/app/outputs/flutter-apk/app-debug.apk   (STALE — pre-corrective source)
+  241,013,960 bytes
+  sha256 8506eb67143793bd560a67c42606b7392289eb9884781f2becf91ee2a201100a
+  built 2026-09-12T14:24:50Z, package com.nexttransfer.rmplanner 0.1.0 (code 1),
+  minSdk 24 targetSdk 36, schemaVersion 47
+
+A fresh APK is REQUIRED before any device step. It has deliberately NOT been
+built yet, because the handoff sets an explicit gate on the build:
+
+    "Require before final build:
+       AUTO FACE NORTH OWNER-ACCEPTED BEHAVIOR = VERIFIED
+       UNEXPLAINED PRODUCTION DIFFERENCES = 0"
+
+  UNEXPLAINED PRODUCTION DIFFERENCES = 0 ....... SATISFIED
+  AUTO FACE NORTH OWNER-ACCEPTED BEHAVIOR = VERIFIED ...... NOT SATISFIED
+
+Auto Face North could not be verified because the audit proved (section G) that
+no app-implemented Face North control exists in ANY accepted Maps checkpoint —
+the accepted behaviour is "the SDK-native compass, unchanged". Whether that is
+what the owner means cannot be confirmed without the owner's evidence. Per the
+handoff's own stop rule ("STOP if the historical accepted behavior cannot be
+proven"), the build gate is therefore NOT met, and no APK was built.
+
+Rebuild is the very next step once the owner confirms Auto Face North (either
+"it is the native compass" — no change needed — or supplies evidence of a
+control this product shipped).
+
+================================================================================
+Q. DEVICE INSTALL EVIDENCE
+================================================================================
+NOT PERFORMED. No adb command was issued in this session.
+DEVICE = NOT TOUCHED.
+The currently installed v47 build (8506eb67...) is untouched: not uninstalled,
+not cleared, not reinstalled. Its data (schema 47) is intact.
+
+================================================================================
+R. DB PRESERVATION
+================================================================================
+NOT APPLICABLE — no install occurred, so no DB safety copy was needed and no
+DB was written. The previously captured device evidence remains authoritative:
+  .m7_v47_evidence/device/PRE_install_next_transfer.sqlite      (v46)
+  .m7_v47_evidence/device/POST_install_next_transfer.sqlite     (v47)
+  .m7_v47_evidence/device/POST_relaunch_next_transfer.sqlite    (v47)
+  integrity_check ok, quick_check ok, 45 tables, 3986 rows, zero row loss.
+
+================================================================================
+S. PLANNER PHYSICAL SMOKE
+================================================================================
+NOT PERFORMED (no install). Substituted by the device-geometry render proof in
+F4/F5, which is stronger evidence about the code path but is NOT a substitute
+for the owner's physical confirmation.
+
+================================================================================
+T. MAPS PHYSICAL SMOKE
+================================================================================
+NOT PERFORMED (no install). Substituted by the byte-identity proof (G3), the
+accepted-checkpoint scan across all Maps checkpoints (G3), and the focused
+camera-bearing audit test vs15_m33_auto_face_north_audit_test.dart (G7, 9/9 PASS).
+
+The owner's physical smoke MUST NOT substitute "Locate me" for Auto Face North.
+Required on-device steps (see the closing block for the full script): rotate the
+map away from north, use the actual Auto Face North affordance present on the
+accepted build, and verify the camera returns north-up with zoom and target
+preserved.
+
+BLOCKED: the on-device step cannot proceed until (a) the owner confirms what
+Auto Face North is (item 2 of the closing block), and (b) a fresh APK is built
+from the corrected tree and installed.
+
+================================================================================
+FINAL STATEMENTS
+================================================================================
+UNEXPLAINED PRODUCTION DIFFERENCES = 0
+AUTO FACE NORTH OWNER-ACCEPTED BEHAVIOR = NOT VERIFIED
+M7 PHYSICAL ACCEPTANCE = PENDING OWNER
+M8 = NOT STARTED
+COMMIT = NOT PERFORMED
+PUSH   = NOT PERFORMED
+
+================================================================================
+STOPPED — ITEMS NEEDING OWNER INPUT / DECISION
+================================================================================
+1. REGRESSION A (Planner current-time indicator) — NOT REPRODUCIBLE.
+   All ten current-time-indicator source files are byte-identical to 7b1395c;
+   the accepted contract is 20/20 GREEN; the device-geometry render probe shows
+   the complete indicator. Please supply the Planner screenshot showing the
+   incomplete indicator. Without it, any "restoration" would be an unguided
+   change to frozen code, which the handoff forbids.
+
+2. REGRESSION B (Maps AUTO FACE NORTH) — RE-AUDITED UNDER THE OWNER CORRECTION.
+   The first pass investigated the WRONG control (Locate me); that conclusion is
+   WITHDRAWN for Regression B. The re-audit (section G) proves:
+     - no app-implemented Face North / compass / reset-bearing control exists in
+       the CURRENT source, and
+     - none ever existed in ANY accepted Maps checkpoint
+       (385402b, b4d65b1, e0368dc, 76ee168, 7b1395c) — Maps is byte-identical
+       from the last accepted Maps checkpoint 76ee168 through 7b1395c to the
+       working tree;
+     - failure mode = G (feature never reached the accepted product).
+   The only north affordance is the SDK-native Google Maps compass, which is
+   unchanged (enabled by the SDK default, because the app never sets
+   `compassEnabled`).
+   DECISION NEEDED: is the owner's "Auto Face North" the native Google Maps
+   compass? If YES, there is no regression and nothing to restore. If NO, please
+   supply a screenshot/recording of the accepted build showing the control, so
+   the exact affordance can be identified rather than guessed. Per the handoff,
+   this audit STOPS here rather than inventing a new control (which would be a
+   Maps redesign, explicitly forbidden).
+
+3. THE MIGRATION RACE — CORRECTIVE IS APPLIED (not merely proposed).
+   Root cause reproduced off-device and the one-constant corrective
+   `DriftNativeOptions(shareAcrossIsolates: true)` is applied at
+   app_database.dart:1415, with fail-first coverage in
+   test/core/database/v47_migration_concurrency_test.dart (5/5 PASS).
+   NOTE: an earlier claim that a `busy_timeout` fixes the race was WRONG and is
+   WITHDRAWN (the Q5 probe serialized the opens and hid the race). The measured
+   negatives are recorded in K4. Full detail: section K4 and
+   .m7_frozen_audit/MIGRATION_RACE_PROVEN_FIX.txt (rewritten to match).
+
+4. ACKNOWLEDGE the one item outside the 12-category whitelist:
+   `event_type_providers.dart` + `event_type_picker_dialog.dart` (O1/O10 /
+   OAT13 Event Type load coalescing). It is documented as authorized in the M7
+   final certification report, so it is classified AUTHORIZED CORRECTIVE — but
+   it needs your explicit confirmation. See section E.
+
+5. BUILD GATE NOT MET. The build gate is
+   "AUTO FACE NORTH OWNER-ACCEPTED BEHAVIOR = VERIFIED + UNEXPLAINED
+   PRODUCTION DIFFERENCES = 0". The second half is satisfied; the first is not,
+   because Auto Face North cannot be verified without the owner's evidence.
+   So no fresh APK was built, no adb install was issued, and the device was not
+   touched. Once item 2 is resolved, the rebuild + install + physical smoke
+   proceed in that order.
+
+PHYSICAL SMOKE SCRIPT FOR THE OWNER (when the build lands) — MAPS
+  Do NOT use "Locate me" as the Auto Face North test.
+    1. open Maps; confirm the map starts north-up
+    2. rotate the map away from north with two fingers (rotation gestures are
+       SDK-enabled)
+    3. verify the actual Auto Face North affordance that is present on YOUR
+       accepted build (native compass / whatever you remember)
+    4. activate it
+    5. verify the camera returns north-up (bearing 0) and that zoom and target
+       are preserved
+    6. confirm "Locate me" was NOT what produced the result
+
+Evidence directory: .m7_frozen_audit/  (+ .m7_cti_evidence/, .m7_v47_evidence/)
+Probes (outside test/ by design — cannot affect the suite or the differential):
+  .m7_frozen_audit/migration_race_probe/zz_migration_race_probe_test.dart    (Q1-Q5)
+  .m7_frozen_audit/migration_race_probe/zz_migration_race_probe2_test.dart   (Q6-Q8)
+  .m7_frozen_audit/migration_race_probe/zz_migration_race_probe3_test.dart   (Q9-Q11,
+      the production-path proof; output in .../PROBE3_PRODUCTION_PATH.txt)
+================================================================================

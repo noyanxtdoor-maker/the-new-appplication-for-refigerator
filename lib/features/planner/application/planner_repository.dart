@@ -1,3 +1,4 @@
+import 'package:rmplanner/features/notifications/domain/task_reminder_occurrence.dart';
 import 'package:rmplanner/features/planner/domain/planner_date.dart';
 import 'package:rmplanner/features/planner/domain/planner_day.dart';
 import 'package:rmplanner/features/planner/domain/planner_task.dart';
@@ -54,6 +55,26 @@ final class EmptyPlannerTaskContextSource implements PlannerTaskContextSource {
 /// only and non-incomplete Tasks are excluded by the production source.
 abstract interface class PlannerTaskReminderSource {
   Future<List<PlannerTask>> readPendingReminderTasks({
+    required String profileId,
+    required PlannerDate startDate,
+    required PlannerDate endDate,
+  });
+}
+
+/// Optional bounded RECURRENCE-aware Task reminder projection
+/// (contract section 37 TASK RECURRENCE FIX).
+///
+/// [PlannerTaskReminderSource] reads anchor due dates only, so a recurring Task
+/// whose anchor fell outside the window is invisible to reminders even though
+/// canonical truth projects it inside the window.  This port instead returns
+/// `(task, projectedDate)` pairs derived from the canonical
+/// `PlannerTask.projectsOn` projection, bounded by the caller's date range.
+///
+/// It deliberately does NOT mutate `dueDate`, duplicate Task source rows or add
+/// per-occurrence persistence.  The anchor-only query remains available to
+/// unrelated consumers.
+abstract interface class PlannerTaskReminderOccurrenceSource {
+  Future<List<TaskReminderOccurrence>> readTaskReminderOccurrences({
     required String profileId,
     required PlannerDate startDate,
     required PlannerDate endDate,

@@ -1,0 +1,111 @@
+BASELINE : .m7_evidence/baseline_complete_7b1395c.json
+  suite events=270  distinct suite paths=270  allSuites.count=270
+  testStart=2284  testDone(all)=2284  testDone(visible)=1994  hidden=290  unmatched=0  unparsable=0
+  identities=1994  suites=270
+    success  1864
+    skip     8
+    failure  21
+    error    101
+CANDIDATE: .m8_evidence/candidate_merged.jsonl
+  suite events=297  distinct suite paths=297  allSuites.count=297
+  testStart=2618  testDone(all)=2618  testDone(visible)=2293  hidden=325  unmatched=0  unparsable=0
+  identities=2293  suites=297
+    success  2181
+    skip     8
+    failure  17
+    error    87
+
+=== CANDIDATE STREAM STRUCTURAL CONSISTENCY ===
+  testStart == testDone(all):        YES
+  suite events == allSuites.count:   YES
+  distinct suite paths == suites:    YES
+  unparsable lines:                  0
+  STRUCTURAL VERDICT: COMPLETE
+
+=== FINAL DIFFERENTIAL ===
+accepted baseline identities:        1994
+candidate identities:                2293
+new failures:                        0
+new errors:                          0
+new skips:                           0
+missing accepted identities:         4
+  authorized (renamed/replaced):     4
+  unauthorized:                      0
+regressions (accepted -> worse):     0
+resolved inherited (bad -> success): 17
+  declared with a reason:            17
+  undeclared:                        0
+same-severity outcome kind changes:  0
+inherited bad (bad in both):         112
+
+AUTHORIZED MISSING ACCEPTED IDENTITIES
+  features/maps/data/saved_place_migration_test.dart::v33 to current (v38) adds Saved Place customization + boundary columns without losing profile data
+            -> features/maps/data/saved_place_migration_test.dart::v33 to current (v47) adds Saved Place customization + boundary columns without losing profile data
+  features/notifications/application/snooze_action_dispatch_test.dart::Snooze applies in the response isolate before any deferred work
+            -> ['features/notifications/application/snooze_action_dispatch_test.dart::a legacy Snooze trigger never executes or enqueues', 'features/notifications/application/snooze_action_dispatch_test.dart::a legacy Snooze trigger enqueues no retry work', 'features/notifications/application/snooze_action_dispatch_test.dart::T74 legacy Snooze representations terminate without executing T74 a legacy Snooze trigger creates no reminder', 'features/notifications/application/snooze_action_dispatch_test.dart::T74 legacy Snooze representations terminate without executing T74 a legacy Snooze trigger enqueues no work', 'features/notifications/application/snooze_action_dispatch_test.dart::T74 legacy Snooze representations terminate without executing T74 a legacy Snooze for an unknown source is a safe no-op', 'features/notifications/application/snooze_action_dispatch_test.dart::T74 legacy Snooze representations terminate without executing T74 the legacy Snooze intent stays decodable but inert']
+  features/notifications/application/snooze_action_dispatch_test.dart::retry retains original action time and generation
+            -> ['features/notifications/application/snooze_action_dispatch_test.dart::T74 legacy Snooze representations terminate without executing T74 a legacy Snooze trigger enqueues no work', 'features/notifications/application/snooze_action_dispatch_test.dart::a legacy Snooze trigger never executes or enqueues']
+  features/notifications/vs16_m4_platform_safety_test.dart::durable work payload safety delivery WorkManager input is stable-key-only
+            -> features/notifications/vs16_m4_platform_safety_test.dart::durable work payload safety delivery WorkManager input is the strict three-field allowlist
+
+RESOLVED INHERITED FAILURES (declared)
+  features/indicators/presentation/home_indicator_journey_test.dart::A3 / Pack 1: rapid Home daily target controls are immediate and target-only
+  features/indicators/presentation/home_indicator_journey_test.dart::Prompt A planned Home responsive width matrix
+  features/maps/data/saved_place_boundary_v36_test.dart::v35 to v36 adds boundary columns without losing place or profile data
+  features/maps/maps_preferences_repository_test.dart::v36 → v37 migration 9/10/11/12. v36 DB upgrades additively: MapsPreferences table created, domain records + Saved Places + boundaries intact, no row seeded
+  features/maps/vs15_m3_saved_places_contract_test.dart::M3 Saved Place seams are explicit and provisional
+  features/planner/presentation/calendar_event_indicator_link_test.dart::VS-08: unified Life Goal link is reversible, forces Report Required, and persists only on Save
+  features/planner/presentation/event_type_first_creation_test.dart::VS-08: one timeline tap selects a type before a prefilled form
+  features/planner/presentation/light_ui_c_contract_test.dart::C4: Task Life Goal card uses the semantic near-white surface in Blue Light
+  features/planner/presentation/light_ui_c_contract_test.dart::C5: Goal Icon choice row uses the semantic surface in Blue Light (no gray slab)
+  features/planner/presentation/mp04_date_swipe_border_regression_test.dart::MP-04: >=20 date swipes keep the Event left accent border on every preview and settled frame
+  features/planner/presentation/mp04_live_transition_border_test.dart::MP-04 live: preview-column Event blocks keep their left accent border on partial holds, mid-drag frames, settlement, and reverse swipes
+  features/planner/presentation/mp04_screen_space_fragment_accent_test.dart::MP-04 screen-space: a visible preview Event fragment carries its accent at the clipped boundary in the SAME frame (no body-before-accent, no settled delta)
+  features/planner/presentation/mp04_screen_space_fragment_accent_test.dart::MP-04 screen-space: backup preview fragments also carry the striped accent at the clipped boundary
+  features/planner/presentation/mp04_screen_space_fragment_accent_test.dart::MP-04 screen-space: reverse direction — the incoming right-side day enters with its true left accent visible (no body-without-accent, no fragment accent on the left edge)
+  features/planner/presentation/planner_interactive_day_pager_cache_test.dart::Stage B3-R1 D3-A: interactive pager preview cache TEST 5 — recurrence exception on an adjacent day invalidates the affected preview
+  features/planner/presentation/planner_interactive_day_pager_cache_test.dart::Stage B3-R1 D3-A: interactive pager preview cache TEST 6 / R5-04 — the first target-date data frame has final geometry and creates the new previous/current/next window
+  features/planner/presentation/planner_interactive_day_pager_cache_test.dart::Stage B3-R1 D3-A: interactive pager preview cache TEST 7 — a stale in-flight future cannot overwrite a newer window; ordering is enforced by the generation guard inside the future pipeline
+
+=== POST-BASELINE SUITES (present only in candidate): 35 ===
+  GREEN   7 tests  android/notification_icon_test.dart
+  GREEN   5 tests  core/background/m7_repair_marker_test.dart
+  GREEN  25 tests  core/background/m7_workinfo_matrix_test.dart
+  GREEN   5 tests  core/database/v47_migration_concurrency_test.dart
+  GREEN   6 tests  features/contacts/data/m7_contact_purpose_invalidation_test.dart
+  GREEN  13 tests  features/contacts/presentation/m7_follow_up_creation_test.dart
+  GREEN   2 tests  features/maps/data/saved_place_migration_test.dart
+  GREEN  11 tests  features/maps/vs15_m33_auto_face_north_audit_test.dart
+  GREEN   3 tests  features/notifications/application/m7_bigtext_presentation_test.dart
+  GREEN  11 tests  features/notifications/application/m7_contact_follow_up_test.dart
+  GREEN  22 tests  features/notifications/application/m7_detailed_content_test.dart
+  GREEN  32 tests  features/notifications/application/m7_enriched_delivery_test.dart
+  GREEN   7 tests  features/notifications/application/m7_headless_runtime_override_test.dart
+  GREEN   3 tests  features/notifications/application/m8_background_runtime_test.dart
+  GREEN   8 tests  features/notifications/application/m8_diagnostics_test.dart
+  GREEN   7 tests  features/notifications/application/m8_notification_routing_test.dart
+  GREEN  20 tests  features/notifications/application/m8_recovery_ownership_test.dart
+  GREEN  16 tests  features/notifications/application/m8_task_recurrence_test.dart
+  GREEN  19 tests  features/notifications/application/m8_work_state_machine_test.dart
+  GREEN  13 tests  features/notifications/application/reminder_reconciler_test.dart
+  GREEN  10 tests  features/notifications/application/snooze_action_dispatch_test.dart
+  GREEN  20 tests  features/notifications/application/vs16_m4_recovery_quiet_hours_test.dart
+  GREEN  12 tests  features/notifications/data/m7_detailed_content_store_test.dart
+  GREEN  17 tests  features/notifications/data/m7c_persistence_repair_test.dart
+  GREEN   6 tests  features/notifications/domain/reminder_policy_label_test.dart
+  GREEN   7 tests  features/notifications/notification_foundation_domain_test.dart
+  GREEN   9 tests  features/notifications/planning_reminder_contract_test.dart
+  GREEN   3 tests  features/notifications/presentation/m8_diagnostic_preview_test.dart
+  GREEN  21 tests  features/notifications/vs16_m4_platform_safety_test.dart
+  GREEN   4 tests  features/planner/data/m7_event_reminder_repair_marker_test.dart
+  GREEN   3 tests  features/planner/data/m7_occurrence_route_window_test.dart
+  GREEN   4 tests  features/planner/presentation/m7_event_type_header_test.dart
+  GREEN   1 tests  features/planner/presentation/planner_current_time_production_path_test.dart
+  GREEN   4 tests  features/privacy/data/m7_privacy_repair_marker_test.dart
+  GREEN   3 tests  features/privacy/presentation/privacy_journey_test.dart
+post-baseline suites with bad outcomes: 0
+
+post-baseline identities (new tests):  303
+  of which bad:                        0
+
+FINAL DIFFERENTIAL VERDICT: PASS

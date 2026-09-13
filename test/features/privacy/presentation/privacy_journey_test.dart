@@ -249,4 +249,97 @@ void main() {
     expect(find.byType(ListView), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  // VS16 M8 (contract section 38, scenario T73).
+  //
+  // The M8 background operational details do NOT widen the privacy boundary:
+  // they stay inside the journey that already exists, they are produced only on
+  // an explicit Prepare, they are withheld unless the owner has explicitly
+  // opted into operational details, and no export ever happens automatically.
+  testWidgets(
+    'T73 background diagnostic details stay inside the existing privacy journey',
+    (tester) async {
+      final database = openMemoryDatabase();
+      addTearDown(database.close);
+      final privacy = TestPrivacyDependencies(database: database);
+      final startupRepository = buildTestRepository(
+        database: database,
+        privacyGate: privacy.gate,
+      );
+      await startupRepository.completeOnboarding();
+
+      await tester.pumpWidget(
+        privacy.buildApp(
+          environment: const AppEnvironment(
+            name: AppEnvironmentName.production,
+            label: 'PRODUCTION',
+          ),
+          diagnostics: SanitizedDiagnostics(),
+          startupRepository: startupRepository,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('home-hamburger')));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('drawer-account-settings')),
+        300,
+        scrollable: find.descendant(
+          of: find.byKey(const Key('global-app-drawer-list')),
+          matching: find.byType(Scrollable),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('drawer-account-settings')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('settings-privacy-data')));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('diagnostic-preview-tile')),
+        240,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.drag(find.byType(Scrollable).first, const Offset(0, -120));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('diagnostic-preview-tile')));
+      await tester.pumpAndSettle();
+
+      // The standing privacy promise is still the first thing the owner sees,
+      // and M8 introduced no automatic collection on entry.
+      expect(
+        find.textContaining('Nothing is exported automatically'),
+        findsOneWidget,
+      );
+      expect(find.text('Background work'), findsNothing);
+
+      // Explicit Prepare, operational details OFF: no platform read, no cards.
+      await tester.tap(
+        find.byKey(const Key('prepare-diagnostic-preview-button')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Background work'), findsNothing);
+
+      // Explicit opt-in + explicit Prepare: typed facts only, still no export.
+      await tester.tap(find.byKey(const Key('diagnostic-context-checkbox')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const Key('prepare-diagnostic-preview-button')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Background work'), findsOneWidget);
+      expect(find.text('Notification scheduler'), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.textContaining('no file or message'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(
+        find.textContaining('no file or message'),
+        findsOneWidget,
+        reason: 'M8 must not introduce automatic export',
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
 }

@@ -1,0 +1,109 @@
+================================================================================
+VS16 M7 CORRECTIVE PERSISTENCE REPAIR — v47 APK METADATA
+================================================================================
+
+VARIANT             : debug
+FILENAME            : app-debug.apk
+
+SOURCE PATH         : C:/Users/sherl/Downloads/NT_B5_DEVELOP__deepseek-m7m8-20260911/build/app/outputs/flutter-apk/app-debug.apk
+
+EXACT BYTES         : 241,013,960
+SHA-256             : 8506eb67143793bd560a67c42606b7392289eb9884781f2becf91ee2a201100a
+
+BUILD TIMESTAMP     : 2026-09-12T14:24:50Z  (2026-09-12 22:24:50 local, GMT+8)
+BUILD DURATION      : 8m 24s (Gradle assembleDebug 495.1s)
+BUILD EXIT          : 0
+
+--------------------------------------------------------------------------------
+TOOLCHAIN
+--------------------------------------------------------------------------------
+TOOLCHAIN ROOT      : C:/Users/sherl/AppData/Local/NextTransferFlutter
+FLUTTER             : 3.44.7 (stable, revision 84fc5cbb22)
+DART                : 3.12.2
+JDK                 : Temurin 21.0.12.1+1
+                    C:/Users/sherl/AppData/Local/NextTransferFlutter/jdk21/jdk-21.0.12.1+1
+ANDROID SDK         : C:/Users/sherl/AppData/Local/Android/sdk
+BUILD TOOLS         : 36.0.0
+GRADLE TASK         : assembleDebug
+
+ENVIRONMENT NOTE
+  The shell's PROGRAMFILES(X86) was observed as the corrupted literal value
+  "(X86)". The correct value was injected for the tool invocation only:
+
+      PROGRAMFILES(X86)=C:\Program Files (x86)
+
+  No production source was modified to work around this machine condition.
+
+  The localhost proxy variables present in the shell environment
+  (http_proxy/https_proxy -> 127.0.0.1:62218) were bypassed for test and build
+  invocations with NO_PROXY/no_proxy = localhost,127.0.0.1,::1.
+
+--------------------------------------------------------------------------------
+PACKAGE IDENTITY (aapt dump badging)
+--------------------------------------------------------------------------------
+PACKAGE             : com.nexttransfer.rmplanner
+VERSION NAME        : 0.1.0
+VERSION CODE        : 1
+MIN SDK             : 24
+TARGET SDK          : 36
+COMPILE SDK         : 36
+APPLICATION LABEL   : Next Transfer
+
+SCHEMA VERSION      : 47
+  source of truth: lib/core/database/app_database.dart
+                   int get schemaVersion => _schemaVersionOverride ?? 47;
+
+--------------------------------------------------------------------------------
+PERMISSIONS (complete, as declared in the built APK)
+--------------------------------------------------------------------------------
+  android.permission.INTERNET
+  android.permission.USE_BIOMETRIC
+  android.permission.READ_CONTACTS
+  android.permission.ACCESS_COARSE_LOCATION
+  android.permission.ACCESS_FINE_LOCATION
+  android.permission.POST_NOTIFICATIONS
+  android.permission.RECEIVE_BOOT_COMPLETED
+  android.permission.VIBRATE
+  android.permission.FOREGROUND_SERVICE
+  android.permission.FOREGROUND_SERVICE_SHORT_SERVICE
+  android.permission.WAKE_LOCK
+  android.permission.ACCESS_NETWORK_STATE
+  android.permission.USE_FINGERPRINT
+  android.permission.ACCESS_WIFI_STATE
+  com.nexttransfer.rmplanner.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
+
+NO UNAUTHORIZED DELTA. This set is IDENTICAL to the permission set recorded for
+the previously certified APK in
+.m7_bundle_stage/APK/APK_METADATA.txt.
+
+No new permission was introduced by the v47 repair. No exact-alarm permission,
+no foreground-service type expansion, no background-location permission.
+
+--------------------------------------------------------------------------------
+DISQUALIFICATION CHECK
+--------------------------------------------------------------------------------
+DISQUALIFIED ARTEFACT (must NOT be reused, must NOT be installed):
+    bytes  : 208,136,378
+    sha256 : a7c02b9790451cf92bf9f029ec8f00654d909a09907faf45ca14da4a6307484e
+
+THIS ARTEFACT:
+    bytes  : 241,013,960
+    sha256 : 8506eb67143793bd560a67c42606b7392289eb9884781f2becf91ee2a201100a
+
+RESULT  : DISTINCT. The v47 artefact does NOT carry the disqualified hash.
+          Both the byte size and the SHA-256 differ.
+
+--------------------------------------------------------------------------------
+ARTEFACT LINEAGE (four distinct artefacts — do not confuse)
+--------------------------------------------------------------------------------
+  PRE-CORRECTIVE CERTIFIED   240,957,877   1834134208...  (bundle, 15:59)
+  CORRECTIVE (DISQUALIFIED)  208,136,378   a7c02b97...    (19:14) unsafe v46
+  V47 REPAIR (THIS)          241,013,960   8506eb67...    (22:24) typed v47
+
+--------------------------------------------------------------------------------
+DEVICE POLICY
+--------------------------------------------------------------------------------
+NOT INSTALLED. No ADB. No device interaction of any kind.
+DO NOT INSTALL without an explicit owner instruction.
+
+================================================================================

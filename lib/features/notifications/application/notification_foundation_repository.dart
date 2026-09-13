@@ -1,9 +1,33 @@
 import 'package:rmplanner/core/background/background_work_request.dart';
+import 'package:rmplanner/features/notifications/data/detailed_content_preferences_store.dart';
 import 'package:rmplanner/features/notifications/domain/notification_preferences.dart';
 import 'package:rmplanner/features/notifications/domain/reminder_policy.dart';
 
 abstract interface class NotificationFoundationRepository {
   Future<NotificationPreferences> readPreferences({required String profileId});
+
+  /// VS16 M7 corrective persistence repair — the five per-field Detailed
+  /// notification content options.
+  ///
+  /// These are TYPED boolean columns on the existing `notification_preferences`
+  /// row (schema v47). They were briefly stored as a namespaced key inside the
+  /// shared planner presentation JSON document; that design was reproduced as
+  /// an actual data-loss defect, because the planner document writers rebuild
+  /// that JSON from only the keys they understand and therefore dropped the
+  /// notification key on an ordinary Event Color save.
+  ///
+  /// A missing row or missing value reads as the all-TRUE default, and reading
+  /// never creates a row.
+  Future<DetailedContentPreferences> readDetailedContent({
+    required String profileId,
+  });
+
+  /// Persists ONLY the five dedicated columns (plus `updatedAtUtc`). No other
+  /// notification preference and no planner/colour content can be affected.
+  Future<DetailedContentPreferences> saveDetailedContent({
+    required String profileId,
+    required DetailedContentPreferences preferences,
+  });
 
   Future<NotificationPreferences> savePreferences({
     required String profileId,
@@ -38,6 +62,21 @@ abstract interface class NotificationFoundationRepository {
   Future<BackgroundWorkRequest> upsertWorkRequest(
     BackgroundWorkRequest request,
   );
+
+  /// Active (non-terminal) durable REMINDER rows for one profile, ordered by
+  /// `stableKey` and paginated in batches (contract section 34).
+  ///
+  /// This is the unbounded-in-time, profile/category-scoped listing used for
+  /// terminal-source cancellation and orphan cleanup OUTSIDE the narrow
+  /// horizon.  It deliberately excludes the profile-scoped reconciliation
+  /// marker (`ownerKind = profile`), which is not a notification, and it never
+  /// deletes: completed historical rows are preserved and platform IDs are not
+  /// reused in this milestone.
+  Future<List<BackgroundWorkRequest>> readActiveReminderWork({
+    required String profileId,
+    int limit = 200,
+    String? afterStableKey,
+  });
 
   Future<void> recordAttempt({
     required String stableKey,

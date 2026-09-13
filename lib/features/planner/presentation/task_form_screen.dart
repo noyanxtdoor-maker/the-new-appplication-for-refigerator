@@ -15,6 +15,7 @@ import 'package:rmplanner/features/goals/domain/goal.dart';
 import 'package:rmplanner/features/goals/presentation/widgets/goal_icon.dart';
 import 'package:rmplanner/features/notifications/application/notification_providers.dart';
 import 'package:rmplanner/features/notifications/domain/reminder_policy.dart';
+import 'package:rmplanner/features/notifications/domain/reminder_policy_label.dart';
 import 'package:rmplanner/features/notifications/presentation/reminder_time_picker.dart';
 import 'package:rmplanner/features/planner/application/event_type_providers.dart';
 import 'package:rmplanner/features/planner/application/planner_providers.dart';
@@ -39,6 +40,7 @@ final class TaskFormScreen extends ConsumerStatefulWidget {
     this.initialPeople = const <String>[],
     this.initialRecurrence = PlannerTaskRecurrence.none,
     this.initialGoalId,
+    this.followUpContactId,
     this.sheetPresentation = false,
     this.onClose,
     this.sheetScrollController,
@@ -66,7 +68,8 @@ final class TaskFormScreen extends ConsumerStatefulWidget {
        initialDescription = null,
        initialPeople = const <String>[],
        initialRecurrence = PlannerTaskRecurrence.none,
-       initialGoalId = null;
+       initialGoalId = null,
+       followUpContactId = null;
 
   const TaskFormScreen.addToPlanner({required String taskId, Key? key})
     : this.edit(taskId: taskId, addToPlanner: true, key: key);
@@ -82,6 +85,13 @@ final class TaskFormScreen extends ConsumerStatefulWidget {
   final List<String> initialPeople;
   final PlannerTaskRecurrence initialRecurrence;
   final String? initialGoalId;
+
+  /// M7 section 8 — the ONE Contact explicitly chosen in the Contact Detail
+  /// follow-up chooser.  Null for every ordinary creation path.  It is the
+  /// ephemeral provenance seed: it selects the purpose target that the form
+  /// applies to the source-level series policy AFTER the canonical source and
+  /// People commits have succeeded.
+  final String? followUpContactId;
   final bool sheetPresentation;
   final ValueChanged<bool>? onClose;
   final ScrollController? sheetScrollController;
@@ -1136,6 +1146,66 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen>
     };
   }
 
+  /// M7 section 8 step 1/4/5 — finalize an explicit Contact follow-up.
+  ///
+  /// Returns `true` when the save may continue closing the form.  Returns
+  /// `false` only when purpose could not be applied AFTER the canonical Task
+  /// commit: the form stays open with the exact truthful copy, its stable
+  /// `_stableTaskId` is kept, and retrying is idempotent.
+  ///
+  /// The Contact is validated against CURRENT canonical truth; if it is no
+  /// longer an active member of this profile, the normal source save stands and
+  /// the pending follow-up intent is dropped with the exact
+  /// "Saved without follow-up." copy.
+  Future<bool> _finalizeFollowUp() async {
+    final contactId = widget.followUpContactId;
+    if (contactId == null) {
+      return true;
+    }
+    final profileId = ref.read(contactProfileIdProvider);
+    var contactIsActive = false;
+    try {
+      final detail = await ref
+          .read(contactRepositoryProvider)
+          .readContactDetail(profileId: profileId, contactId: contactId);
+      contactIsActive = detail.contact.isActive;
+    } on Object {
+      contactIsActive = false;
+    }
+    if (!mounted) {
+      return false;
+    }
+    if (!contactIsActive) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Saved without follow-up.')),
+      );
+      return true;
+    }
+    try {
+      final controller = ref.read(plannerControllerProvider.notifier);
+      await controller.applySeriesReminderPurpose(
+        sourceId: _stableTaskId,
+        purpose: ReminderPurpose.contactFollowUp,
+        contactId: contactId,
+      );
+      await controller.reconcileTaskReminder(_stableTaskId);
+      return true;
+    } on Object {
+      // The Task and its Contact links are committed; never claim the source
+      // was not saved.  Keep the stable id so a retry is idempotent.
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Saved, but follow-up could not be applied. Try again.',
+            ),
+          ),
+        );
+      }
+      return false;
+    }
+  }
+
   Future<void> _save({bool confirmLinkedTypeTransfer = false}) async {
     if (widget.addToPlanner &&
         (_dueDate == null ||
@@ -1184,6 +1254,9 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen>
           confirmLinkedTypeTransfer: confirmLinkedTypeTransfer,
           reminderMode: _reminderMode,
           reminderOffsetMinutes: _reminderOffsetMinutes,
+          // M7 section 8: the explicit Contact follow-up path withholds the
+          // controller's early scheduling until People + purpose have committed.
+          deferReminderReconciliation: widget.followUpContactId != null,
         );
     if (!mounted) {
       return;
@@ -1193,13 +1266,33 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen>
         return;
       }
       if (!widget.addToPlanner) {
-        await ref
-            .read(contactRepositoryProvider)
-            .setTaskContacts(
-              profileId: ref.read(contactProfileIdProvider),
-              taskId: _stableTaskId,
-              contactIds: _contactIds,
+        try {
+          await ref
+              .read(contactRepositoryProvider)
+              .setTaskContacts(
+                profileId: ref.read(contactProfileIdProvider),
+                taskId: _stableTaskId,
+                contactIds: _contactIds,
+              );
+        } on Object {
+          // The Task itself is already saved; never fail the save silently.
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Task saved, but Contacts could not be updated. Edit the '
+                  'task to retry.',
+                ),
+              ),
             );
+          }
+        }
+      }
+      if (!mounted) {
+        return;
+      }
+      if (!await _finalizeFollowUp()) {
+        return;
       }
       if (!mounted) {
         return;
@@ -1266,7 +1359,10 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen>
       case ReminderPolicyMode.off:
         return 'Off';
       case ReminderPolicyMode.offset:
-        return '${_reminderOffsetMinutes ?? 0} minutes before';
+        return ReminderPolicyLabel.offsetMinutes(
+          _reminderOffsetMinutes ?? 0,
+          zeroLabel: 'At due time',
+        );
     }
   }
 

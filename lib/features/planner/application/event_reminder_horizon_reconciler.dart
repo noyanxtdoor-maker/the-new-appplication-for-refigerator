@@ -60,7 +60,11 @@ final class EventReminderHorizonReconciler {
           item.timing != PlannerEventTiming.timed ||
           item.state != PlannerEventState.scheduled ||
           startsAtUtc == null ||
-          !startsAtUtc.isAfter(nowUtc) ||
+          !_withinEventRelevance(
+            nowUtc: nowUtc,
+            startUtc: startsAtUtc,
+            endUtc: item.endUtc,
+          ) ||
           !processedOccurrenceIds.add(item.id)) {
         continue;
       }
@@ -101,6 +105,18 @@ final class EventReminderHorizonReconciler {
       );
     }
   }
+
+  /// Section 64: an occurrence stays in the horizon while its Event window is
+  /// still relevant (now < E), so a currently due Event is no longer discarded
+  /// by the obsolete `start > now` filter.  When E is unavailable the legacy
+  /// future-start rule is preserved.
+  static bool _withinEventRelevance({
+    required DateTime nowUtc,
+    required DateTime startUtc,
+    required DateTime? endUtc,
+  }) => endUtc != null && endUtc.isAfter(startUtc)
+      ? nowUtc.isBefore(endUtc)
+      : startUtc.isAfter(nowUtc);
 
   static bool _isActive(BackgroundWorkState state) => switch (state) {
     BackgroundWorkState.completed ||

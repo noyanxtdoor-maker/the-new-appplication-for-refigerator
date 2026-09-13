@@ -1,4 +1,5 @@
 import 'package:drift/drift.dart';
+import 'package:rmplanner/core/background/reminder_recovery_request.dart';
 import 'package:rmplanner/core/database/app_database.dart';
 import 'package:rmplanner/core/time/app_clock.dart';
 import 'package:rmplanner/features/privacy/application/privacy_repository.dart';
@@ -6,12 +7,23 @@ import 'package:rmplanner/features/privacy/domain/permission_summary.dart';
 import 'package:rmplanner/features/privacy/domain/privacy_settings.dart';
 
 final class DriftPrivacyRepository implements PrivacyRepository {
-  const DriftPrivacyRepository({required this.database, required this.clock});
+  const DriftPrivacyRepository({
+    required this.database,
+    required this.clock,
+    this.reminderRepair,
+  });
 
   static const String _primaryKey = 'primary';
 
   final AppDatabase database;
   final AppClock clock;
+
+  /// M7 section 27 repair-intent port.  Preview mode and Privacy Lock decide
+  /// whether a deliverable reminder may show its source copy, so changing
+  /// either must schedule a reconciliation of already-registered reminders.
+  /// This writes only the repair marker; it never creates a profile and
+  /// never touches reminder policy or source truth.
+  final ReminderRecoveryRequest? reminderRepair;
 
   @override
   Future<bool> isPrivacyLockEnabled() async {
@@ -82,6 +94,8 @@ final class DriftPrivacyRepository implements PrivacyRepository {
       notificationPreviewMode: current.notificationPreviewMode,
     );
     await _writeSettings(updated);
+    // Section 27: the lock governs whether reminders may render source copy.
+    await _markRepair();
     return updated;
   }
 
@@ -95,7 +109,30 @@ final class DriftPrivacyRepository implements PrivacyRepository {
       notificationPreviewMode: mode,
     );
     await _writeSettings(updated);
+    // Section 27: a preview-mode change alters the rendered notification.
+    await _markRepair();
     return updated;
+  }
+
+  /// Resolves the ONLY profile this device-global setting can affect.
+  ///
+  /// Privacy preferences are stored once per device, so the marker needs a
+  /// profile id.  This reads the existing Local Profile only and NEVER
+  /// creates one (contract section 53 P32: "no new profile creation"); when
+  /// no profile exists yet there is nothing registered to reconcile, so the
+  /// mark is a truthful no-op.
+  Future<void> _markRepair() async {
+    final repair = reminderRepair;
+    if (repair == null) return;
+    final profile =
+        await (database.select(database.localProfiles)
+              ..orderBy(<OrderClauseGenerator<$LocalProfilesTable>>[
+                (table) => OrderingTerm.asc(table.createdAtUtc),
+              ])
+              ..limit(1))
+            .getSingleOrNull();
+    if (profile == null) return;
+    await repair.mark(database, profileId: profile.id);
   }
 
   Future<void> _writePermissionAudit(

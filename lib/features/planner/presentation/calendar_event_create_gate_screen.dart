@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:rmplanner/app/router/route_names.dart';
 import 'package:rmplanner/features/maps/domain/map_coordinate.dart';
+import 'package:rmplanner/features/notifications/domain/contact_follow_up_creation_intent.dart';
 import 'package:rmplanner/features/planner/domain/planner_date.dart';
 import 'package:rmplanner/features/planner/presentation/calendar_event_creation.dart';
 import 'package:rmplanner/features/planner/presentation/event_type_picker_dialog.dart';
@@ -18,6 +19,7 @@ final class CalendarEventCreateGateScreen extends ConsumerStatefulWidget {
     this.initialEventTypeId,
     this.sourceTaskId,
     this.initialContactIds = const <String>[],
+    this.followUpContactId,
     super.key,
   });
 
@@ -28,6 +30,11 @@ final class CalendarEventCreateGateScreen extends ConsumerStatefulWidget {
   final String? initialEventTypeId;
   final String? sourceTaskId;
   final List<String> initialContactIds;
+
+  /// M7 section 8 — the ONE Contact explicitly chosen in the Contact Detail
+  /// follow-up chooser, forwarded through the picker into the form.  Null for
+  /// every ordinary creation path.
+  final String? followUpContactId;
 
   @override
   ConsumerState<CalendarEventCreateGateScreen> createState() =>
@@ -76,6 +83,13 @@ final class _CalendarEventCreateGateScreenState
       return;
     }
     final router = GoRouter.of(context);
+    // M7 section 8 — the typed follow-up provenance survives whichever create
+    // path the picker resolves to, so choosing Task from this Event gate keeps
+    // the SAME explicitly selected Contact as the follow-up target.
+    final followUp = widget.followUpContactId;
+    final intent = followUp == null
+        ? null
+        : ContactFollowUpCreationIntent(contactId: followUp);
     final saved = switch (selected) {
       EventTypePickerEvent(:final eventType) =>
         await showCalendarEventFormSheet<bool>(
@@ -87,9 +101,20 @@ final class _CalendarEventCreateGateScreenState
           sourceTaskId: widget.sourceTaskId,
           initialContactIds: widget.initialContactIds,
           initialCoordinate: widget.initialCoordinate,
+          followUpContactId: followUp,
         ),
       EventTypePickerTask() => await router.push<bool>(
-        '${RoutePaths.taskCreate}?date=${widget.initialDate.iso8601}',
+        Uri(
+          path: RoutePaths.taskCreate,
+          queryParameters: <String, String>{
+            'date': widget.initialDate.iso8601,
+            // Preserve the Contact preselection already established by the
+            // follow-up chooser's `contacts=` argument.
+            if (widget.initialContactIds.isNotEmpty)
+              'contacts': widget.initialContactIds.join(','),
+          },
+        ).toString(),
+        extra: intent,
       ),
     };
     if (!mounted) {

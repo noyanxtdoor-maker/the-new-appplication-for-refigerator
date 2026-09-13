@@ -1,0 +1,100 @@
+VS16 M7 - PHASE 7 (MAPS) AND PHASE 8 (NOTIFICATIONS) PHYSICAL SMOKE
+================================================================================
+Device      : Infinix X6731 / serial 10620253B3004617 / Android 14 / SDK 34
+Framebuffer : 1080 x 2400 (dpr 2.625)
+Captured    : 2026-09-13, device clock 12:07 - 12:18 PST
+Screenshots : .m7_v47_evidence/screens/step2_maps_b_20260913.png
+              .m7_v47_evidence/screens/maps_compass_topleft_zoom4.png
+              .m7_v47_evidence/screens/maps_right_fabs_zoom3.png
+              .m7_v47_evidence/screens/notifications_settings_20260913.png
+              .m7_v47_evidence/screens/notifications_detailed_20260913.png
+              .m7_v47_evidence/screens/notifications_privacy_20260913.png
+
+--------------------------------------------------------------------------------
+PHASE 7 - MAPS
+--------------------------------------------------------------------------------
+Opened via the Maps tab. State = NORMAL BROWSING (satellite map type, owner's
+markers, saved-place boundary overlay). No boundary-drawing or pin-placement
+mode active at the time of the evidence capture.
+
+1. SDK-NATIVE COMPASS = PRESENT AND RENDERED ON THE DEVICE
+   The Google Maps Android SDK compass button is visible at the top-left of the
+   map surface: white circular button, red north pointer with grey south tail.
+   Evidence: maps_compass_topleft_zoom4.png (4x LANCZOS crop of the framebuffer).
+   This is the SDK's own control, not app chrome - see item 4.
+
+2. MAPS LOCATE ME = PRESERVED AS ITS OWN SEPARATE FEATURE
+   The floating control column at the right edge contains exactly three FABs,
+   confirmed from the pinned source (google_maps_surface.dart:1600-1638):
+     - key 'maps-drop-pin-button'  Icon(Icons.location_pin)      tooltip 'Drop pin'
+     - key 'maps-type-button'      Icon(Icons.layers_outlined)   tooltip 'Map type'
+     - key 'maps-locate-button'    Icon(Icons.my_location)       tooltip 'Locate me'
+   All three are visible in maps_right_fabs_zoom3.png. Locate me was NOT used as
+   the compass test; it is reported here only as a preserved separate feature.
+
+3. NO CUSTOM FACE NORTH BUTTON
+   grep over lib/features/maps for compassEnabled|faceNorth|Face North|bearing|
+   rotateGestures|tiltGestures|northUp returns ZERO control tokens - the only hit
+   is a doc comment at google_maps_surface.dart:148 ("without changing zoom,
+   bearing, or tilt"). The app adds no compass/orientation control of its own.
+
+4. TWO-FINGER ROTATE + COMPASS TAP = NOT PERFORMED (requires physical input)
+   adb 'input' is single-pointer only: it cannot synthesise the two-finger
+   rotate gesture. A single-pointer tap at the compass location (device 91,414)
+   was delivered and produced no visible camera or compass change, which is
+   consistent with a camera that is already north-up (tapping a compass on a
+   north-up camera is a no-op). It is NOT claimed as a pass.
+
+   An earlier stray tap did enter the app's Drop Pin placement mode
+   ("Move map to place pin"); this was cancelled with the X control and normal
+   browsing state was restored and re-captured. No pin was placed, no boundary
+   was drawn, and nothing was saved.
+
+   Verdict: MAPS AUTO FACE NORTH = SDK-NATIVE COMPASS PRESENT AND VISIBLE;
+   the interactive rotate-and-tap step is PENDING OWNER (see final report).
+
+--------------------------------------------------------------------------------
+PHASE 8 - NOTIFICATIONS SETTINGS SMOKE (NONDESTRUCTIVE)
+--------------------------------------------------------------------------------
+Reached via drawer -> Settings -> Notifications. No setting was toggled; the
+screen was read only.
+
+  [PASS] Notifications Settings opens
+         AppBar title 'Notifications' (notifications_settings_screen.dart:67)
+  [PASS] Detailed content controls present - section 'DETAILED CONTENT'
+         All five M7 fields rendered with their own toggles, all ON:
+           Show title       - "The event or task title, including its emoji"
+           Show description - "Up to 120 characters"
+           Show time        - "When the event runs or the task is due"
+           Show contacts    - "Who to follow up with"
+           Show location    - "The saved place name as text"
+         Source: notifications_settings_screen.dart:448,458,470,480,490
+  [PASS] Five Detailed fields available
+         Live Preview card renders a real composite notification:
+           "Dentist appointment / 9:30 AM-10:30 AM / Follow up with Bea. /
+            Bring the insurance card and the referral letter from the last
+            visit, plus the receipt for the fluoride treatment. /
+            Location: Riverside Clinic"
+         captioned "This is the exact text a notification will show."
+  [PASS] Privacy Lock behaviour / UI intact
+         Section 'PRIVACY' -> 'Notification preview' toggle present.
+         Source: privacyLockActive is authoritative and resolved WITHOUT
+         consulting the per-field toggles (:431-435); when active the screen
+         states 'Privacy Lock forces Generic previews while protected without
+         changing your saved choice.' (:249-253) and the preview caption becomes
+         'Privacy Lock is on, so notifications show the generic ...' (:521).
+  [PASS] No explicit Open action button
+         grep -niE "snooze|'Open'|Open action|actionButton" over
+         notifications_settings_screen.dart = ZERO matches.
+  [PASS] No Snooze action introduced
+         Same grep = ZERO matches.
+  [PASS] No obvious notification-settings regression
+         Sections present and coherent: NOTIFICATIONS / CALENDAR EVENTS /
+         TASKS / PLANNING / DETAILED CONTENT / PRIVACY / QUIET HOURS, with
+         System notifications, Event reminders, Task reminders, Weekly Review
+         reminders, Awaiting Report reminders, Quiet hours 12:00 AM-6:00 AM.
+
+No reminder or domain data was manufactured. No destructive reminder experiment
+was run. Nothing was toggled, added, edited or deleted.
+
+NOTIFICATION SETTINGS SMOKE = PASS

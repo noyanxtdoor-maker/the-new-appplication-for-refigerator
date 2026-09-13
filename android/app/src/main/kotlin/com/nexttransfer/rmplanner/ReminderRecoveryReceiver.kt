@@ -9,7 +9,16 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import dev.fluttercommunity.workmanager.BackgroundWorker
 
-/** Broadcasts enqueue one bounded canonical recovery; they never start a service. */
+/**
+ * Broadcasts enqueue one bounded canonical recovery; they never start a service.
+ *
+ * M8 section 28: KEEP, not REPLACE.  A boot/time/timezone broadcast must not
+ * cancel a recovery that is already running.  Losing a change that arrives
+ * during a running pass is prevented by the durable reconciliation marker's
+ * dirty generation plus the recovery pass's trailing pass, not by cancelling
+ * and restarting the job.  The recovery task carries no input, so it always
+ * re-reads all current truth when it executes.
+ */
 class ReminderRecoveryReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action !in setOf(
@@ -24,6 +33,6 @@ class ReminderRecoveryReceiver : BroadcastReceiver() {
                 .build())
             .build()
         WorkManager.getInstance(context).enqueueUniqueWork(
-            "nt.reminder.recovery", ExistingWorkPolicy.REPLACE, request)
+            "nt.reminder.recovery", ExistingWorkPolicy.KEEP, request)
     }
 }

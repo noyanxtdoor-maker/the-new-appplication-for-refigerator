@@ -1,0 +1,39 @@
+VS16 M7 - PHASE 6 PHYSICAL PLANNER CURRENT-TIME INDICATOR SMOKE
+================================================================================
+Device      : Infinix X6731 / serial 10620253B3004617 / Android 14 / SDK 34
+Framebuffer : 1080 x 2400 (device pixel grid, dpr 2.625)
+Screenshot  : .m7_v47_evidence/screens/step1_planner_20260913.png
+Device clock at capture: 2026-09-13 12:03:21 PST
+Selected date: Sun 13 Sep 2026 = TODAY (highlighted in the day strip)
+Visible Planner hour window: 6..22 shipped default (indicator at 12:03 is inside it)
+Theme mode  : light (app appearance preference)
+Scroll      : 12:03 indicator already inside the viewport, no scroll required
+
+RESULT: all three components of the current-time indicator are rendered on the
+real device framebuffer.
+
+  COMPONENT   BLUE PIXELS   BBOX (device px)          GEOMETRY
+  text        2031          x  69..190  y 758..787    h 30 px = 11.4 logical px
+  dot          479 (blob)   x 192..217  y 758..787    diameter 30 px = 11.4 logical
+  line        3984          x 218..1043 y 770..775    h 6 px = 2.3 logical
+
+  Primary colour sampled from both text and line: rgb(23, 90, 143) - identical.
+
+DOT profile (column height sweep, peak = circle centre):
+  x=200..207 all h=30  -> centre x ~= 203.5, diameter 30 device px
+  matches PlannerCurrentTimeHorizontalGeometry.dotSize = 10 logical px
+  (10 * 2.625 = 26.25 px core + antialiased rim = 30 px observed)
+
+TEXT SIZE NOTE (expected, accepted CT-03 geometry, NOT a defect):
+  the blue readout renders smaller than the grey hour label beneath it
+  ("12 PM"), because Mechanism E (FittedBox scaleDown inside a 12 px band)
+  yields an effective ~10.00 logical px versus the hour label's 13.0 px.
+  It remains clearly legible on the physical panel.
+
+PHYSICAL VERDICT
+  PLANNER CURRENT-TIME TEXT = PHYSICALLY VERIFIED
+  PLANNER DOT               = VERIFIED
+  PLANNER LINE              = VERIFIED
+  PLANNER PHYSICAL SMOKE    = PASS
+
+Production source was NOT changed in this session.

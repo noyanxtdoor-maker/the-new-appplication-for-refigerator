@@ -1,0 +1,430 @@
+================================================================================
+NEXT TRANSFER — VS16 M7
+AUTHORIZED DEVICE INSTALLATION REPORT
+CERTIFIED v47 CORRECTIVE PERSISTENCE REPAIR APK
+================================================================================
+
+DATE            : 2026-09-12 (install window 22:40 – 22:48 local, GMT+8)
+DEVICE          : Infinix X6731
+SERIAL          : 10620253B3004617
+PACKAGE         : com.nexttransfer.rmplanner
+
+RESULT          : DEEPSEEK M7 v47 DEVICE INSTALLATION = NOT SUCCESS
+                  (INSTALL = SUCCESS, v47 MIGRATION = SUCCESS,
+                   APP FIRST LAUNCH = FAIL)
+
+A FAIL condition from the authorization was hit (app does not start). Work
+stopped there. No retry, no force-stop, no uninstall, no data clear.
+
+================================================================================
+STEP 1 — APK VERIFICATION BEFORE DEVICE ACTION ............ PASS
+================================================================================
+PATH   : C:\Users\sherl\Downloads\NT_B5_DEVELOP__deepseek-m7m8-20260911\
+         build\app\outputs\flutter-apk\app-debug.apk
+BYTES  : 241,013,960                       EXPECTED 241,013,960      MATCH
+SHA-256: 8506eb67143793bd560a67c42606b7392289eb9884781f2becf91ee2a201100a
+                                            EXPECTED (same)           MATCH
+
+No other artefact was substituted. No APK was rebuilt.
+
+================================================================================
+STEP 2 — DEVICE VERIFICATION .............................. PASS
+================================================================================
+Wireless ADB was REDISCOVERED, not assumed. `adb mdns services` resolved:
+
+    adb-10620253B3004617-2m7ZVB  _adb-tls-connect._tcp  192.168.1.54:42501
+
+The port 42501 is NEW — it is not any port recorded in the project's historical
+handoffs (33651 / 42241 / 34439 / 45705). The device was therefore reached via
+live discovery, not a stale endpoint. Host LAN address 192.168.1.57/24.
+
+  connected devices (after connect) : 1 usable transport
+  serial                            : 10620253B3004617     MATCH
+  manufacturer                      : INFINIX
+  model                             : Infinix X6731        MATCH
+  Android release                   : 14                   MATCH
+  SDK                               : 34                   MATCH
+  ABI                               : arm64-v8a
+
+TRANSPORT NOTE: an initial manual `adb connect 192.168.1.54:42501` produced a
+second, duplicate listing of the SAME handset (both transports reported
+product:X6731-GL model:Infinix_X6731). This was NOT two devices — it was one
+handset reachable over two transports. The duplicate was dropped; all work used
+the canonical mDNS TLS serial
+`adb-10620253B3004617-2m7ZVB._adb-tls-connect._tcp`.
+
+================================================================================
+STEP 3 — PRE-INSTALL PACKAGE STATE ........................ RECORDED
+================================================================================
+  package present  : yes
+  codePath         : /data/app/~~0oAHxyCXlwjjHvH4Siar5Q==/
+                     com.nexttransfer.rmplanner-NkQZHLLj2uKsDqG5OnRnRw==
+  versionName      : 0.1.0
+  versionCode      : 1
+  minSdk / target  : 24 / 36
+  dataDir          : /data/user/0/com.nexttransfer.rmplanner
+  firstInstallTime : 2026-07-27 15:42:22      <-- must NOT change
+  lastUpdateTime   : 2026-09-12 16:44:43      <-- must change
+
+INSTALLED base.apk PROVENANCE (hashed read-only):
+  183413420841c8b991748bea90a66146d4a0335db754946ec0da6a12dc24e7a0
+
+This is the EARLIER PRE-CORRECTIVE CERTIFIED artefact. It confirms that the
+DISQUALIFIED v46 corrective artefact (a7c02b97…) was never installed on this
+handset.
+
+================================================================================
+STEP 4 — PRE-INSTALL DATABASE SAFETY COPY ................. TAKEN
+================================================================================
+App was NOT running (pidof empty) and NO -wal/-shm sidecars existed, so the copy
+is a clean, consistent snapshot. Copied OUT only; nothing written back.
+
+  path (device) : /data/user/0/com.nexttransfer.rmplanner/app_flutter/
+                  next_transfer.sqlite
+  local copy    : .m7_v47_evidence/device/PRE_install_next_transfer.sqlite
+  bytes         : 1,748,992
+  sha256        : db3a5a0efb5def6abef6c49f7b6d778ce64e152e0571b28bed9381107b8f829a
+
+PRE-INSTALL DATABASE FACTS
+  PRAGMA integrity_check : ok
+  PRAGMA quick_check     : ok
+  PRAGMA user_version    : 46                  <-- as expected
+  journal_mode           : delete
+  table_count            : 45
+  total_row_count        : 3986
+  notification_preferences row : present (1)
+  privacy_preferences row      : present (1)
+  planner_preferences row      : present (1)
+
+  notification_preferences columns at v46 (13) — NONE of the five v47 columns
+  exist yet, confirming the migration was genuinely required:
+    profile_id, event_reminders_enabled, task_reminders_enabled,
+    default_task_reminder_minutes, quiet_hours_enabled, quiet_start_minute,
+    quiet_end_minute, updated_at_utc, system_notifications_enabled,
+    snooze_duration_minutes, weekly_review_reminders_enabled,
+    awaiting_report_reminders_enabled, goal_completion_notifications_enabled,
+    in_app_goal_celebrations_enabled
+
+  Representative PRE-INSTALL row counts:
+    contacts 16 | calendar_events 313 | calendar_event_exceptions 727
+    calendar_event_operations 1252 | planner_tasks 31 | goals 28
+    outcome_reports 144 | background_work_requests 61 | reminder_policies 41
+    saved_places 5 | event_contact_links 55 | notification_preferences 1
+    privacy_preferences 1 | planner_preferences 1
+
+================================================================================
+STEP 5 — INSTALL ........................................... PASS
+================================================================================
+COMMAND (exactly, no other flags):
+
+  adb -s adb-10620253B3004617-2m7ZVB._adb-tls-connect._tcp \
+      install -r "C:\...\build\app\outputs\flutter-apk\app-debug.apk"
+
+  OUTPUT    : Performing Streamed Install
+              Success
+  EXIT CODE : 0
+
+No uninstall, no `pm clear`, no downgrade flag, no data/cache wipe.
+
+================================================================================
+STEP 6 — PACKAGE REPLACEMENT VERIFICATION .................. PASS
+================================================================================
+  codePath         : /data/app/~~TNMmJQ3JWWc9DKSxM-WMqg==/
+                     com.nexttransfer.rmplanner-uGOkYJLkB8XcrC7iIjaJ6g==
+                     (CHANGED — new install slot)
+  versionName      : 0.1.0
+  versionCode      : 1
+  minSdk / target  : 24 / 36
+  dataDir          : /data/user/0/com.nexttransfer.rmplanner   (PRESERVED)
+  firstInstallTime : 2026-07-27 15:42:22   UNCHANGED  -> REPLACE install proven
+  lastUpdateTime   : 2026-09-12 22:44:05   UPDATED    -> REPLACE install proven
+
+INSTALLED base.apk IDENTITY (read back from the device):
+  bytes  : 241,013,960                                    MATCH
+  sha256 : 8506eb67143793bd560a67c42606b7392289eb9884781f2becf91ee2a201100a
+                                                          MATCH
+
+================================================================================
+STEP 7 — FIRST LAUNCH / v47 MIGRATION ...................... ** FAIL **
+================================================================================
+COMMAND: adb -s <device> shell am start -W -n com.nexttransfer.rmplanner/.MainActivity
+
+The launch returned `Status: timeout` and the app NEVER rendered its first
+frame. It is hung on the Android splash screen.
+
+CONFIRMED HANG (multiple independent checks over ~4 minutes):
+  22:44:51  launch issued
+  22:45:xx  Splash Screen window present; process alive (pid 30031)
+  22:47:xx  Splash Screen window present; process ETIME 12:54
+  22:48:02  Splash Screen window present (5 matching window entries);
+            process ETIME 14:17; topResumedActivity = .MainActivity
+  screenshot: .m7_v47_evidence/device/screen_after_launch.png
+              .m7_v47_evidence/device/screen_final.png
+              -> shows ONLY the Android system splash (app icon). Flutter never
+                 drew a frame.
+
+  NO ANR. NO FATAL EXCEPTION. NO AndroidRuntime crash. Process alive.
+  No ANR trace was produced today (/data/anr newest = 2026-09-10).
+  No further logcat activity after the single error below.
+
+THE ERROR (logcat, verbatim head):
+
+  09-12 22:44:53.770 30031 30031 E flutter : Unhandled Exception:
+    SqliteException(5): while executing, database is locked,
+    database is locked (code 5)
+  09-12 22:44:53.770 30031 30031 E flutter :   Causing statement: BEGIN IMMEDIATE,
+    parameters:
+
+STACK (reduced, innermost first):
+  sqlite3 DatabaseImplementation.execute
+  drift/native.dart _NativeDelegate.runCustom
+  drift engines.dart _StatementBasedTransactionExecutor.ensureOpen
+  drift remote/server_impl.dart ServerImplementation._spawnTransaction
+  drift remote/client_impl.dart _RemoteTransactionExecutor._openAtServer
+  drift connection_user.dart DatabaseConnectionUser.transaction
+  rmplanner/core/database/app_database.dart 1524:9   AppDatabase.migration.<fn>
+  drift db_base.dart GeneratedDatabase.beforeOpen.<fn>
+  drift engines.dart DelegatedDatabase._runMigrations
+  drift remote/server_impl.dart ServerImplementation._handleEnsureOpen
+  drift lazy_database.dart LazyDatabase.ensureOpen
+  drift select.dart SimpleSelectStatement._mapResponse
+
+DIAGNOSIS
+  A SELECT from the main isolate triggered a lazy open of the database in the
+  drift background isolate. That open ran the migration, whose transaction
+  issued `BEGIN IMMEDIATE` and could not obtain the write lock because a
+  concurrent connection already held it. The resulting SqliteException
+  propagated as an UNHANDLED exception, and startup never completed, so the
+  splash screen remains forever.
+
+  IMPORTANT — WHAT IS AND IS NOT NEW
+  `app_database.dart:1524` is the pre-existing line
+      await transaction(() async {
+  inside `onUpgrade`. `git diff` confirms the v47 change touched ONLY:
+      * the five BoolColumn getters on NotificationPreferences,
+      * `schemaVersion` 46 -> 47,
+      * the new `if (from < 47 && to >= 47)` block.
+  The migration transaction wrapper and `beforeOpen` are UNCHANGED from v46.
+
+  Therefore the v47 schema bump did not author this defect; it is the TRIGGER
+  that exposed a LATENT, pre-existing race in the migration/`beforeOpen` open
+  path. Before this install the stored schema was already 46, so no migration
+  ran on launch and the latent path was never exercised.
+
+  This must still be treated as a REAL FAILURE: the owner cannot open the app.
+
+HEADLESS DIAGNOSTICS ERROR — NOT OBSERVED
+  The previously inherited error
+      "SanitizedDiagnostics must be overridden at the app root"
+  did NOT appear. It is reported as NOT OBSERVED (the app never reached the
+  point where the headless runtime would exercise it). This is NOT a pass.
+
+================================================================================
+STEP 8 — POST-INSTALL DATABASE MIGRATION VERIFICATION ....... PASS
+================================================================================
+The live database was copied OUT again (read-only, nothing written back):
+
+  local copy : .m7_v47_evidence/device/POST_install_next_transfer.sqlite
+  bytes      : 1,748,992
+  sha256     : 0b360b9a6ffebc47a3db1b35b59273e927482836f8f653332100334551466f69
+
+  (PRE/POST hashes differ, which is expected and explicitly permitted: the
+   migration legitimately rewrites schema metadata.)
+
+  PRAGMA integrity_check : ok          PASS
+  PRAGMA quick_check     : ok          PASS
+  PRAGMA user_version    : 47          PASS  (46 -> 47, exactly as required)
+  table_count            : 45          unchanged
+  total_row_count        : 3986        unchanged -> ZERO ROW LOSS
+
+ROW-PRESERVATION PROOF — PRE vs POST, all identical:
+    contacts                       16  ->  16
+    calendar_events               313  -> 313
+    calendar_event_exceptions     727  -> 727
+    calendar_event_operations    1252  ->1252
+    planner_tasks                  31  ->  31
+    goals                          28  ->  28
+    outcome_reports               144  -> 144
+    background_work_requests       61  ->  61
+    reminder_policies              41  ->  41
+    saved_places                    5  ->   5
+    event_contact_links            55  ->  55
+    notification_preferences        1  ->   1   row PRESERVED
+    privacy_preferences             1  ->   1   row PRESERVED
+    planner_preferences             1  ->   1   row PRESERVED
+
+  tables with differing counts: 0
+
+================================================================================
+STEP 9 — FIVE v47 FIELDS VERIFIED ON DEVICE ................ PASS
+================================================================================
+POST-INSTALL notification_preferences columns (18 = 13 pre-existing + 5 new,
+appended additively; every pre-existing column retained):
+
+  ... (13 unchanged) ...
+  detailed_show_title
+  detailed_show_description
+  detailed_show_time
+  detailed_show_contacts
+  detailed_show_location
+
+OWNER PROFILE ROW AFTER MIGRATION (profile_id 357caa4f-5383-4cb0-947e-69dc3ef06936):
+
+  detailed_show_title       = 1  (TRUE)
+  detailed_show_description = 1  (TRUE)
+  detailed_show_time        = 1  (TRUE)
+  detailed_show_contacts    = 1  (TRUE)
+  detailed_show_location    = 1  (TRUE)
+
+All five initialised TRUE exactly as specified by the owner's v47 amendment.
+Nothing was edited by hand.
+
+  >>> THE CORE v47 PERSISTENCE REPAIR IS PROVEN ON THE OWNER'S REAL DATABASE. <<<
+  The unsafe Planner-JSON authority is gone; the five options live in typed
+  columns on the existing notification_preferences row; the owner's data is
+  intact and the schema is exactly 47.
+
+================================================================================
+STEP 10 — BASIC UI SMOKE ................................... COULD NOT BE PERFORMED
+================================================================================
+The Settings -> Notifications smoke test could not run: the app never leaves the
+splash screen, so no UI is reachable. NOT a pass, NOT a fail of the screen —
+BLOCKED by the STEP 7 startup failure.
+
+================================================================================
+STEP 11 — HARD STOP ........................................ OBSERVED
+================================================================================
+Stopped at the failure. Did NOT perform and will NOT perform without new
+authorization:
+
+  P1-P11 owner physical matrix        notification timing experiments
+  Contact rename experiments          recurrence mutation
+  Maps navigation acceptance          manual reminder generation
+  M8                                  commit
+  push                                cleanup
+  data deletion                       database mutation
+  uninstall / reinstall               force-stop / relaunch diagnostics
+
+================================================================================
+SUCCESS REPORT FORMAT
+================================================================================
+  DEEPSEEK M7 v47 DEVICE INSTALLATION = NOT SUCCESS
+
+  DEVICE                              : Infinix X6731
+  SERIAL                              : 10620253B3004617
+  PACKAGE                             : com.nexttransfer.rmplanner
+  INSTALL METHOD                      : adb install -r
+  APK BYTES                           : 241013960
+  APK SHA-256                         : 8506eb67143793bd560a67c42606b7392289eb98
+                                        84781f2becf91ee2a201100a
+  ADB RESULT                          : Success
+  FIRST INSTALL TIME PRESERVED        : YES
+  LAST UPDATE TIME UPDATED            : YES
+  APP LAUNCH                          : ** FAIL ** (permanent splash hang)
+  DATABASE PRE-INSTALL SCHEMA         : 46
+  DATABASE POST-INSTALL SCHEMA        : 47
+  DATABASE INTEGRITY                  : PASS (integrity_check ok, quick_check ok)
+  OWNER DATA PRESERVATION             : PASS (0 rows lost, all 45 tables identical)
+  FIVE DETAILED COLUMNS VERIFIED      : YES (all five present, all TRUE)
+  HEADLESS DIAGNOSTICS ERROR          : NOT OBSERVED (app never reached that path)
+  DETAILED CONTENT SETTINGS SCREEN    : FAIL — BLOCKED (UI unreachable)
+  DEVICE PHYSICAL M7 ACCEPTANCE       : PENDING OWNER REVIEW
+  M8                                  : NOT AUTHORIZED
+  COMMIT                              : NOT AUTHORIZED
+  PUSH                                : NOT AUTHORIZED
+
+================================================================================
+FAIL CONDITIONS TRIGGERED
+================================================================================
+  [X] app crashes/ANRs ................ no crash and no ANR, but a PERMANENT
+                                        startup hang — reported as FAIL
+  [X] migration/startup loop occurs ... the app never completes startup
+  [ ] APK hash/size mismatch .......... clear
+  [ ] wrong device .................... clear
+  [ ] multiple ambiguous devices ...... clear (duplicate was one handset)
+  [ ] install -r fails ................ clear (Success, exit 0)
+  [ ] firstInstallTime changed ........ clear (unchanged)
+  [ ] app data disappeared ............ clear (dataDir preserved, rows intact)
+  [ ] DB integrity fails .............. clear (ok/ok)
+  [ ] migration does not reach v47 .... clear (it reached 47)
+  [ ] owner table loses rows .......... clear (zero loss)
+  [ ] notification_preferences row .... clear (present)
+  [ ] privacy_preferences row ......... clear (present)
+  [ ] five v47 columns missing ........ clear (all present)
+  [ ] installed base.apk hash differs . clear (exact match)
+
+================================================================================
+WHAT IS PROVEN vs WHAT IS BROKEN
+================================================================================
+PROVEN ON THE REAL DEVICE
+  * the authorised APK is the one installed (byte-exact, hash-exact)
+  * it was a true REPLACE install (firstInstallTime preserved, dataDir kept)
+  * the v46 -> v47 migration RAN and COMPLETED on the owner's live database
+  * schema is exactly 47; the five typed columns exist; defaults are all TRUE
+  * zero data loss across all 45 tables, including the three singleton
+    preference rows
+  * database integrity is intact (ok / ok)
+
+BROKEN
+  * the application does not start. It hangs on the splash screen with an
+    unhandled `SqliteException(5) database is locked` thrown from the
+    pre-existing migration transaction wrapper (`app_database.dart:1524`),
+    triggered for the first time by the v47 schema bump.
+
+OWNER IMPACT
+  The owner cannot open the app. The database itself is healthy and already at
+  v47, so no data is at risk — but the app is unusable in its current state.
+
+================================================================================
+RECOMMENDED NEXT DIAGNOSTIC (REQUIRES OWNER AUTHORIZATION — NOT PERFORMED)
+================================================================================
+Because the migration has ALREADY completed, a second launch would run NO
+migration. That makes one clean, non-destructive relaunch highly informative:
+
+  adb shell am force-stop com.nexttransfer.rmplanner
+  adb shell am start -W -n com.nexttransfer.rmplanner/.MainActivity
+
+  * If the app now starts normally -> the defect is specific to the
+    migration-attempt path (a first-launch-only race), and the product fix is
+    to make the migration/`beforeOpen` open path single-flight (serialise the
+    lazy open so a concurrent SELECT cannot start a second migration
+    transaction).
+  * If the app STILL hangs -> the defect is in normal startup, independent of
+    migration, and the investigation moves to the app's startup/`beforeOpen`
+    sequence.
+
+This was NOT executed, because the authorization states "STOP and report
+immediately" on a startup failure, and force-stop/relaunch was not among the
+authorized operations.
+
+Also NOT performed, and deliberately so: no database repair, no `pm clear`, no
+uninstall/reinstall, no WorkManager state manipulation.
+
+================================================================================
+EVIDENCE INDEX
+================================================================================
+.m7_v47_evidence/device/
+  PRE_install_next_transfer.sqlite ...... read-only pre-install DB copy (v46)
+  POST_install_next_transfer.sqlite ..... read-only post-install DB copy (v47)
+  PRE_install_db_report.json ............ pre-install analysis
+  POST_install_db_report.json ........... post-install analysis
+  analyze_db.py ......................... read-only analyzer
+  install_output.txt .................... adb install output ("Success")
+  screen_after_launch.png ............... splash hang (first capture)
+  screen_final.png ...................... splash hang (final capture)
+
+================================================================================
+FINAL BOUNDARY
+================================================================================
+DEVICE TOUCHED ONLY FOR: verify -> safe read-only DB copy -> install -r ->
+first launch -> post-install read-only DB verification -> report.
+
+DEVICE = TOUCHED (install only)
+COMMIT = NOT PERFORMED
+PUSH   = NOT PERFORMED
+M8     = NOT STARTED
+OWNER PHYSICAL MATRIX = NOT PERFORMED
+
+STOPPED. Awaiting owner instruction.
+
+================================================================================

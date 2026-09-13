@@ -1,0 +1,101 @@
+================================================================================
+VS16 M7 — MIGRATION-RACE CORRECTIVE: PRESENCE INSIDE THE SHIPPED APK
+================================================================================
+
+Question this answers: does the FRESH APK actually CONTAIN the applied
+migration-race corrective, or does it merely sit in the working tree?
+
+Method: unzip the built APK, stream the Dart kernel
+(`assets/flutter_assets/kernel_blob.bin`, 100,731,096 bytes — a debug/JIT build
+ships the kernel rather than AOT `libapp.so`) and grep it for the corrective's
+identifiers. Read-only; nothing was modified.
+
+--------------------------------------------------------------------------------
+1. KERNEL SCAN
+--------------------------------------------------------------------------------
+  string                        occurrences
+  ----------------------------  -----------
+  shareAcrossIsolates                     8
+  kAppDatabaseNativeOptions               3
+  drift-db/next_transfer                  0     <- expected, see 3 below
+  busy_timeout                            1     <- explained in 4 below
+  busyTimeout                             0
+
+  => The corrective IS compiled into the shipped artefact. `shareAcrossIsolates`
+     (8) and the app's own const `kAppDatabaseNativeOptions` (3) are both present
+     in the APK's kernel, so the fresh build is not merely a rebuild of the
+     pre-corrective source.
+
+--------------------------------------------------------------------------------
+2. WHY THE CORRECTIVE IS NECESSARY (dependency default is OFF)
+--------------------------------------------------------------------------------
+  Package : drift_flutter 0.3.1
+            (this is where `DriftNativeOptions` is actually defined — NOT in
+             drift 2.34.2, which is why a grep of drift alone finds nothing)
+
+  drift_flutter-0.3.1/lib/src/connect.dart
+      :68   final bool shareAcrossIsolates;
+      :143  this.shareAcrossIsolates = false,      <== DEFAULT IS FALSE
+
+  drift_flutter-0.3.1/lib/src/native.dart
+      :73   if (native != null && native.shareAcrossIsolates) {
+      :77     if (IsolateNameServer.lookupPortByName(portName(name)) ...
+      :93     final controlPort = IsolateNameServer.lookupPortByName(
+      :102    IsolateNameServer.removePortNameMapping(portName(name));
+      :150  if (IsolateNameServer.registerPortWithName(
+      :161    IsolateNameServer.removePortNameMapping(portName(message.name));
+      :170    IsolateNameServer.removePortNameMapping(controlPortName);
+
+  So the shared-connection lookup only happens when the flag is TRUE. Because the
+  dependency defaults it to FALSE, the app MUST opt in explicitly — and it does:
+
+  lib/core/database/app_database.dart
+      :1345  const DriftNativeOptions kAppDatabaseNativeOptions =
+                 DriftNativeOptions(shareAcrossIsolates: true);
+      :1415  super(driftDatabase(name: 'next_transfer',
+                                 native: kAppDatabaseNativeOptions));
+
+  With the flag true, every isolate converges on ONE shared connection, so only a
+  single `BEGIN IMMEDIATE` migration transaction can exist — which is exactly the
+  v46 -> v47 race that was failing with `database is locked`.
+
+--------------------------------------------------------------------------------
+3. WHY `drift-db/next_transfer` HAS ZERO LITERAL HITS (expected, not a problem)
+--------------------------------------------------------------------------------
+  drift_flutter-0.3.1/lib/src/native.dart
+      :20   return 'drift-db/$databaseName';
+      :24   return 'drift-db/$databaseName/control';
+
+  The port name is BUILT AT RUNTIME by string interpolation from the database
+  name supplied at the call site (`driftDatabase(name: 'next_transfer')`), so the
+  concatenated literal `drift-db/next_transfer` never exists as a contiguous
+  string in the kernel. Its absence is therefore expected and is NOT evidence
+  that the corrective is missing.
+
+--------------------------------------------------------------------------------
+4. WHY `busy_timeout` APPEARS ONCE (it is NOT the withdrawn app-level fix)
+--------------------------------------------------------------------------------
+  Origin: sqlite3-3.5.0/lib/src/database.dart:282 — a DOC COMMENT:
+      /// Note that using the `busy_timeout` pragma will overwrite this handler.
+
+  Dart kernel files retain doc comments, so this one occurrence is a dependency's
+  documentation string.
+
+  Corroboration that the withdrawn app-level solution is genuinely absent:
+      grep -rn "busy_timeout|busyTimeout" lib/            -> 0 hits
+      grep -rn "busy_timeout" drift-2.34.2/lib/           -> 0 hits
+      only package:sqlite3 (doc comment) and drift's devtools sqlite3.wasm
+      (a devtools artefact, not shipped in the APK) contain the literal.
+
+  => The withdrawn `busy_timeout` solution was NOT restored. Confirmed at the
+     source level AND at the shipped-artefact level.
+
+--------------------------------------------------------------------------------
+5. VERDICT
+--------------------------------------------------------------------------------
+  MIGRATION RACE CORRECTIVE = PRESENT IN SOURCE AND PRESENT IN THE SHIPPED APK.
+  The dependency default is OFF, so the app's explicit `shareAcrossIsolates: true`
+  is load-bearing; both the flag and the app's const are in the APK kernel.
+  The withdrawn `busy_timeout` approach is absent from app code and from the APK.
+
+================================================================================

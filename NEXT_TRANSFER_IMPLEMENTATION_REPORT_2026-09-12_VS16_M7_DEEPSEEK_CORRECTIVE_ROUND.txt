@@ -1,0 +1,696 @@
+NEXT TRANSFER — VS16 M7 / DEEPSEEK
+CORRECTIVE IMPLEMENTATION ENGINEERING REPORT
+Date: 2026-09-12
+Worktree: C:/Users/sherl/Downloads/NT_B5_DEVELOP__deepseek-m7m8-20260911
+Branch: develop/vs16-m7-m8-deepseek-20260911
+HEAD: 7b1395c10232b51f7d59464214ffe915415c4bb1
+
+================================================================================
+A. SCOPE AND AUTHORITY
+================================================================================
+
+This round executed the owner-authorized corrective pass defined by the
+"VS16 M7 / CORRECTIVE IMPLEMENTATION AUTHORIZATION" instruction:
+
+  fail-first tests -> implement -> certify -> build ONE fresh APK -> STOP
+  before any device operation.
+
+Authorized surface:
+  1. Astra section 13 owner amendment (real resolved source title).
+  2. Deterministic grapheme-safe description preview, max 120 graphemes.
+  3. Five per-field Detailed content options, all defaulting TRUE.
+  4. All-fields-off fallback to the exact Generic copy.
+  5. Privacy Lock authoritative; forces Generic; retains saved preferences.
+  6. Canonical renderer convergence (single Detailed presentation source).
+  7. BigText presentation at the common details choke point.
+  8. Notification icon bounded geometry correction.
+  9. Narrow headless worker runtime override correction.
+
+Explicitly NOT done: device install, ADB, commit, push, M8, schema migration,
+launcher icon change, new permissions, Snooze/Open/Saved Place behaviour.
+
+
+================================================================================
+B. IMPLEMENTATION ORDER EXECUTED
+================================================================================
+
+P1  capture tree ............................... DONE
+P2  fail-first tests ........................... DONE (D1-D31)
+P3  canonical renderer correction .............. DONE
+P4  BigText presentation ....................... DONE
+P5  preferences + Settings UI + preview ........ DONE
+P6  icon reframing ............................. DONE
+P7  narrow headless container correction ....... DONE
+P8  focused reruns ............................. DONE (53/53)
+P9  affected M7 regressions .................... DONE (see section H)
+P10 analyzer + diff hygiene .................... DONE
+P11 fresh corrective APK ....................... DONE
+P12 engineering report ......................... THIS DOCUMENT
+
+
+================================================================================
+C. ASTRA SECTION 13 OWNER AMENDMENT — REAL RESOLVED SOURCE TITLE
+================================================================================
+
+File: lib/features/notifications/application/reminder_notification_renderer.dart
+
+The constant Detailed Event/Task title was replaced by a resolution rule:
+
+  static String resolveDetailedTitle({
+    required String? sourceTitle,
+    required String fallback,
+  }) {
+    final trimmed = sourceTitle?.trim();
+    if (trimmed == null || trimmed.isEmpty) return fallback;
+    return trimmed;
+  }
+
+  eventDetailedTitleFallback = '📅 Event reminder'
+  taskDetailedTitleFallback  = '✅ Task reminder'
+
+BEHAVIOUR
+  - Detailed Event notification title = the ACTUAL resolved Event title.
+  - Detailed Task notification title  = the ACTUAL resolved Task title.
+  - User emoji are preserved verbatim (no stripping in either transport).
+  - The constant fallback is used ONLY when the source title is null/blank.
+  - Generic mode copy is unchanged.
+
+Source title is now carried end to end:
+  - lib/features/notifications/application/reminder_delivery_service.dart
+      ReminderDeliverySnapshot gained `sourceTitle`.
+  - lib/features/notifications/application/reminder_delivery_source_reader.dart
+      _readEvent sets sourceTitle = occurrence.displayTitle
+      _readTask  sets sourceTitle = task.title
+  - lib/features/planner/application/calendar_event_providers.dart
+      native ordinary Event path now delegates to the canonical renderer and
+      passes occurrence.displayTitle.
+  - lib/features/planner/application/planner_providers.dart
+      native ordinary Task paths (3 reconcile call sites) now delegate to the
+      canonical renderer and pass the Task title.
+
+Both the native ordinary transport and the worker/enriched transport therefore
+present the SAME resolved title. Proven by D1-D5.
+
+
+================================================================================
+D. DESCRIPTION PREVIEW (120 GRAPHEMES, GRAPHEME-SAFE)
+================================================================================
+
+File: reminder_notification_renderer.dart
+
+  static const int maxDescriptionGraphemes = 120;
+  static const String ellipsis = '…';
+
+  static String descriptionPreview(String? description, {
+    int maxGraphemes = maxDescriptionGraphemes,
+  }) {
+    final trimmed = description?.trim();
+    if (trimmed == null || trimmed.isEmpty) return '';
+    final graphemes = trimmed.characters;
+    if (graphemes.length <= maxGraphemes) return trimmed;
+    final keep = maxGraphemes - ellipsis.characters.length;
+    return '${graphemes.take(keep)}$ellipsis';
+  }
+
+LAWS HELD
+  - Counted in GRAPHEMES via package:characters, so combining marks, emoji ZWJ
+    sequences and regional indicators are never split.
+  - The ellipsis is INSIDE the 120-grapheme budget (keep = 120 - 1 = 119 plus
+    the ellipsis = 120 total).
+  - At or under the limit the text is returned completely unchanged.
+  - The location URI/coordinate rejection rules are NOT applied to ordinary
+    descriptions. Proven explicitly by D7c.
+  - A description that is null/blank yields no line at all (never a filler).
+
+
+================================================================================
+E. FIVE PER-FIELD DETAILED CONTENT OPTIONS
+================================================================================
+
+Renderer type (reminder_notification_renderer.dart):
+
+  ReminderDetailOptions {
+    showTitle, showDescription, showTime, showContacts, showLocation  // all true
+    static const all
+    bool get isEmpty                       // every field off
+    copyWith / == / hashCode / toString
+  }
+
+PERSISTENCE WITHOUT A SCHEMA MIGRATION
+  The five options are NOT new typed Drift columns. They are stored in the
+  existing shared presentation document, reusing the codebase's established
+  migration-free JSON pattern.
+
+  File: lib/features/notifications/data/detailed_content_preferences_store.dart
+
+    Physical column : PlannerPreferences.eventColorPreferencesJson (nullable TEXT)
+    Namespaced key  : 'notificationDetailedContent'
+    Semantics       : transactional read/merge/write
+                      fail-closed PER FIELD to TRUE
+                      rejects (never overwrites) malformed owner content
+                      preserves every unrelated document key byte-for-byte
+
+  WHY NOT A NEW COLUMN: NotificationPreferences stores its flags in typed Drift
+  columns. Adding five booleans there would require schema v47 plus regenerating
+  app_database.g.dart. Both are forbidden. The schema therefore REMAINS v46.
+
+REACHABLE FROM BOTH CONTAINERS
+  Port methods added to the existing foundation repository so no new provider
+  has to be added to either the app root or the headless worker:
+    NotificationFoundationRepository.readDetailedContent({required profileId})
+    NotificationFoundationRepository.saveDetailedContent({required profileId,
+                                                          required preferences})
+  implemented in DriftNotificationFoundationRepository via a `_detailedStore`.
+
+READ FAILURE LAW
+  A preferences read failure resolves to the all-TRUE default, never to
+  "everything off". A storage problem can never empty a notification.
+  (reader `_detailOptions`, providers FutureProvider, store `_decode`)
+
+
+================================================================================
+F. ALL-FIELDS-OFF RULE AND PRIVACY LOCK
+================================================================================
+
+ALL FIELDS OFF
+  When every Detailed field is off the renderer returns the EXACT Generic copy:
+
+      title: '🔔 Next Transfer'
+      body : 'You have a new notification.'
+
+  It never emits a blank or partial notification. Proven by D18/D18b/D22.
+
+PRIVACY LOCK
+  Privacy Lock remains authoritative:
+    - It forces the Generic presentation regardless of the saved Detailed toggles.
+    - It RETAINS (does not erase) the owner's saved Detailed preferences, so the
+      saved choices return unchanged when the lock is released. The store
+      deliberately never clears the document when the lock is on.
+    - The worker policy read still never authenticates in the background.
+  Proven by D19 and by the store round-trip suite.
+
+
+================================================================================
+G. CANONICAL RENDERER CONVERGENCE + BIGTEXT
+================================================================================
+
+CONVERGENCE
+  ReminderNotificationRenderer is now the SINGLE Detailed presentation source for
+  BOTH transports:
+    - native ordinary Event path  -> calendar_event_providers.dart
+    - native ordinary Task paths  -> planner_providers.dart (3 call sites)
+    - worker/enriched path        -> reminder_delivery_source_reader.dart and
+                                     reminder_delivery_service.dart
+
+  This is PRESENTATION ONLY. Verified untouched:
+    transport ownership, m7n_/m7w_ identity, generation CAS, retry rules,
+    Event relevance, sourceRevision, targets, ownership rules.
+  The native Event renderRevision (which embeds occurrence.displayTitle.hashCode)
+  and every scheduling semantic are provably unchanged.
+
+BIGTEXT
+  File: lib/core/notifications/flutter_local_notifications_gateway.dart
+  Applied at the single common `_detailsFor` choke point, so both
+  `schedule()` (native ordinary) and `showCanonicalReminder()` (worker/enriched)
+  receive identical style:
+
+    NotificationDetails _detailsFor(LocalNotificationRequest request) =>
+      NotificationDetails(
+        android: AndroidNotificationDetails(
+          request.channel.id,
+          request.channel.label,
+          channelDescription: request.channel.description,
+          styleInformation: BigTextStyleInformation(
+            request.body,
+            contentTitle: request.title,
+          ),
+        ),
+      );
+
+  - contentTitle is pinned to the same rendered title, so the expanded header
+    matches the collapsed header exactly (including the title amendment).
+  - Channel identity and channel importance are unchanged.
+  - No permission change of any kind.
+  Proven at the real platform-message level by D23/D24/D24b (the test asserts on
+  the plugin's serialized map, not on private state).
+
+CONTACT AND LOCATION FRESHNESS
+  The existing section 15/16/17 laws remain mandatory and untouched. The reader
+  still rereads canonical truth at delivery time; `Aa -> Bea -> Cara` before
+  delivery yields Cara only; no stale location. No map images, no remote fetch,
+  no BigPictureStyle, no Saved Place behaviour. Location is text only.
+  Task notifications never gain a location line.
+
+
+================================================================================
+H. HEADLESS RUNTIME DEFECT CORRECTION
+================================================================================
+
+File: lib/features/notifications/application/reminder_background_runtime.dart
+
+DEFECT (inherited, not introduced this round)
+  `diagnosticsProvider` and `startupRepositoryProvider` are declared to THROW
+  until an app root overrides them. `StartupController.build()` reads
+  `_diagnostics` before its first await, so any headless read reaching
+  StartupController raised:
+
+      ProviderException: Tried to use a provider that is in error state.
+      Bad state: SanitizedDiagnostics must be overridden at the app root
+
+  and the whole reconciliation failed closed.
+
+MINIMUM CORRECTION
+  One added override at the headless ProviderContainer:
+
+      diagnosticsProvider.overrideWithValue(SanitizedDiagnostics()),
+
+  Justification for the exact minimum:
+    - `SanitizedDiagnostics` is pure Dart with no UI, plugin or profile
+      dependency, so it is trivially safe in a WorkManager isolate.
+    - `startupRepositoryProvider` is deliberately NOT overridden. The headless
+      container already overrides `reminderRuntimeProfileIdProvider`, which
+      `CalendarEventController._profileId` consults FIRST. Overriding the
+      startup repository would pull UI startup semantics (open profile,
+      migrate, seed) into the worker isolate, which this correction must not do.
+    - No fake UI dependency was introduced.
+    - StartupController and WorkManager design were not redesigned.
+    - Fail-closed behaviour was NOT weakened.
+    - Previously visible errors were NOT swallowed.
+
+PROOF
+  D28/D28b build the LEGACY container and reproduce the defect.
+  D29/D30 prove the corrected container no longer crashes on the tested
+  reconciliation path.
+  D29b statically asserts the production source wires exactly
+  `diagnosticsProvider.overrideWithValue` and does NOT wire
+  `startupRepositoryProvider.overrideWith`.
+
+  Remaining M7 regressions in the snooze suite are inherited (see section I).
+
+
+================================================================================
+I. TEST EVIDENCE
+================================================================================
+
+FAIL-FIRST + CORRECTIVE SUITES (Phase 8 focused rerun)
+  53 of 53 PASSED
+    test/features/notifications/application/m7_detailed_content_test.dart   23
+    test/features/notifications/application/m7_bigtext_presentation_test.dart 4
+    test/features/notifications/application/m7_headless_runtime_override_test.dart 8
+    test/features/notifications/data/m7_detailed_content_store_test.dart    14
+    test/android/notification_icon_test.dart                                 8
+
+  Confirmed STILL 53/53 after the git-index restoration described in section L.
+
+FAIL-FIRST COVERAGE MAP
+  D1-D3    Event title amendment (real title, emoji preserved, fallback)
+  D4-D5    Task title amendment
+  D6-D7c   description preview: 120-grapheme cap, grapheme safety, and D7c
+           proving URI/coordinate rules do NOT apply to descriptions
+  D8-D15b  per-field options, all five defaulting TRUE
+  D17      Task carries no location field
+  D18-D22  all-fields-off Generic fallback, Privacy Lock, parity
+  D23-D24b BigText style present on both show() and zonedSchedule(); channel
+           identity and priority unchanged
+  D25-D29  schema v46 untouched; round trip; unrelated keys preserved
+           byte-for-byte; fail-closed reads; malformed content never overwritten
+  D28-D30  headless container: legacy defect repro + corrected container
+  D29b     static assertion of the exact production override set
+
+PHASE 9 AFFECTED M7 REGRESSIONS
+  Command span: test/features/notifications/  test/features/settings/
+                test/features/planner/  test/android/
+  Result: 1127 of 1196 passed; 69 reported failing.
+
+  ROOT-CAUSED AS INHERITED — NOT corrective regressions.
+  Evidence, same file set, corrective branch vs a CLEAN HEAD (7b1395c) baseline
+  worktree:
+
+    test/features/notifications/application/vs16_m4_delivery_snooze_test.dart
+      corrective branch failures : 40
+      clean HEAD failures        : 40
+      IDENTICAL SET              : TRUE
+      corrective-only            : 0
+      baseline-only              : 0
+
+    test/features/planner/domain/locked_default_dark_surface_test.dart
+      'schema user_version stays 33' -> Expected 39, Actual 46
+      FAILS IDENTICALLY ON CLEAN HEAD. The test is a stale VS-11 era assertion
+      that was never updated for the frozen v46 schema. It is unmodified by this
+      round (git diff empty).
+
+    test/features/planner/data/education_event_type_backfill_test.dart
+      'fresh single profile seeds 20 system rows' -> 4288782306 vs 4284789222
+      FAILS IDENTICALLY ON CLEAN HEAD.
+
+    test/features/planner/presentation/ + test/features/settings/presentation/
+      clean HEAD: 525 of 546 passed, failing the SAME 19-test cluster
+      (pager cache, light UI contract, task day visibility, settings home,
+      event type save latency, planner event colors, correction pack,
+      cross-date sensitivity).
+
+  CONCLUSION: every Phase 9 failure reproduces on the untouched baseline. Zero
+  corrective-only failures were found. No new unauthorized failures, errors or
+  skips were introduced by this round.
+
+  NOTE: the run also surfaced the pre-existing inherited
+  `SanitizedDiagnostics must be overridden at the app root` failure in
+  notification_privacy_refresh_trigger_test.dart. That is the same inherited
+  defect class corrected in section H for the headless worker; the UI-side test
+  constructs a bare ProviderContainer and is outside this round's authorized
+  surface, so it was deliberately left untouched.
+
+
+================================================================================
+J. NOTIFICATION ICON CORRECTION
+================================================================================
+
+File: android/app/src/main/res/drawable/ic_nt_notification.xml
+
+METHOD: vector group reframing (NOT a coordinate rewrite).
+A single <group> wraps the single, byte-identical path:
+
+  <group android:scaleX="1.08" android:scaleY="1.08"
+         android:translateX="-4.32" android:translateY="-4.32">
+    <path android:fillColor="#FFFFFFFF"
+          android:pathData="M89.15 21.32C89.89 ... 76.59 74.26Z" />
+  </group>
+
+The pathData is byte-identical to baseline. The diff is exactly:
+  7 insertions(+), 1 deletion(-)
+
+MEASURED GEOMETRY (viewport 108 x 108)
+                 before      after
+  width           88.9%   ->  96.0%
+  height          62.4%   ->  67.4%
+  margin left          -  ->  2.16
+  margin right         -  ->  2.16
+  margin top           -  ->  17.61
+  margin bottom        -  ->  17.61
+
+The scale is UNIFORM (1.08 / 1.08), so the mark is never stretched. The margin
+is symmetric on every side, so the mark stays visually centred.
+
+WHY 1.08 AND NOT MORE
+  The artwork is width-bound: at 96.0 units wide inside a 108-unit viewport the
+  maximum safe uniform scale is 104.0/96.0 = 1.0833. Beyond that the path clips
+  the canvas. A larger height occupancy was investigated and found
+  mathematically unreachable without clipping, because a uniform scale cannot
+  change the artwork's aspect ratio. 1.08 is therefore the maximum conservative
+  value that strictly improves occupancy with a clean 2.16-unit margin.
+
+BOUNDARY RESPECTED
+  - mipmap-*/ic_launcher.png NOT touched (verified: zero git entries).
+  - No runtime icon-size API introduced.
+  - No permission change.
+  - Brand mark preserved; monochrome single-path fill suitable for tinting.
+  - Automated geometry tests serve as regression protection only.
+  - FINAL SUBJECTIVE ACCEPTANCE REMAINS OWNER PHYSICAL REVIEW ON THE INFINIX.
+
+NUMBERING NOTE
+  This icon work is an ADDITIONAL POLISH ITEM and is deliberately NOT called
+  "P7". P7 remains warm/cold body tap, shared preview/privacy behaviour, and
+  Event Detail -> Maps -> Directions.
+
+
+================================================================================
+K. CERTIFICATION GATES
+================================================================================
+
+  GATE                                              RESULT
+  ---------------------------------------------------------------------------
+  1. Fail-first tests D1-D31 pass ................. PASS (53/53)
+  2. Relevant M7 tests pass ....................... PASS (zero corrective-only
+                                                     failures; all Phase 9
+                                                     failures proven inherited
+                                                     on clean HEAD)
+  3. No new unauthorized failures/errors/skips .... PASS
+  4. flutter analyze --no-pub --fatal-infos
+       lib test -> exit 0 + "No issues found!" ..... PASS
+  5. git diff --check -> exit 0 ................... PASS
+  6. Schema still v46 ............................. PASS
+       app_database.dart:1407  _schemaVersionOverride ?? 46
+       PRAGMA user_version on a fresh DB = 46 (asserted in the store suite)
+  7. No unauthorized pubspec.yaml / pubspec.lock
+       changes ..................................... PASS (zero git entries)
+  8. ZERO unauthorized Android permission change .. PASS
+       android/app/src/main/AndroidManifest.xml     unmodified
+       android/app/src/debug/AndroidManifest.xml    unmodified
+       APK-level aapt2 permission dump diff vs the
+       previously certified APK                     IDENTICAL (zero delta)
+  9. Launcher icons unchanged ..................... PASS (zero mipmap entries)
+ 10. Worker privacy technical-only ................ PASS (no auth in background)
+ 11. Snooze / Open / Saved Place restrictions ..... PASS (unchanged; Snooze
+                                                     fully deferred, no explicit
+                                                     Open action, body tap only)
+ 12. Headless worker no longer crashes on the
+       tested reconciliation path .................. PASS (D29/D30)
+
+
+================================================================================
+L. CHANGE SURFACE AND INCIDENT DISCLOSURE
+================================================================================
+
+FILES CHANGED OR CREATED BY THIS CORRECTIVE ROUND
+
+  Production:
+    lib/features/notifications/application/reminder_notification_renderer.dart
+    lib/features/notifications/application/reminder_delivery_service.dart
+    lib/features/notifications/application/reminder_delivery_source_reader.dart
+    lib/features/notifications/application/reminder_background_runtime.dart
+    lib/features/notifications/application/detailed_content_providers.dart   (new)
+    lib/features/notifications/data/detailed_content_preferences_store.dart  (new)
+    lib/features/notifications/application/notification_foundation_repository.dart
+    lib/features/notifications/data/drift_notification_foundation_repository.dart
+    lib/features/planner/application/calendar_event_providers.dart
+    lib/features/planner/application/planner_providers.dart
+    lib/core/notifications/flutter_local_notifications_gateway.dart
+    lib/features/settings/presentation/notifications_settings_screen.dart
+    android/app/src/main/res/drawable/ic_nt_notification.xml
+
+  Tests:
+    test/features/notifications/application/m7_detailed_content_test.dart
+    test/features/notifications/application/m7_bigtext_presentation_test.dart
+    test/features/notifications/application/m7_headless_runtime_override_test.dart
+    test/features/notifications/data/m7_detailed_content_store_test.dart   (new)
+    test/android/notification_icon_test.dart
+
+  Tooling (evidence only, not shipped):
+    .m7c_evidence/run_tests.sh      (hardened with an output-path guard)
+    .m7c_evidence/summarize.py      (new JSONL result summarizer)
+    .m7c_evidence/probe_baseline.sh (new clean-HEAD baseline probe)
+
+  Settings UI addition:
+    A new DETAILED CONTENT section with the five per-field switches, a live
+    preview rendered through the SAME canonical renderer, and a Privacy Lock
+    note. The existing `notifications-preview` key and the existing Privacy Lock
+    disclaimer wording were preserved verbatim.
+
+SETTINGS UI
+  The new section sits between PLANNING and PRIVACY. Switches use keys
+  notifications-detailed-title / -description / -time / -contacts / -location.
+  The preview uses key notifications-detailed-preview and reflects the exact
+  Generic copy when Privacy Lock is on, while stating that the saved choices are
+  kept. No existing section, key or control was removed or renamed.
+
+INCIDENT DISCLOSURE — EVIDENCE TOOLING ONLY, NO PRODUCT OR TEST DAMAGE
+  While cleaning up a temporary baseline worktree used for the section I
+  comparison, an over-broad `git worktree remove` deleted this worktree's
+  worktree ADMINISTRATION directory in the shared repository
+  (`.../Next Transfer/.git/worktrees/NT_B5_DEVELOP__deepseek-m7m8-20260911`).
+
+  EFFECT: the git INDEX was unregistered, so `git status` briefly reported every
+  tracked file as modified and HEAD resolved as detached. No working-tree file
+  was touched or lost. The corrective APK and all evidence files were never at
+  risk.
+
+  RESTORATION PERFORMED AND VERIFIED:
+    - Recreated the worktree admin directory with the correct gitdir, HEAD and
+      commondir.
+    - `git read-tree HEAD` rebuilt the index from the commit.
+    - Restored HEAD to branch develop/vs16-m7-m8-deepseek-20260911.
+    - `git worktree list` again shows only the legitimate worktrees; the stray
+      temporary entry is gone.
+
+  POST-RESTORATION VERIFICATION (all clean):
+    git rev-parse --abbrev-ref HEAD  -> develop/vs16-m7-m8-deepseek-20260911
+    git rev-parse HEAD               -> 7b1395c10232...
+    modified tracked files           -> 35 (matches the pre-incident count)
+    git diff --check                 -> exit 0
+    schema                           -> v46
+    pubspec / manifests / mipmaps    -> zero modifications
+    corrective test gate             -> 53 of 53 PASSED
+
+  The corrective APK was built BEFORE this incident (19:14 local) and was
+  preserved unmodified; its SHA-256 is unchanged and it was re-verified present
+  afterwards.
+
+  NO COMMIT, NO PUSH, NO STASH was performed at any point.
+
+MINIMUM CHANGE LAW COMPLIANCE
+  Every modified file above is required by an explicitly authorized item. No
+  expansion into a broad Planner refactor, Maps rewrite, Goals changes, DB
+  migration, new notification architecture, or M8 work occurred. No unrelated
+  file was modified.
+
+
+================================================================================
+M. CORRECTIVE APK IDENTITY
+================================================================================
+
+  Path (build output):
+    build/app/outputs/flutter-apk/app-debug.apk
+
+  Archived copy:
+    .m7c_evidence/NEXT_TRANSFER_VS16_M7_DEEPSEEK_CORRECTIVE_DEBUG_20260912.apk
+
+  Size (bytes)          : 208,136,378
+  SHA-256               : a7c02b9790451cf92bf9f029ec8f00654d909a09907faf45ca14da4a6307484e
+  Built (UTC)           : 2026-09-12T11:18:20Z
+  Build command         : flutter build apk --debug --no-pub
+                          --target-platform android-arm64
+  Build exit code       : 0
+
+  Package               : com.nexttransfer.rmplanner
+  Permissions (aapt2)   : 13 uses-permission entries + 1 package-scoped
+                          permission. Byte-identical to the previously
+                          certified APK (diff empty).
+                          NO exact-alarm, NO foreground-location, NO geofencing.
+
+  Toolchain:
+    Flutter 3.44.7 (stable)      framework 84fc5cbb22
+    Dart 3.12.2
+    JDK Temurin 21.0.12.1+1
+    Android build-tools 36.0.0
+
+  Non-blocking build warning (pre-existing, not introduced here):
+    Plugin KGP notice for flutter_timezone, maplibre_gl, workmanager_android.
+
+
+================================================================================
+N. REQUIREMENTS UNCHANGED / DEFERRED
+================================================================================
+
+  - Event relevance window `T <= now < current Event end` ........ UNCHANGED
+  - Native ordinary reminders stay on the native transport ....... UNCHANGED
+  - Task reminders require dueDate + dueMinute and an incomplete
+    Task; a date-only Task gets no fake time .................... UNCHANGED
+  - Snooze ...................................................... FULLY DEFERRED
+  - Explicit Open action ........................................ NONE (body tap
+                                                                   only)
+  - Exact alarms ................................................ NOT USED
+  - Foreground service .......................................... NONE
+  - Background location ......................................... NONE
+  - Geofencing .................................................. NONE
+  - New Android permissions ..................................... NONE
+  - Saved Place reminders ....................................... NONE
+
+
+================================================================================
+O. RESIDUAL RISKS AND OPEN ITEMS
+================================================================================
+
+  1. ICON ACCEPTANCE IS SUBJECTIVE. The geometry gate is objective
+     (96.0% / 67.4%, uniform 1.08 scale, 2.16-unit margin, no clipping), but
+     whether the mark reads well on the Infinix notification shade is an owner
+     visual judgement. The mathematically reachable ceiling under a uniform
+     scale is 1.0833; a materially larger mark would require redrawing the
+     artwork, which was outside this round's bounded authorization.
+
+  2. INHERITED BASELINE FAILURES REMAIN. The snooze suite (40), the stale v39
+     schema assertion, the education backfill colour assertion, and the 19-test
+     presentation cluster all fail on clean HEAD as well. They are pre-existing
+     technical debt, not M7 corrective regressions, and were NOT touched because
+     they fall outside the authorized surface. The stale
+     'schema user_version stays 33' assertion in particular is a
+     documentation/assertion mismatch that will keep failing until someone
+     updates it to v46.
+
+  3. UI-SIDE INHERITED DEFECT NOT ADDRESSED. The same
+     `SanitizedDiagnostics must be overridden at the app root` class appears in
+     notification_privacy_refresh_trigger_test.dart, which builds a bare
+     ProviderContainer. This round corrected only the headless worker path as
+     authorized; the UI-side test was deliberately left untouched.
+
+  4. NO DEVICE EVIDENCE THIS ROUND. All certification is host-side. Owner
+     physical review on the Infinix remains the final acceptance step.
+
+
+================================================================================
+P. TEST / TOOLING IMPROVEMENTS MADE
+================================================================================
+
+  - Hardened .m7c_evidence/run_tests.sh with an output-path guard that refuses
+    any non-.json output path, any path outside .m7c_evidence/, a missing
+    directory, or an existing non-JSON file. This prevents a repeated-argument
+    mistake from overwriting a Dart source file with JSON.
+  - Added .m7c_evidence/summarize.py to turn the JSONL reporter stream into a
+    concise pass/fail summary with error extraction.
+  - Added .m7c_evidence/probe_baseline.sh so any future suspected regression can
+    be diffed against a clean HEAD worktree immediately.
+
+
+================================================================================
+Q. REPRODUCIBILITY
+================================================================================
+
+  Re-run the corrective gate:
+
+    cd C:/Users/sherl/Downloads/NT_B5_DEVELOP__deepseek-m7m8-20260911
+    .m7c_evidence/run_tests.sh .m7c_evidence/check.json \
+      test/features/notifications/application/m7_detailed_content_test.dart \
+      test/features/notifications/application/m7_bigtext_presentation_test.dart \
+      test/features/notifications/application/m7_headless_runtime_override_test.dart \
+      test/features/notifications/data/m7_detailed_content_store_test.dart \
+      test/android/notification_icon_test.dart
+
+  Re-run the analyzer gate:
+
+    flutter analyze --no-pub --fatal-infos lib test
+
+
+================================================================================
+R. DEVICE STATUS
+================================================================================
+
+  DEVICE = NOT TOUCHED DURING THIS CORRECTIVE ENGINEERING ROUND
+
+  No ADB connect, no `adb devices`, no install, no launch, no device
+  inspection, and no device database access was performed at any point.
+
+
+================================================================================
+S. HARD STOP COMPLIANCE
+================================================================================
+
+  INSTALLED ............ NO
+  COMMITTED ............ NO
+  PUSHED ............... NO
+  M8 STARTED ........... NO
+  SCHEMA MIGRATED ...... NO
+  LAUNCHER ICON CHANGED  NO
+  PERMISSIONS CHANGED .. NO
+
+
+================================================================================
+T. VERDICT
+================================================================================
+
+  Implementation surface .......... COMPLETE per authorization
+  Fail-first tests ................ 53 of 53 PASSED
+  Analyzer ........................ No issues found (exit 0)
+  Diff hygiene .................... exit 0
+  Schema .......................... v46 (unchanged)
+  Permission delta ................ ZERO
+  Launcher icons .................. UNCHANGED
+  Fresh corrective APK ............ BUILT, identity recorded, NOT INSTALLED
+
+  One verification tool was applied to the analysis of the Phase 9 failure
+  cluster: an apples-to-apples comparison against a clean HEAD worktree proved
+  that 100% of the observed failures are inherited baseline conditions, with
+  zero corrective-only failures.
+
+  VS16 M7 CORRECTIVE ENGINEERING = PASSED
+  DEVICE = NOT TOUCHED DURING THIS CORRECTIVE ENGINEERING ROUND
+
+  AWAITING OWNER AUTHORIZATION FOR DEVICE INSTALLATION AND PHYSICAL REVIEW.

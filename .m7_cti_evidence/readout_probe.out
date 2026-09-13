@@ -1,0 +1,25 @@
+00:00 +0: loading C:/Users/sherl/Downloads/NT_B5_DEVELOP__deepseek-m7m8-20260911/test/features/planner/presentation/zz_cti_readout_probe_test.dart
+00:00 +0: READOUT PROBE — measured size of the current-time readout
+READOUT geometry: indicatorHeight=12.0 capsuleHeight=18.0 labelWidth=62.0 labelLeft=-11.0 dotLeft=51.0 lineStartX=61.0 dotSize=10.0 timeColumnWidth=56.0
+READOUT label   : L3.17 T727.22 R60.83 B735.35 W57.66 H8.13
+READOUT dot     : L63.00 T726.29 R73.00 B736.29 W10.00 H10.00
+READOUT line    : L73.00 T730.29 R399.43 B732.29 W326.43 H2.00
+READOUT declared: text="9:21 PM" fontSize=15.0
+READOUT fittedScale = 0.5419580347293491
+READOUT effectiveFontSize = 8.13 logical px (declared 15.0 x scale 0.5419580347293491)
+READOUT hourLabel(21) box : L12.00 T712.29 R68.00 B728.29 W56.00 H16.00
+READOUT hourLabel(21) text: L12.00 T712.29 R68.00 B728.29 W56.00 H16.00 fontSize=11.0 text="9 PM"
+READOUT hourLabel(22) box : L12.00 T772.29 R68.00 B788.29 W56.00 H16.00
+READOUT hourLabel(22) text: L12.00 T772.29 R68.00 B788.29 W56.00 H16.00 fontSize=11.0 text="10 PM"
+READOUT ClipRect ancestors above label = 2
+READOUT   ClipRect rect = Rect.fromLTRB(12.0, -549.7, 399.4, 890.3)
+READOUT   ClipRect rect = Rect.fromLTRB(0.0, 94.0, 411.4, 914.3)
+READOUT widest  : label="12:59 PM" rect=L2.91 T225.70 R61.09 B232.87 W58.17 H7.18 fittedScale=0.47839506736090226
+READOUT narrow  : <ABSENT> — current hour is OUTSIDE the visible-hour window, so the WHOLE indicator (label+dot+line) is hidden by the single indicatorVisible gate
+READOUT captured .m7_cti_evidence/probe_readout.png (22453 bytes)
+03:56 +0: READOUT PROBE — measured size of the current-time readout - did not complete [E]
+03:56 +0: Some tests failed.
+
+Failing tests:
+  C:/Users/sherl/Downloads/NT_B5_DEVELOP__deepseek-m7m8-20260911/test/features/planner/presentation/zz_cti_readout_probe_test.dart: READOUT PROBE — measured size of the current-time readout (did not complete)
+No tests were found.

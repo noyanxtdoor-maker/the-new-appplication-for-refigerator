@@ -3,11 +3,14 @@
 // Locks the M4 architecture boundaries: recovery via WorkManager only (no
 // foreground service, no exact alarms, no background location), sanitized
 // durable work payloads, and the canonical receiver set.
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:rmplanner/core/background/background_work_gateway.dart';
 import 'package:rmplanner/core/background/background_work_request.dart';
+import 'package:rmplanner/core/background/workmanager_background_work_gateway.dart';
 import 'package:rmplanner/core/notifications/notification_payload.dart';
 import 'package:rmplanner/features/notifications/application/reminder_background_runtime.dart';
 
@@ -134,14 +137,68 @@ void main() {
       );
     });
 
-    test('delivery WorkManager input is stable-key-only', () {
-      final spec = BackgroundWorkSpec(
-        uniqueName: 'nt.reminder.42.1789000000000',
-        taskName: 'nt.reminder.delivery',
-        inputData: {'stable_key': 'reminder:calendarEvent:p:o:base'},
+    test('delivery WorkManager input is the strict three-field allowlist', () {
+      const canonical = CanonicalReminderWorkSpec(
+        stableKey: 'reminder:calendarEvent:p:o:base',
+        scheduledUtcMs: 1789000000000,
+        sourceRevision: 'm7w_m4_1_0_60',
+      );
+      final spec = canonical.toWorkSpec(
+        platformNotificationId: 42,
+        nowUtc: DateTime.utc(2026, 9, 11),
       );
       spec.validate();
-      expect(spec.inputData.keys, <String>{'stable_key'});
+      expect(spec.taskName, 'nt.reminder.delivery');
+      expect(spec.inputData.keys, <String>{
+        'stable_key',
+        'scheduled_utc_ms',
+        'source_revision',
+      });
+      expect(
+        spec.inputData.keys.any(
+          (key) =>
+              key.contains('title') ||
+              key.contains('body') ||
+              key.contains('text') ||
+              key.contains('name') ||
+              key.contains('location'),
+        ),
+        isFalse,
+      );
+      expect(
+        spec.uniqueName,
+        'nt.reminder.42.1789000000000.'
+        '${sha256.convert(utf8.encode('m7w_m4_1_0_60')).toString().substring(0, 16)}',
+      );
+    });
+
+    test('legacy two-key and extra-key delivery input is a terminal no-op', () {
+      expect(
+        CanonicalReminderWorkSpec.tryParse(<String, Object?>{
+          'stable_key': 'reminder:calendarEvent:p:o:base',
+          'scheduled_utc_ms': 1789000000000,
+        }),
+        isNull,
+        reason: 'the legacy two-key delivery shape must not be replayed',
+      );
+      expect(
+        CanonicalReminderWorkSpec.tryParse(<String, Object?>{
+          'stable_key': 'reminder:calendarEvent:p:o:base',
+          'scheduled_utc_ms': 1789000000000,
+          'source_revision': 'm7w_1',
+          'title': 'Private',
+        }),
+        isNull,
+        reason: 'extra keys must be rejected, never silently ignored',
+      );
+      expect(
+        CanonicalReminderWorkSpec.tryParse(<String, Object?>{
+          'stable_key': 'reminder:calendarEvent:p:o:base',
+          'scheduled_utc_ms': 1789000000000,
+          'source_revision': 'm7w_1',
+        })?.sourceRevision,
+        'm7w_1',
+      );
     });
 
     test('recovery dispatch input carries no data at all', () {

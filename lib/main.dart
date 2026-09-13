@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:rmplanner/app/next_transfer_app.dart';
+import 'package:rmplanner/core/background/reminder_recovery_request.dart';
 import 'package:rmplanner/core/background/workmanager_background_work_gateway.dart';
 import 'package:rmplanner/core/database/app_database.dart';
 import 'package:rmplanner/core/diagnostics/sanitized_diagnostics.dart';
@@ -96,9 +97,20 @@ Future<void> main() async {
     backgroundWorkAvailable = false;
     diagnostics.record('background_foundation_unavailable');
   }
+  // M7 section 27: ONE repair-marker writer shared by every canonical mutation
+  // site, so a burst of source changes collapses into a single pending
+  // reconciliation instead of restarting a repair episode per repository.
+  final reminderRecoveryRequest = ReminderRecoveryRequest(
+    database: database,
+    clock: clock,
+    identifiers: const UuidIdentifierSource(),
+  );
   final privacyRepository = DriftPrivacyRepository(
     database: database,
     clock: clock,
+    // M7 section 27: Privacy Lock / preview-mode changes alter how registered
+    // reminders may render, so they schedule a reconciliation.
+    reminderRepair: reminderRecoveryRequest,
   );
   final privacyGate = SessionPrivacyGate(settingsReader: privacyRepository);
   final authTokenStore = SecureAuthTokenStore(FlutterSecureStorageDriver());
@@ -110,15 +122,26 @@ Future<void> main() async {
   final outcomeReportingRepository = DriftOutcomeReportingRepository(
     database: database,
     clock: clock,
+    // M7 section 27: submitting/clearing a Report changes Awaiting Report
+    // reminder eligibility, so the repair intent commits with the report.
+    reminderRepair: reminderRecoveryRequest,
   );
   final eventTypeRepository = DriftEventTypeRepository(
     database: database,
     clock: clock,
+    // M7 section 27: only a change to the global reminder default needs a
+    // reconciliation; Event Type/colour/name architecture is untouched.
+    reminderRepair: reminderRecoveryRequest,
   );
   final contactRepository = DriftContactRepository(
     database: database,
     clock: clock,
     identifiers: const UuidIdentifierSource(),
+    // M7 section 27: archive / recently-delete / merge / rename mutations
+    // invalidate follow-up purposes and commit the repair intent in the same
+    // transaction, so a later platform failure cannot lose the need to
+    // re-resolve reminders against current Contact truth.
+    reminderRepair: reminderRecoveryRequest,
   );
   final calendarEventRepository = DriftCalendarEventRepository(
     database: database,
@@ -128,6 +151,9 @@ Future<void> main() async {
     linkContextTransfer: taskEventLinkRepository,
     duplicateContextTransfer: contactRepository,
     reportSource: outcomeReportingRepository,
+    // M7 section 27: save/edit/cancel/reschedule/duplicate all commit the
+    // repair intent with the Event write.
+    reminderRepair: reminderRecoveryRequest,
   );
   final plannerRepository = DriftPlannerRepository(
     database: database,
@@ -135,6 +161,10 @@ Future<void> main() async {
     calendarSource: calendarEventRepository,
     taskContextSource: taskEventLinkRepository,
     historicalEffectReader: outcomeReportingRepository,
+    // M7 section 27: Task mutations persist the reminder reconciliation marker
+    // in the same transaction, so a later platform failure cannot lose the
+    // committed intent to reconcile.
+    reminderRepair: reminderRecoveryRequest,
   );
   final indicatorRepository = DriftIndicatorRepository(
     database: database,
@@ -152,6 +182,9 @@ Future<void> main() async {
     identifiers: const UuidIdentifierSource(),
     timeZones: calendarEventTimeZones,
     indicators: indicatorRepository,
+    // M7 section 27: completing a Weekly Review retires that period's
+    // weekly-review reminder, so the repair intent commits with the review.
+    reminderRepair: reminderRecoveryRequest,
   );
   final taskEventLinkCoordinator = DriftTaskEventLinkCoordinator(
     database: database,
@@ -199,6 +232,39 @@ Future<void> main() async {
     diagnostics: diagnostics,
   );
 
+  // M7 section 6 transport ownership.  The app root is the one composition that
+  // owns the strict three-key worker spec (sections 12/14), so it supplies the
+  // real WorkManager enqueue and release.  Both are derived from the SAME
+  // unique-name helper, which is what guarantees a release can never miss the
+  // job it was registered for and leave two live delivery owners behind.
+  //
+  // When background work is unavailable the ports stay null, so no key is ever
+  // marked `m7w_` without a real worker registration behind it.
+  Future<void> scheduleCanonicalReminderWork({
+    required String stableKey,
+    required DateTime scheduledAtUtc,
+    required String sourceRevision,
+    required int platformNotificationId,
+  }) async {
+    if (!backgroundWorkAvailable) return;
+    final spec = CanonicalReminderWorkSpec(
+      stableKey: stableKey,
+      scheduledUtcMs: scheduledAtUtc.millisecondsSinceEpoch,
+      sourceRevision: sourceRevision,
+    );
+    await backgroundWorkGateway.enqueueUnique(
+      spec.toWorkSpec(
+        platformNotificationId: platformNotificationId,
+        nowUtc: clock.nowUtc(),
+      ),
+    );
+  }
+
+  Future<void> cancelCanonicalReminderWork(String uniqueName) async {
+    if (!backgroundWorkAvailable) return;
+    await backgroundWorkGateway.cancelUnique(uniqueName);
+  }
+
   runApp(
     ProviderScope(
       overrides: [
@@ -225,6 +291,16 @@ Future<void> main() async {
           notificationResponseController,
         ),
         backgroundWorkGatewayProvider.overrideWithValue(backgroundWorkGateway),
+        // M8 section 28/30: the ONE repair-marker writer is shared with every
+        // canonical mutation site, so the foreground recovery pass consumes the
+        // exact rows those mutations committed.
+        reminderRecoveryRequestProvider.overrideWithValue(reminderRecoveryRequest),
+        reminderWorkerTransportProvider.overrideWithValue(
+          scheduleCanonicalReminderWork,
+        ),
+        reminderWorkerReleaseProvider.overrideWithValue(
+          cancelCanonicalReminderWork,
+        ),
         notificationPlatformFoundationProvider.overrideWithValue(
           NotificationPlatformFoundation(
             notificationsAvailable: notificationsAvailable,

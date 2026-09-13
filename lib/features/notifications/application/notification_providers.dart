@@ -2,12 +2,19 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:rmplanner/core/background/background_work_gateway.dart';
+import 'package:rmplanner/core/background/reminder_recovery_request.dart';
+import 'package:rmplanner/core/background/workmanager_background_work_gateway.dart';
 import 'package:rmplanner/core/notifications/notification_gateway.dart';
 import 'package:rmplanner/core/notifications/notification_response_controller.dart';
 import 'package:rmplanner/core/time/app_clock.dart';
+import 'package:rmplanner/features/notifications/application/background_diagnostics_provider.dart';
 import 'package:rmplanner/features/notifications/application/notification_foundation_repository.dart';
 import 'package:rmplanner/features/notifications/application/notification_privacy_refresh_provider.dart';
+import 'package:rmplanner/features/notifications/application/reminder_orphan_sweeper.dart';
 import 'package:rmplanner/features/notifications/application/reminder_reconciler.dart';
+import 'package:rmplanner/features/notifications/application/reminder_recovery_coordinator.dart';
+import 'package:rmplanner/features/notifications/application/reminder_registration_repair.dart';
+import 'package:rmplanner/features/notifications/data/drift_notification_foundation_repository.dart';
 import 'package:rmplanner/features/notifications/domain/notification_preferences.dart';
 import 'package:rmplanner/features/privacy/application/privacy_providers.dart';
 import 'package:rmplanner/features/privacy/application/privacy_services.dart';
@@ -44,8 +51,32 @@ final reminderReconcilerProvider = Provider<ReminderReconciler>((ref) {
     gateway: ref.read(notificationGatewayProvider),
     clock: const SystemAppClock(),
     deviceLocation: ref.watch(reminderDeviceLocationProvider) as tz.Location?,
+    // M7 section 6 transport selection.  The worker port is only supplied when
+    // the app installed a real background-work gateway, so a key can never be
+    // marked `m7w_` without a real worker registration behind it.  The
+    // composition that owns the strict three-key spec (section 12/14) builds
+    // the enqueue, keeping this service free of the WorkManager package.
+    scheduleWorker: ref.watch(reminderWorkerTransportProvider),
+    cancelWorker: ref.watch(reminderWorkerReleaseProvider),
   );
 });
+
+/// Canonical M7 worker-transport enqueue, or null when unavailable.
+///
+/// The app root and the headless runtime override this with the real
+/// WorkManager registration.  Tests override it with a fake to assert transport
+/// selection, exclusivity and the exact three-key input without a platform.
+final reminderWorkerTransportProvider = Provider<ScheduleCanonicalReminderWork?>(
+  (ref) => null,
+);
+
+/// Canonical M7 worker-transport release, or null when unavailable.
+///
+/// Paired with [reminderWorkerTransportProvider] so cancelling an obsolete
+/// worker row also cancels its queued WorkManager job (contract section 6).
+final reminderWorkerReleaseProvider = Provider<CancelCanonicalReminderWork?>(
+  (ref) => null,
+);
 
 final notificationResponseControllerProvider =
     Provider<NotificationResponseController>((ref) {
@@ -57,6 +88,120 @@ final notificationResponseControllerProvider =
 final backgroundWorkGatewayProvider = Provider<BackgroundWorkGateway>((ref) {
   throw StateError('BackgroundWorkGateway must be overridden at the app root');
 });
+
+/// The one shared transaction-local repair-marker writer, or null when the
+/// composition has no database.
+///
+/// It is overridden at the app root (and in the headless runtime) with the same
+/// instance every canonical repository already writes through, so the marker
+/// lifecycle operates on the exact rows those mutations committed.
+final reminderRecoveryRequestProvider = Provider<ReminderRecoveryRequest?>(
+  (ref) => null,
+);
+
+/// Bounded recovery enqueue / refill maintenance (contract section 28).
+final reminderRecoveryCoordinatorProvider =
+    Provider<ReminderRecoveryCoordinator>((ref) {
+      return ReminderRecoveryCoordinator(
+        repository: ref.read(notificationFoundationRepositoryProvider),
+        backgroundWork: ref.read(backgroundWorkGatewayProvider),
+        clock: const SystemAppClock(),
+      );
+    });
+
+/// Unbounded-in-time, profile-scoped orphan cleanup (contract section 34).
+final reminderOrphanSweeperProvider = Provider<ReminderOrphanSweeper>((ref) {
+  final gateway = ref.read(notificationGatewayProvider);
+  // The platform's pending set is read ONCE per sweep and memoized, so the
+  // forward and reverse sweeps agree on one platform snapshot instead of racing
+  // two reads.  A read failure yields null = "unknown", never "empty".
+  Future<Set<int>?>? pendingIds;
+  Future<Set<int>?> readPendingIds() {
+    return pendingIds ??= () async {
+      try {
+        final items = await gateway.pending();
+        return items.map((item) => item.platformId).toSet();
+      } on Object {
+        return null;
+      }
+    }();
+  }
+
+  return ReminderOrphanSweeper(
+    repository: ref.read(notificationFoundationRepositoryProvider),
+    clock: const SystemAppClock(),
+    reminders: ref.read(reminderReconcilerProvider),
+    readPlatformPending: () => gateway.pending(),
+    platformPendingIds: readPendingIds,
+    cancelPlatform: gateway.cancel,
+    reservedPlatformId:
+        DriftNotificationFoundationRepository.reservedPlatformNotificationId,
+  );
+});
+
+/// Both-transport registration repair (contract sections 28/36).
+///
+/// The exact worker unique name is derived by the ONE component that owns the
+/// strict delivery-work identity, so a repair re-registers the identical
+/// generation instead of a near-miss sibling name.
+final reminderRegistrationRepairProvider =
+    Provider<ReminderRegistrationRepair>((ref) {
+      final backgroundWork = ref.read(backgroundWorkGatewayProvider);
+      return ReminderRegistrationRepair(
+        repository: ref.read(notificationFoundationRepositoryProvider),
+        backgroundWork: backgroundWork,
+        clock: const SystemAppClock(),
+        uniqueNameFor: (row) => CanonicalReminderWorkSpec.uniqueName(
+          platformNotificationId: row.platformNotificationId!,
+          scheduledUtcMs: row.scheduledForUtc!.millisecondsSinceEpoch,
+          sourceRevision: row.sourceRevision!,
+        ),
+        enqueueWorker: (row) async {
+          final spec = CanonicalReminderWorkSpec(
+            stableKey: row.stableKey,
+            scheduledUtcMs: row.scheduledForUtc!.millisecondsSinceEpoch,
+            sourceRevision: row.sourceRevision!,
+          );
+          await backgroundWork.enqueueUnique(
+            spec.toWorkSpec(
+              platformNotificationId: row.platformNotificationId!,
+              nowUtc: const SystemAppClock().nowUtc(),
+              // KEEP: repair must never replace a job that is already queued or
+              // running, or a delivery could be duplicated and a retry budget
+              // silently reset.
+              existingPolicy: BackgroundExistingWorkPolicy.keep,
+            ),
+          );
+        },
+      );
+    });
+
+/// Privacy-safe typed background-operational snapshot (contract sections 38/39).
+final backgroundDiagnosticsProvider = Provider<BackgroundDiagnostics>((ref) {
+  final foundation = ref.read(notificationPlatformFoundationProvider);
+  return BackgroundDiagnostics(
+    repository: ref.read(notificationFoundationRepositoryProvider),
+    gateway: ref.read(notificationGatewayProvider),
+    backgroundWork: ref.read(backgroundWorkGatewayProvider),
+    clock: const SystemAppClock(),
+    notificationsAdapterInstalled: foundation.notificationsAvailable,
+    backgroundAdapterInstalled: foundation.backgroundWorkAvailable,
+    reservedPlatformId:
+        DriftNotificationFoundationRepository.reservedPlatformNotificationId,
+  );
+});
+
+/// The profile a foreground recovery pass may operate on.
+///
+/// Resolution order is the runtime override FIRST (headless), then an ACTUAL
+/// `StartupReady` profile.  No `StartupReady` is ever fabricated and no profile
+/// is ever created for a recovery pass (contract sections 26/35).
+String? resolveReminderRecoveryProfileId(Ref ref) {
+  final runtime = ref.read(reminderRuntimeProfileIdProvider);
+  if (runtime != null) return runtime;
+  final startup = ref.read(startupControllerProvider);
+  return startup is StartupReady ? startup.profile.id : null;
+}
 
 final class NotificationPlatformFoundation {
   const NotificationPlatformFoundation({

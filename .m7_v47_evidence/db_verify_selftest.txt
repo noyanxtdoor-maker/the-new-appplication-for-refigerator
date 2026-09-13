@@ -1,0 +1,38 @@
+--------------------------------------------------------------------------
+PRE-INSTALL: .m7_v47_evidence/device_db_pre_20260913/next_transfer.sqlite
+  bytes  : 1748992
+  sha256 : 7f2a45a4e4d4e01f79b1978bd34a57229e8ce55de53b0a23545553f09fbadbfa
+  user_version   : 47
+  application_id : 0
+  integrity_check: ok
+  quick_check    : ok
+  tables         : 45
+    calendar_events          313
+    contacts                 16
+    goals                    28
+    saved_places             5
+--------------------------------------------------------------------------
+POST-INSTALL: .m7_v47_evidence/device_db_pre_20260913/next_transfer.sqlite
+  bytes  : 1748992
+  sha256 : 7f2a45a4e4d4e01f79b1978bd34a57229e8ce55de53b0a23545553f09fbadbfa
+  user_version   : 47
+  application_id : 0
+  integrity_check: ok
+  quick_check    : ok
+  tables         : 45
+    calendar_events          313
+    contacts                 16
+    goals                    28
+    saved_places             5
+
+==========================================================================
+NON-DESTRUCTIVE INSTALL CONTRACT
+==========================================================================
+  [PASS] schema version still 47
+  [PASS] integrity_check = ok
+  [PASS] quick_check = ok
+  [PASS] table count preserved
+  [PASS] owner row counts preserved (4 tables)
+
+OVERALL = PASS
+==========================================================================

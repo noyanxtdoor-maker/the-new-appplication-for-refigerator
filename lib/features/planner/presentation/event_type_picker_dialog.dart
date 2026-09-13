@@ -40,7 +40,10 @@ Future<EventTypePickerSelection?> showEventTypePicker({
   bool includeTask = true,
 }) async {
   final controller = ref.read(eventTypeControllerProvider.notifier);
-  await controller.load();
+  // O1/O10: reuse a warm same-profile successful load; cold/foreign states
+  // still wait here.  The eligibility consumers below stay fail-closed on
+  // their own AsyncValue, so readiness is never inferred from this await.
+  await controller.ensureLoaded();
   if (!context.mounted) {
     return null;
   }
@@ -137,7 +140,9 @@ Future<EventType?> showEventTypeDropdown({
     return null;
   }
   final controller = ref.read(eventTypeControllerProvider.notifier);
-  await controller.load();
+  // O1/O10: opening the type dropdown on an already-warm same profile must not
+  // force a redundant reload before the options can render.
+  await controller.ensureLoaded();
   if (!context.mounted) {
     return null;
   }

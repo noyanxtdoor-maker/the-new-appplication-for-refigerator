@@ -1,0 +1,166 @@
+VS16 M7 CORRECTIVE — PHASE 2 FAIL-FIRST EVIDENCE
+Captured: 2026-09-12
+Worktree: C:/Users/sherl/Downloads/NT_B5_DEVELOP__deepseek-m7m8-20260911
+Branch:   develop/vs16-m7-m8-deepseek-20260911
+HEAD:     7b1395c10232b51f7d59464214ffe915415c4bb1
+
+=====================================================================
+ENVIRONMENT BLOCKER DIAGNOSED AND RESOLVED BEFORE ANY TEST RAN
+=====================================================================
+
+Two independent environment faults prevented `flutter test` from running at
+all. Both are recorded because either one, left unresolved, would have been
+misread as a product defect.
+
+1. `flutter: command not found`
+   The Flutter SDK is not on PATH. Actual location:
+   C:/Users/sherl/AppData/Local/NextTransferFlutter/flutter/bin
+
+2. `%PROGRAMFILES(X86)% environment variable not found.`
+   The Flutter Windows tool requires this variable. Git Bash cannot `export`
+   a name containing parentheses, so a runner script injects it via `env`.
+
+3. `Unable to connect to flutter_tester process:
+    WebSocketException: Invalid WebSocket upgrade request`
+   ROOT CAUSE: a system HTTP proxy is configured
+     https_proxy=http://127.0.0.1:62489
+   `flutter test` talks to its `flutter_tester` child over a LOCALHOST
+   WebSocket. The proxy intercepted that upgrade and every test run died at
+   load time — including pre-existing, previously-green suites.
+   FIX: clear the proxy for the test process only and set
+   NO_PROXY=127.0.0.1,localhost. No global configuration was changed.
+
+Runner: .m7c_evidence/run_tests.sh (handles all three).
+Verified: a previously-existing suite now loads and runs normally.
+
+=====================================================================
+FAIL-FIRST EVIDENCE #1 — NOTIFICATION ICON GEOMETRY (D25-D27)
+=====================================================================
+Command: bash .m7c_evidence/run_tests.sh <out> test/android/notification_icon_test.dart
+Result:  EXIT=1  (5 of 6 tests pass; 1 fails — the geometry assertion)
+
+FAILING ASSERTION (expected fail-first):
+  Test:   D26 artwork occupancy increased and does not clip the canvas
+  Error:  Expected: a value greater than <0.7>
+          Actual:   <0.6238888888888888>
+          Which:    is not a value greater than <0.7>
+  Reason: vertical occupancy must improve beyond the 62.4% baseline
+
+This INDEPENDENTLY REPRODUCES the audit measurement of the icon artwork:
+the mark occupies 88.9% of canvas WIDTH but only 62.39% of canvas HEIGHT,
+leaving excessive vertical empty space. This is the measured cause of the
+mark appearing visually small next to a squarer icon.
+
+PASSING (guards that must stay green):
+  D25 gateway still selects @drawable/ic_nt_notification, no mipmap
+  D26 single-path monochrome vector, 24dp, 108x108 viewport
+  D26 aspect ratio still the wide brand silhouette (1.1..2.0)
+  D27 all five launcher mipmaps present and still valid PNGs
+
+=====================================================================
+FAIL-FIRST EVIDENCE #2 — CANONICAL DETAILED RENDERER (D1-D24)
+=====================================================================
+Command: bash .m7c_evidence/run_tests.sh <out> test/features/notifications/application/m7_detailed_content_test.dart
+Result:  EXIT=1 — COMPILATION FAILURE (the API does not exist yet)
+
+Compile errors proving the absence of the corrected contract:
+  No named parameter with the name 'eventTitle'
+    -> ReminderNotificationRenderer.eventDetailed has no source-title input;
+       it emits the constant '📅 Event reminder'.
+  No named parameter with the name 'taskTitle'
+    -> same for taskDetailed / '✅ Task reminder'.
+  Member not found: 'eventDetailedTitleFallback'
+    -> no fallback constant exists.
+  Member not found: 'ReminderDetailOptions'
+    -> no per-field Detailed content options exist.
+
+This is the fail-first proof that:
+  (a) the Detailed title is currently a CONSTANT, not the resolved source
+      title, so the owner's Astra section 13 amendment is unimplemented;
+  (b) there is no per-field Detailed content customization;
+  (c) there is no 120-grapheme description preview;
+  (d) there is no all-fields-off Generic fallback in the renderer.
+
+=====================================================================
+FAIL-FIRST EVIDENCE #3 — HEADLESS WORKER RUNTIME OVERRIDE (D28-D31)
+=====================================================================
+Command: bash .m7c_evidence/run_tests.sh <out> test/features/notifications/application/m7_headless_runtime_override_test.dart
+Result:  PASSING as a CONTRACT GUARD (see important note below)
+
+INHERITED DEFECT REPRODUCED (captured during development of this test):
+  ProviderException: Tried to use a provider that is in error state.
+
+  A provider threw the following exception:
+  Bad state: SanitizedDiagnostics must be overridden at the app root
+
+  The stack trace of the exception:
+  #0  diagnosticsProvider.<anonymous closure>
+      (package:rmplanner/features/startup/application/startup_providers.dart:15:3)
+  #1  Provider.create
+  #2  $ProviderElement.create
+  #3  ProviderElement.buildState
+  #4  ProviderElement.mount
+  #5  ProviderElement.flush
+  ...
+
+This EXACTLY reproduces the failure observed in the certified device-install
+smoke, and pins it to startup_providers.dart:15.
+
+PRODUCTION GAP CONFIRMED BY GREP:
+  grep -c "diagnosticsProvider" lib/features/notifications/application/reminder_background_runtime.dart
+  -> 0
+The headless ProviderContainer never supplies the override, while the UI app
+root does (lib/main.dart:272).
+
+FAIL-FIRST DEMONSTRATION:
+Because the defect lives in the CONTAINER WIRING and not behind an API, the
+fail-first proof is the defect itself: D28 asserts that the CURRENT production
+override set CANNOT resolve diagnosticsProvider, and that assertion was
+observed FAILING (throwing) against the un-overridden container during
+development, then PASSING once diagnosticsProvider is supplied. D28b
+independently asserts the un-overridden provider fails with the exact
+inherited message.
+
+SCOPE NARROWED BY EVIDENCE (important):
+The audit predicted `startupRepositoryProvider` might also be required.
+It is NOT. Verified in source:
+  calendar_event_providers.dart:59-65
+    final runtimeProfile = ref.read(reminderRuntimeProfileIdProvider);
+    if (runtimeProfile != null) return runtimeProfile;   <-- headless uses THIS
+    final startup = ref.read(startupControllerProvider);
+    if (startup is! StartupReady) throw ...
+The headless container ALREADY overrides `reminderRuntimeProfileIdProvider`
+(reminder_background_runtime.dart:236), so the profile path is satisfied
+without constructing a UI startup graph.
+ADDING `startupRepositoryProvider` WAS TESTED AND REJECTED: it is unnecessary
+for this path and would pull UI startup semantics into the worker.
+
+A SECOND headless gap was found and handled correctly:
+  ProviderException: ... Bad state: PermissionGateway must be overridden at the app root
+This is NOT a defect: production DOES override permissionGatewayProvider
+(reminder_background_runtime.dart:287). The initial test simply omitted it.
+The test now mirrors production exactly.
+
+=====================================================================
+SUMMARY OF CONFIRMED DEFECTS TO CORRECT
+=====================================================================
+1. Icon vertical occupancy 62.39% (needs conservative increase, no clipping).
+2. Detailed title is a constant; Astra section 13 amendment unimplemented.
+3. No per-field Detailed content options (5 required).
+4. No 120-grapheme description preview.
+5. Native ordinary path duplicated alongside the canonical renderer.
+6. No BigText presentation -> multiline Detailed bodies collapse to one line.
+7. Headless container omits diagnosticsProvider (inherited; reliability bug).
+
+NOT CONFIRMED / EXPLICITLY RULED OUT:
+- User emoji stripping. calendarEventDisplayTitle only trims. No filter exists.
+- Pre-M7 richer Detailed renderer that was rolled back. The native builders are
+  byte-identical to baseline 7b1395c. There is nothing to restore.
+- A need for startupRepositoryProvider in the headless container.
+- Any need for a Drift schema migration (v46 stays; see Phase 5).
+
+=====================================================================
+BOUNDARIES HONOURED
+=====================================================================
+No production source modified. No test deleted or weakened. No build. No ADB.
+No device action. No commit. No push. No M8. No GLM inspection.

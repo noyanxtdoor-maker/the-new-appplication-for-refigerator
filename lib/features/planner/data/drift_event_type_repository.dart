@@ -1,4 +1,5 @@
 import 'package:drift/drift.dart';
+import 'package:rmplanner/core/background/reminder_recovery_request.dart';
 import 'package:rmplanner/core/colors/vs11_color_system.dart';
 import 'package:rmplanner/core/database/app_database.dart';
 import 'package:rmplanner/core/time/app_clock.dart';
@@ -29,10 +30,21 @@ final class EducationBackfillException implements Exception {
 }
 
 final class DriftEventTypeRepository implements EventTypeRepository {
-  const DriftEventTypeRepository({required this.database, required this.clock});
+  const DriftEventTypeRepository({
+    required this.database,
+    required this.clock,
+    this.reminderRepair,
+  });
 
   final AppDatabase database;
   final AppClock clock;
+
+  /// M7 section 27 repair-intent port.  Used ONLY for a change to the
+  /// profile's global reminder default, because that default governs the
+  /// inherited timing of every reminder that has not overridden it.  Event
+  /// Type / colour / name architecture is deliberately NOT touched here
+  /// (contract section 53 P33).
+  final ReminderRecoveryRequest? reminderRepair;
 
   @override
   Future<List<EventType>> readEventTypes({
@@ -356,6 +368,12 @@ final class DriftEventTypeRepository implements EventTypeRepository {
   }) async {
     settings.validate();
     final defaultTypeId = settings.defaultEventTypeId;
+    // The persisted preferences row is read once for the whole save: the
+    // default-type eligibility check below and the section 27 reminder-default
+    // comparison both need the CURRENT stored truth.
+    final stored = await (database.select(
+      database.plannerPreferences,
+    )..where((table) => table.profileId.equals(profileId))).getSingleOrNull();
     if (defaultTypeId != null) {
       final type = await readEventType(
         profileId: profileId,
@@ -369,9 +387,6 @@ final class DriftEventTypeRepository implements EventTypeRepository {
       // default (unchanged from the persisted row) is retained even when its
       // slot has since become hidden — changing unrelated settings must not
       // fail. No Goal bootstrap, no passive preference mutation.
-      final stored = await (database.select(
-        database.plannerPreferences,
-      )..where((table) => table.profileId.equals(profileId))).getSingleOrNull();
       final storedDefaultTypeId = stored?.defaultActivityTypeId;
       if (defaultTypeId != storedDefaultTypeId) {
         final bindings = await readLiveGoalEventTypeBindings(
@@ -391,6 +406,11 @@ final class DriftEventTypeRepository implements EventTypeRepository {
         }
       }
     }
+    // Section 27: the global reminder default is INHERITED by every reminder
+    // that has no explicit timing of its own, so only a REAL change to it
+    // schedules a reconciliation.  The previous value is captured before
+    // the write so an unrelated settings save stays a no-op.
+    final previousReminderDefault = stored?.defaultReminderMinutes;
     // Read/merge/write inside ONE transaction: the full-document settings
     // write carries the CURRENT stored presentation JSON forward losslessly
     // (event colors, group colors, Goal name overrides, and any invalid raw
@@ -440,6 +460,9 @@ final class DriftEventTypeRepository implements EventTypeRepository {
             updatedAtUtc: clock.nowUtc(),
           ),
         );
+    if (previousReminderDefault != settings.defaultReminderMinutes) {
+      await reminderRepair?.mark(database, profileId: profileId);
+    }
     return settings;
   }
 

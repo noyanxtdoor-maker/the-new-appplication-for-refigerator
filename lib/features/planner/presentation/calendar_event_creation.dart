@@ -239,6 +239,11 @@ Future<T?> showCalendarEventFormSheet<T>({
   String? sourceTaskId,
   List<String> initialContactIds = const <String>[],
   MapCoordinate? initialCoordinate,
+
+  /// M7 section 8 — typed follow-up provenance forwarded into the form so the
+  /// explicit chooser path can apply purpose after its People commit.  Null on
+  /// every ordinary creation path.
+  String? followUpContactId,
 }) {
   final sheetController = DraggableScrollableController();
   const minChildSize = 0.36;
@@ -273,6 +278,7 @@ Future<T?> showCalendarEventFormSheet<T>({
                 initialEventTypeId: eventType.id,
                 initialContactIds: initialContactIds,
                 initialCoordinate: initialCoordinate,
+                followUpContactId: followUpContactId,
                 sheetPresentation: true,
                 sheetScrollController: scrollController,
                 sheetController: sheetController,

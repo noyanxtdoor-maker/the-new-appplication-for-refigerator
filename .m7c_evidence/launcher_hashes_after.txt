@@ -1,0 +1,5 @@
+6aced01ddc7ac6d9f0d3553d28df8a35 *android/app/src/main/res/mipmap-hdpi/ic_launcher.png
+e084f3df6faf1dcb9db9cfa8cac85dcd *android/app/src/main/res/mipmap-mdpi/ic_launcher.png
+b0052a4beceb9c80471721afa7c0a543 *android/app/src/main/res/mipmap-xhdpi/ic_launcher.png
+159a6a3f76bbc624a099d6a52032297c *android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png
+0ab30ed259b19f77e129ec806d18f9f9 *android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png

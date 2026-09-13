@@ -1,0 +1,184 @@
+================================================================================
+NEXT TRANSFER — VS16 M7 / AUTHORIZED CONTROLLED RELAUNCH DIAGNOSTIC
+POST-v47 MIGRATION SPLASH-SCREEN FAILURE
+Date: 2026-09-12
+Worktree: C:\Users\sherl\Downloads\NT_B5_DEVELOP__deepseek-m7m8-20260911
+Branch:   develop/vs16-m7-m8-deepseek-20260911 @ 7b1395c10232b51f7d59464214ffe915415c4bb1
+================================================================================
+
+PURPOSE
+-------
+The authorized v47 device install succeeded and the v46 -> v47 migration
+completed correctly, but the app then hung permanently on the Android splash
+screen with `SqliteException(5): database is locked` / `BEGIN IMMEDIATE`
+thrown from the pre-existing `await transaction(() async {` in `onUpgrade`
+(`app_database.dart:1524`).
+
+This diagnostic performs exactly ONE force-stop and ONE clean relaunch to
+distinguish:
+  OUTCOME A = first-launch-only migration/open concurrency race
+  OUTCOME B = broader startup failure independent of migration
+
+================================================================================
+REQUIRED RETURN BLOCK
+================================================================================
+CONTROLLED SECOND LAUNCH = PASS
+SPLASH EXITED            = YES
+APP UI REACHED           = YES
+DATABASE LOCK ERROR REPEATED = NO
+SCHEMA                   = 47
+DATA INTEGRITY           = PASS
+NEXT CLASSIFICATION      = FIRST-LAUNCH MIGRATION RACE
+
+================================================================================
+AUTHORIZED OPERATIONS PERFORMED (EXACTLY)
+================================================================================
+  1. Pre-relaunch verification: one device, serial 10620253B3004617,
+     model Infinix X6731 (X6731-GL), Android 14 / SDK 34, arm64-v8a.
+     Installed base.apk re-hashed and confirmed = 8506eb67143793bd560a67c42606b7392289eb9884781f2becf91ee2a201100a,
+     241,013,960 bytes exact.
+  2. adb logcat -c                        (clearing logcat ONLY)
+  3. adb shell am force-stop com.nexttransfer.rmplanner   (ONCE)
+  4. adb shell am start -W -n com.nexttransfer.rmplanner/.MainActivity  (ONCE)
+  5. Read-only verification: window dump, topResumedActivity, screenshot,
+     logcat inspection.
+  6. Optional read-only DB copy + read-only analysis (mode=ro).
+
+NOT performed: no app-data clear, no uninstall, no reinstall, no pm clear,
+no database repair, no WorkManager manipulation, no reminder mutation,
+no implementation, no commit, no push, no M8.
+
+================================================================================
+FORCE-STOP
+================================================================================
+Process for com.nexttransfer.rmplanner confirmed GONE after force-stop
+(pidof returned empty) before the relaunch was issued.
+
+================================================================================
+RELAUNCH RESULT
+================================================================================
+am start -W output:
+  Status:          ok
+  Activity:        com.nexttransfer.rmplanner/.MainActivity
+  LaunchState:     COLD
+  TotalTime:       3208 ms
+  WaitTime:        (reported)
+
+CONTRAST WITH THE FAILED FIRST LAUNCH
+  First launch  : Status: timeout, ~10 s, splash never exited, process alive
+                  but Flutter never drew a frame.
+  Second launch : Status: ok, 3208 ms COLD, UI reached.
+  Splash window count after relaunch = 0
+  topResumedActivity = com.nexttransfer.rmplanner/.MainActivity
+
+================================================================================
+LOGCAT — SECOND LAUNCH (authoritative anchor)
+================================================================================
+22:53:41.129  Using the Impeller rendering backend (Vulkan).
+22:53:41.225  The Dart VM service is listening on http://127.0.0.1:40431/...=/
+22:53:42.332  [NextTransfer] startup_initialize {attempt: 1}
+22:53:42.335  [NextTransfer] database_open_started {database_state: opening}
+22:53:43.084  [NextTransfer] database_open_ready {database_state: ready}
+22:53:43.115  [NextTransfer] startup_resolved {database_state: ready, onboarding_stage: completed}
+
+PID 4686 for the whole sequence.
+
+PROOF THE SECOND LAUNCH DID NOT EXECUTE THE MIGRATION PATH
+  - ZERO drift migration markers
+  - ZERO `beforeOpen` markers
+  - ZERO `SqliteException`
+  - ZERO `database is locked`
+  - ZERO `BEGIN IMMEDIATE`
+  - ZERO `Unhandled Exception`
+  - ZERO `FATAL EXCEPTION`
+  - ZERO ANR
+  - ZERO `ProviderException`
+
+The database was already at user_version 47 after the first launch, so
+`onUpgrade` had nothing to do and was never entered — which is precisely why
+the second launch succeeded.
+
+================================================================================
+READ-ONLY DATABASE VERIFICATION (POST-RELAUNCH)
+================================================================================
+Copy taken via: adb exec-out run-as com.nexttransfer.rmplanner cat <db>
+  (no -wal / -shm present; pidof empty => consistent snapshot)
+Analyzer: .m7_v47_evidence/device/analyze_db.py, opening URI file:...?mode=ro
+  so the evidence copy can never be mutated.
+
+  integrity_check   : ok
+  quick_check       : ok
+  user_version      : 47
+  journal_mode      : delete
+  table_count       : 45
+  total_row_count   : 3986
+
+PRE-INSTALL (v46) -> POST-INSTALL (v47) -> POST-RELAUNCH (v47)
+  user_version   : 46 -> 47 -> 47
+  table_count    : 45 -> 45 -> 45
+  total rows     : 3986 -> 3986 -> 3986
+  row differences across all 14 representative tables : ZERO at every stage
+  all five v47 columns present : YES
+  owner row 357caa4f-5383-4cb0-947e-69dc3ef06936 :
+    detailed_show_title = 1, detailed_show_description = 1,
+    detailed_show_time = 1, detailed_show_contacts = 1,
+    detailed_show_location = 1   (all TRUE, as specified)
+
+The relaunch caused NO data change whatsoever — it only read.
+
+================================================================================
+CLASSIFICATION
+================================================================================
+FIRST-LAUNCH v47 MIGRATION CONCURRENCY DEFECT CONFIRMED.
+
+Reasoning:
+  - The failure reproduces ONLY when `onUpgrade` actually runs (v46 -> v47).
+  - With the schema already at 47, no migration runs and startup is clean.
+  - The exception site (`app_database.dart:1524`, the `await transaction(...)`
+    wrapper inside `onUpgrade`) and `beforeOpen` are UNCHANGED from v46
+    (`git diff` confirms the v47 change touched only the five BoolColumns,
+    the schemaVersion bump, and the `from < 47` block).
+  - Therefore the v47 schema bump is the TRIGGER that first exercised a
+    LATENT pre-existing race on the lazy-open path: a main-isolate query
+    lazily opened the database in the drift background isolate while another
+    connection had already begun the migration's `BEGIN IMMEDIATE`, and the
+    resulting unhandled `SqliteException(5)` blocked startup indefinitely.
+
+  This is a genuine owner-blocking defect: a real owner upgrading from v46
+  must be able to complete first launch without hanging. The fact that a
+  second launch works is NOT a mitigation — the owner never gets past launch
+  one.
+
+================================================================================
+REQUIRED PRODUCT FIX (IDENTIFIED, NOT IMPLEMENTED)
+================================================================================
+Make the lazy open / migration path single-flight, i.e. serialise database
+opening so that a concurrent query path cannot start a second connection
+that races the migration transaction. This is NOT authorized in this session
+and was NOT implemented.
+
+================================================================================
+M7 STATUS
+================================================================================
+M7 is NOT ACCEPTED.
+The owner's physical notification matrix (P1-P11) remains PENDING.
+
+DEVICE          = TOUCHED (force-stop + relaunch, diagnostic only)
+IMPLEMENTATION  = NOT PERFORMED
+COMMIT          = NOT PERFORMED
+PUSH            = NOT PERFORMED
+M8              = NOT STARTED
+
+================================================================================
+EVIDENCE INDEX (NEW THIS SESSION)
+================================================================================
+.m7_v47_evidence/device/
+  POST_relaunch_next_transfer.sqlite ..... read-only post-relaunch DB copy (v47)
+  POST_relaunch_db_report.json ........... post-relaunch analysis
+  screen_second_launch.png ............... app fully usable after relaunch
+  (prior) PRE_install_* , POST_install_* , analyze_db.py , install_output.txt ,
+          screen_after_launch.png , screen_final.png
+
+================================================================================
+STOPPED. Awaiting owner instruction.
+================================================================================

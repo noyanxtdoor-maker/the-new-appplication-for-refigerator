@@ -1,4 +1,5 @@
 import 'package:drift/drift.dart';
+import 'package:rmplanner/core/background/reminder_recovery_request.dart';
 import 'package:rmplanner/core/database/app_database.dart';
 import 'package:rmplanner/core/ids/identifier_source.dart';
 import 'package:rmplanner/core/time/app_clock.dart';
@@ -31,6 +32,7 @@ final class DriftWeeklyPlanningRepository
     required this.timeZones,
     required this.indicators,
     this.writeGuard = const AllowWeeklyPlanningWrites(),
+    this.reminderRepair,
   });
 
   final AppDatabase database;
@@ -39,6 +41,12 @@ final class DriftWeeklyPlanningRepository
   final IanaCalendarEventTimeZones timeZones;
   final IndicatorRepository indicators;
   final WeeklyPlanningWriteGuard writeGuard;
+
+  /// M7 section 27 repair-intent port.  Completing a Weekly Review
+  /// retires the weekly-review reminder for that period, so the intent to
+  /// reconcile commits INSIDE the review transaction.  Absent in read-only
+  /// and test compositions.
+  final ReminderRecoveryRequest? reminderRepair;
 
   @override
   Future<PlannerDate> todayForProfile(String profileId) async {
@@ -198,6 +206,9 @@ final class DriftWeeklyPlanningRepository
                 updatedAtUtc: Value<DateTime>(now),
               ),
             );
+        // Section 27: the reviewed period no longer needs a weekly-review
+        // reminder, so the repair intent commits with the state change.
+        await reminderRepair?.mark(database, profileId: profileId);
         await writeGuard.beforeCommit();
       });
     }

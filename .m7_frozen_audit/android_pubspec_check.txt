@@ -1,0 +1,23 @@
+=== android/ diff vs stable (name-status) ===
+warning: in the working copy of 'android/app/src/main/res/drawable/ic_nt_notification.xml', LF will be replaced by CRLF the next time Git touches it
+M	android/app/src/main/res/drawable/ic_nt_notification.xml
+(end)
+
+=== untracked under android/ ===
+(end)
+
+=== pubspec.yaml / pubspec.lock diff ===
+(end)
+
+=== geolocator present? ===
+20:  geolocator: ^14.0.3
+21:  google_maps_flutter: ^2.18.0
+
+=== manifest permissions (current) ===
+2:    <uses-permission android:name="android.permission.USE_BIOMETRIC"/>
+4:    <uses-permission android:name="android.permission.READ_CONTACTS"/>
+7:    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+8:    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+9:    <uses-permission android:name="android.permission.INTERNET"/>
+10:    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+11:    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>

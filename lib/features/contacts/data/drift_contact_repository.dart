@@ -1,12 +1,14 @@
 import 'dart:async';
 
 import 'package:drift/drift.dart';
+import 'package:rmplanner/core/background/reminder_recovery_request.dart';
 import 'package:rmplanner/core/colors/vs11_color_system.dart';
 import 'package:rmplanner/core/database/app_database.dart';
 import 'package:rmplanner/core/ids/identifier_source.dart';
 import 'package:rmplanner/core/time/app_clock.dart';
 import 'package:rmplanner/features/contacts/application/contact_repository.dart';
 import 'package:rmplanner/features/contacts/domain/contact.dart';
+import 'package:rmplanner/features/notifications/domain/reminder_policy.dart';
 import 'package:rmplanner/features/planner/application/calendar_event_repository.dart';
 import 'package:rmplanner/features/planner/data/calendar_event_time_zones.dart';
 import 'package:rmplanner/features/planner/domain/calendar_event.dart';
@@ -26,11 +28,19 @@ final class DriftContactRepository
     required this.database,
     required this.clock,
     required this.identifiers,
+    this.reminderRepair,
   });
 
   final AppDatabase database;
   final AppClock clock;
   final IdentifierSource identifiers;
+
+  /// M7 section 27 repair-intent port.  A Contact lifecycle or rename mutation
+  /// can invalidate every calendarEvent/task reminder that names it, so the
+  /// intent to reconcile commits INSIDE the mutation's own transaction: a later
+  /// platform failure can no longer erase the fact that those reminders need a
+  /// fresh look.  Absent in pure-read/test compositions.
+  final ReminderRecoveryRequest? reminderRepair;
 
   static const String seriesOccurrenceId = 'series';
   static const String _activeEventContactStatus = 'active';
@@ -271,6 +281,10 @@ final class DriftContactRepository
         contactId: contactId,
         windows: normalized.availability,
       );
+      // Section 27/33: a rename or identity edit changes the CURRENT resolved
+      // Contact fingerprint that a deliverable follow-up reads at delivery
+      // time, so the repair intent commits with the edit.
+      await reminderRepair?.mark(database, profileId: profileId);
       final detail = await readContactDetail(
         profileId: profileId,
         contactId: contactId,
@@ -346,6 +360,8 @@ final class DriftContactRepository
         contactId: contactId,
         methods: normalized.methods,
       );
+      // Rename/identity edit: same section 27/33 repair intent as updateContact.
+      await reminderRepair?.mark(database, profileId: profileId);
       return (await readContactDetail(
         profileId: profileId,
         contactId: contactId,
@@ -506,20 +522,35 @@ final class DriftContactRepository
     required String profileId,
     required String contactId,
   }) async {
-    await (database.update(database.contacts)..where(
-          (table) =>
-              table.profileId.equals(profileId) &
-              table.id.equals(contactId) &
-              table.lifecycleState.equals(ContactLifecycleState.active.name),
-        ))
-        .write(
-          ContactsCompanion(
-            lifecycleState: Value<String>(ContactLifecycleState.archived.name),
-            archivedAtUtc: Value<DateTime?>(clock.nowUtc()),
-            deletedAtUtc: const Value<DateTime?>(null),
-            updatedAtUtc: Value<DateTime>(clock.nowUtc()),
-          ),
-        );
+    await database.transaction(() async {
+      await (database.update(database.contacts)..where(
+            (table) =>
+                table.profileId.equals(profileId) &
+                table.id.equals(contactId) &
+                table.lifecycleState.equals(
+                  ContactLifecycleState.active.name,
+                ),
+          ))
+          .write(
+            ContactsCompanion(
+              lifecycleState: Value<String>(
+                ContactLifecycleState.archived.name,
+              ),
+              archivedAtUtc: Value<DateTime?>(clock.nowUtc()),
+              deletedAtUtc: const Value<DateTime?>(null),
+              updatedAtUtc: Value<DateTime>(clock.nowUtc()),
+            ),
+          );
+      // Section 10/27: archiving removes the Contact from live link truth, so
+      // every reminder that named it is no longer deliverable as a follow-up.
+      // The purpose rows and the repair intent commit with the lifecycle change.
+      await _invalidateContactFollowUpPurposes(
+        database,
+        profileId: profileId,
+        contactIds: <String>[contactId],
+      );
+      await reminderRepair?.mark(database, profileId: profileId);
+    });
   }
 
   @override
@@ -527,25 +558,31 @@ final class DriftContactRepository
     required String profileId,
     required String contactId,
   }) async {
-    final updated =
-        await (database.update(database.contacts)..where(
-              (table) =>
-                  table.profileId.equals(profileId) &
-                  table.id.equals(contactId) &
-                  table.lifecycleState.equals(
-                    ContactLifecycleState.archived.name,
+    final updated = await database.transaction(() async {
+      final rows =
+          await (database.update(database.contacts)..where(
+                (table) =>
+                    table.profileId.equals(profileId) &
+                    table.id.equals(contactId) &
+                    table.lifecycleState.equals(
+                      ContactLifecycleState.archived.name,
+                    ),
+              ))
+              .write(
+                ContactsCompanion(
+                  lifecycleState: Value<String>(
+                    ContactLifecycleState.active.name,
                   ),
-            ))
-            .write(
-              ContactsCompanion(
-                lifecycleState: Value<String>(
-                  ContactLifecycleState.active.name,
+                  archivedAtUtc: const Value<DateTime?>(null),
+                  deletedAtUtc: const Value<DateTime?>(null),
+                  updatedAtUtc: Value<DateTime>(clock.nowUtc()),
                 ),
-                archivedAtUtc: const Value<DateTime?>(null),
-                deletedAtUtc: const Value<DateTime?>(null),
-                updatedAtUtc: Value<DateTime>(clock.nowUtc()),
-              ),
-            );
+              );
+      // A restored Contact is live link truth again, so reminders whose
+      // follow-up target it become resolvable once more.
+      await reminderRepair?.mark(database, profileId: profileId);
+      return rows;
+    });
     if (updated == 0) {
       throw const ContactValidationException('Contact not found.');
     }
@@ -564,22 +601,35 @@ final class DriftContactRepository
     final ids = contactIds.toSet().toList(growable: false);
     if (ids.isEmpty) return;
     final now = clock.nowUtc();
-    await (database.update(database.contacts)..where(
-          (table) =>
-              table.profileId.equals(profileId) &
-              table.id.isIn(ids) &
-              table.lifecycleState.equals(ContactLifecycleState.active.name),
-        ))
-        .write(
-          ContactsCompanion(
-            lifecycleState: Value<String>(
-              ContactLifecycleState.recentlyDeleted.name,
+    await database.transaction(() async {
+      await (database.update(database.contacts)..where(
+            (table) =>
+                table.profileId.equals(profileId) &
+                table.id.isIn(ids) &
+                table.lifecycleState.equals(
+                  ContactLifecycleState.active.name,
+                ),
+          ))
+          .write(
+            ContactsCompanion(
+              lifecycleState: Value<String>(
+                ContactLifecycleState.recentlyDeleted.name,
+              ),
+              archivedAtUtc: const Value<DateTime?>(null),
+              deletedAtUtc: Value<DateTime?>(now),
+              updatedAtUtc: Value<DateTime>(now),
             ),
-            archivedAtUtc: const Value<DateTime?>(null),
-            deletedAtUtc: Value<DateTime?>(now),
-            updatedAtUtc: Value<DateTime>(now),
-          ),
-        );
+          );
+      // Section 10/27: recently-deleted Contacts are likewise no longer live
+      // link truth, so their follow-up purposes are invalidated in the same
+      // transaction and the repair intent is committed alongside.
+      await _invalidateContactFollowUpPurposes(
+        database,
+        profileId: profileId,
+        contactIds: ids,
+      );
+      await reminderRepair?.mark(database, profileId: profileId);
+    });
   }
 
   @override
@@ -587,24 +637,28 @@ final class DriftContactRepository
     required String profileId,
     required String contactId,
   }) async {
-    final updated =
-        await (database.update(database.contacts)..where(
-              (table) =>
-                  table.profileId.equals(profileId) &
-                  table.id.equals(contactId) &
-                  table.lifecycleState.equals(
-                    ContactLifecycleState.recentlyDeleted.name,
+    final updated = await database.transaction(() async {
+      final rows =
+          await (database.update(database.contacts)..where(
+                (table) =>
+                    table.profileId.equals(profileId) &
+                    table.id.equals(contactId) &
+                    table.lifecycleState.equals(
+                      ContactLifecycleState.recentlyDeleted.name,
+                    ),
+              ))
+              .write(
+                ContactsCompanion(
+                  lifecycleState: Value<String>(
+                    ContactLifecycleState.active.name,
                   ),
-            ))
-            .write(
-              ContactsCompanion(
-                lifecycleState: Value<String>(
-                  ContactLifecycleState.active.name,
+                  deletedAtUtc: const Value<DateTime?>(null),
+                  updatedAtUtc: Value<DateTime>(clock.nowUtc()),
                 ),
-                deletedAtUtc: const Value<DateTime?>(null),
-                updatedAtUtc: Value<DateTime>(clock.nowUtc()),
-              ),
-            );
+              );
+      await reminderRepair?.mark(database, profileId: profileId);
+      return rows;
+    });
     if (updated == 0) {
       throw const ContactValidationException('Contact not found.');
     }
@@ -2498,6 +2552,42 @@ final class DriftContactRepository
     });
   }
 
+  /// Section 10 purpose invalidation, shared by every Contact mutation that can
+  /// remove a Contact from live link truth (archive, recently-deleted, merge).
+  ///
+  /// Delivery resolves a follow-up's Contact from CURRENT canonical truth every
+  /// time (an archived/deleted Contact simply does not resolve).  Invalidating
+  /// the durable purpose here keeps the stored policy row consistent with that
+  /// law instead of leaving an unresolvable `contactFollowUp` behind, and it
+  /// deliberately does NOT retarget the purpose at a merged survivor: a
+  /// follow-up names a specific human, so a merge retires the intent rather
+  /// than silently pointing it at somebody else (section 13).  Timing is never
+  /// touched — only the purpose/contact columns.
+  ///
+  /// Runs on [executor] so the invalidation commits inside the caller's own
+  /// transaction.  Pure data work: no platform call, no gateway, no history.
+  Future<void> _invalidateContactFollowUpPurposes(
+    DatabaseConnectionUser executor, {
+    required String profileId,
+    required Iterable<String> contactIds,
+  }) async {
+    final ids = contactIds.toSet().toList(growable: false);
+    if (ids.isEmpty) return;
+    await (executor.update(database.reminderPolicies)..where(
+          (table) =>
+              table.profileId.equals(profileId) &
+              table.purpose.equals(ReminderPurpose.contactFollowUp.name) &
+              table.contactId.isIn(ids),
+        ))
+        .write(
+          ReminderPoliciesCompanion(
+            purpose: Value<String>(ReminderPurpose.standard.name),
+            contactId: const Value<String?>(null),
+            updatedAtUtc: Value<DateTime>(clock.nowUtc()),
+          ),
+        );
+  }
+
   Future<List<EventContactLinkRow>> _readEffectiveEventContactLinks({
     required String profileId,
     required String eventId,
@@ -2647,6 +2737,27 @@ final class DriftContactRepository
         }
       }
     });
+  }
+
+  /// Narrow live-link read shared with P19 (contract section 15/53).
+  ///
+  /// Returns the SAME effective link truth the People section renders — series
+  /// `active` rows overlaid by the exact occurrence's active/removed rows — and
+  /// deliberately NOT the historical fallback `readEventPeople` keeps for past
+  /// occurrences.  Delivery must never invent participation that the current
+  /// link truth does not hold, so this read exposes exactly one answer and does
+  /// not write anything.
+  Future<Set<String>> readEffectiveEventContactIds({
+    required String profileId,
+    required String eventId,
+    required String occurrenceId,
+  }) async {
+    final links = await _readEffectiveEventContactLinks(
+      profileId: profileId,
+      eventId: eventId,
+      occurrenceId: occurrenceId,
+    );
+    return <String>{for (final link in links) link.contactId};
   }
 
   @override
@@ -3837,11 +3948,20 @@ final class DriftContactRepository
         profileId: profileId,
         contactId: survivorId,
       );
+      // Section 10/27: a merge retires every absorbed Contact, so any reminder
+      // that named one of them must be re-resolved against current truth.  The
+      // absorbed purposes are invalidated (never retargeted to the survivor —
+      // section 13 forbids silently redirecting a follow-up at a different
+      // human) and the repair intent commits with the merge.
+      await _invalidateContactFollowUpPurposes(
+        database,
+        profileId: profileId,
+        contactIds: absorbedIds,
+      );
+      await reminderRepair?.mark(database, profileId: profileId);
       return detail.contact;
     });
   }
-
-  // -- Device import --------------------------------------------------------
 
   @override
   Future<ContactImportResult> importDeviceContacts({

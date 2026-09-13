@@ -1,0 +1,24 @@
+=== DIRECT (1-level) imports of lib/features/maps/** that M7 changed ===
+  lib/features/maps/application/map_providers.dart
+      -> MOD lib/features/planner/application/calendar_event_providers.dart
+      -> MOD lib/features/planner/application/planner_providers.dart
+  lib/features/maps/data/drift_map_coordinate_repository.dart
+      -> MOD lib/core/database/app_database.dart
+  lib/features/maps/data/drift_maps_preferences_repository.dart
+      -> MOD lib/core/database/app_database.dart
+  lib/features/maps/data/drift_saved_place_repository.dart
+      -> MOD lib/core/database/app_database.dart
+  lib/features/maps/presentation/map_marker_preview_sheet.dart
+      -> MOD lib/features/planner/application/calendar_event_providers.dart
+      -> MOD lib/features/planner/application/planner_providers.dart
+
+=== DIRECT imports of lib/app/theme/** that M7 changed ===
+  (none)
+
+=== Files that IMPORT a maps file (reverse deps) and were changed by M7 ===
+  lib/app/router/app_router.dart -> imports ['lib/features/maps/domain/map_coordinate.dart', 'lib/features/maps/presentation/map_location_picker_screen.dart', 'lib/features/maps/presentation/maps_screen.dart', 'lib/features/maps/presentation/maps_search_screen.dart']
+  lib/features/contacts/presentation/contact_detail_screen.dart -> imports ['lib/features/maps/application/map_coordinate_repository.dart', 'lib/features/maps/application/map_providers.dart', 'lib/features/maps/domain/map_coordinate.dart']
+  lib/features/planner/presentation/calendar_event_create_gate_screen.dart -> imports ['lib/features/maps/domain/map_coordinate.dart']
+  lib/features/planner/presentation/calendar_event_creation.dart -> imports ['lib/features/maps/domain/map_coordinate.dart']
+  lib/features/planner/presentation/calendar_event_form_screen.dart -> imports ['lib/features/maps/application/map_coordinate_repository.dart', 'lib/features/maps/application/map_providers.dart', 'lib/features/maps/domain/map_coordinate.dart', 'lib/features/maps/presentation/map_location_picker_screen.dart', 'lib/features/maps/presentation/map_pin_section.dart']
+  lib/main.dart -> imports ['lib/features/maps/application/map_providers.dart', 'lib/features/maps/application/maps_preferences_provider.dart', 'lib/features/maps/application/saved_place_providers.dart', 'lib/features/maps/data/drift_map_coordinate_repository.dart', 'lib/features/maps/data/drift_maps_preferences_repository.dart', 'lib/features/maps/data/drift_saved_place_repository.dart']

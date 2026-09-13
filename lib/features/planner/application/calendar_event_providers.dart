@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:rmplanner/core/notifications/notification_preview_policy.dart';
 import 'package:rmplanner/features/notifications/application/launcher_badge_providers.dart';
 import 'package:rmplanner/features/notifications/application/notification_providers.dart';
+import 'package:rmplanner/features/notifications/application/reminder_notification_renderer.dart';
 import 'package:rmplanner/features/notifications/domain/reminder_policy.dart';
 import 'package:rmplanner/features/planner/application/calendar_event_repository.dart';
 import 'package:rmplanner/features/planner/application/event_reminder_horizon_reconciler.dart';
@@ -91,6 +92,7 @@ final class CalendarEventController extends Notifier<String?> {
     ReminderPolicyMode? reminderMode,
     int? reminderOffsetMinutes,
     String reminderOccurrenceId = ReminderPolicy.seriesOccurrenceId,
+    bool deferReminderReconciliation = false,
   }) async {
     try {
       final saved = await _repository.saveEvent(
@@ -108,7 +110,13 @@ final class CalendarEventController extends Notifier<String?> {
           offsetMinutes: reminderOffsetMinutes,
         );
       }
-      await reconcileEventHorizon(eventId: saved.id);
+      // M7 section 8: an explicit Contact follow-up save withholds this early
+      // scheduling until the caller has committed People and applied the
+      // source-level purpose.  Every other save keeps the existing immediate
+      // reconciliation (default false); this is a narrow, opt-in deferral.
+      if (!deferReminderReconciliation) {
+        await reconcileEventHorizon(eventId: saved.id);
+      }
       await _refreshLauncherBadge();
       if (awaitPlannerRefresh) {
         await _refreshPlanner();
@@ -128,30 +136,62 @@ final class CalendarEventController extends Notifier<String?> {
     }
   }
 
-  static String _eventReminderBody(
-    CalendarEventOccurrence? occurrence,
+  /// VS16 M7 corrective — renderer convergence.
+  ///
+  /// The native ordinary transport no longer owns reminder copy.  It delegates
+  /// to the single canonical [ReminderNotificationRenderer] so the native path
+  /// and the worker/enriched path can never drift apart.  The Detailed options
+  /// are left at their all-TRUE default here: this call site only resolves
+  /// transport-independent copy for the SCHEDULED notification, and the
+  /// user's per-field preferences are applied by the reconciler when the
+  /// notification is actually presented.
+  ///
+  /// [CalendarEventOccurrence.displayTitle] already carries the Planner-visible
+  /// title (stored title, falling back to the Event Type label), so the
+  /// amendment's "actual resolved source title" rule is satisfied by passing it
+  /// straight through.  User emoji is preserved; only the renderer's blank
+  /// fallback applies.
+  static RenderedReminder _eventReminderPresentation(
+    CalendarEventOccurrence? occurrence, {
     String? notes,
-  ) {
-    final start = occurrence?.startDisplay;
-    final end = occurrence?.endDisplay;
-    final range = start == null || end == null
-        ? 'Upcoming event'
-        : '${_clockLabel(start)}–${_clockLabel(end)}';
-    final description = notes?.trim();
-    return description == null || description.isEmpty
-        ? range
-        : '$range\n$description';
-  }
-
-  static String _clockLabel(DateTime value) {
-    final hour = value.hour % 12 == 0 ? 12 : value.hour % 12;
-    final suffix = value.hour < 12 ? 'AM' : 'PM';
-    return '$hour:${value.minute.toString().padLeft(2, '0')} $suffix';
+  }) {
+    return ReminderNotificationRenderer.eventDetailed(
+      eventTitle: occurrence?.displayTitle,
+      startDisplay: occurrence?.startDisplay,
+      endDisplay: occurrence?.endDisplay,
+      notes: notes,
+    );
   }
 
   /// Reconcile a committed occurrence after a policy-only mutation. Event
   /// forms save the Event first; this makes that saved policy effective on the
   /// same edit/reschedule rather than waiting for a later unrelated write.
+  /// Whether the effective policy for this occurrence (exact occurrence row,
+  /// else the series row) carries an explicit Contact follow-up purpose.
+  ///
+  /// Section 6A: purpose is an ENRICHMENT request, not a separate scheduler —
+  /// it only selects which transport owns the reminder.
+  Future<bool> _hasFollowUpPurpose({
+    required String sourceId,
+    required String occurrenceId,
+  }) async {
+    final policies = await ref
+        .read(notificationFoundationRepositoryProvider)
+        .readPolicies(
+          profileId: _profileId,
+          sourceKind: ReminderSourceKind.calendarEvent,
+          sourceId: sourceId,
+        );
+    final effective =
+        policies.where((p) => p.occurrenceId == occurrenceId).firstOrNull ??
+        policies
+            .where(
+              (p) => p.occurrenceId == ReminderPolicy.seriesOccurrenceId,
+            )
+            .firstOrNull;
+    return effective?.purpose == ReminderPurpose.contactFollowUp;
+  }
+
   Future<void> reconcileOccurrence({
     required String eventId,
     required PlannerDate originalDate,
@@ -179,6 +219,18 @@ final class CalendarEventController extends Notifier<String?> {
           privacyProtectionRequired: privacy.lockEnabled,
         ) ==
         EffectiveNotificationPreviewMode.detailed;
+    // Section 6A transport selection: this occurrence needs the targeted worker
+    // when its EFFECTIVE policy carries a Contact follow-up purpose or its
+    // current canonical occurrence has eligible human location text.  The
+    // choice is independent of preview mode — a Generic/Locked enriched source
+    // still uses the same live-read transport, so a privacy toggle never churns
+    // the transport that already owns the key.
+    final requiresEnrichment = occurrence.locationText?.trim().isNotEmpty ==
+            true ||
+        await _hasFollowUpPurpose(
+          sourceId: occurrence.eventId,
+          occurrenceId: occurrence.id,
+        );
     await ref
         .read(reminderReconcilerProvider)
         .reconcile(
@@ -187,6 +239,9 @@ final class CalendarEventController extends Notifier<String?> {
           sourceId: occurrence.eventId,
           occurrenceId: occurrence.id,
           startsAtUtc: occurrence.startUtc,
+          // Section 64: relevance runs to the current canonical Event end, not
+          // to the obsolete start-time suppression.
+          endsAtUtc: occurrence.endUtc,
           sourceVersion: occurrence.updatedAtUtc?.microsecondsSinceEpoch ?? 0,
           globalOffsetMinutes: plannerSettings.defaultReminderMinutes,
           categoryEnabled: preferences.eventRemindersEnabled,
@@ -195,17 +250,26 @@ final class CalendarEventController extends Notifier<String?> {
                 permission == OperatingSystemPermissionState.granted,
           ),
           sourceActive: occurrence.status == CalendarEventStatus.scheduled,
-          genericTitle: '🔔 Next Transfer',
-          genericBody: 'You have a new notification.',
-          // Owner-review correction: the notification title must equal the
-          // title the Planner UI shows — the stored title, falling back to
-          // the Event Type label (e.g. "Study or Plan") when the stored
-          // title is blank. Using the raw stored title left blank titles on
-          // Events created with only an Event Type.
-          detailedTitle: '📅 Event reminder',
-          detailedBody: _eventReminderBody(occurrence, occurrence.notes),
+          genericTitle: ReminderNotificationRenderer.genericTitle,
+          genericBody: ReminderNotificationRenderer.genericBody,
+          // VS16 M7 corrective (Astra section 13 owner amendment): Detailed
+          // uses the ACTUAL resolved source title — [displayTitle], which is
+          // the Planner-visible title the owner sees today (stored title,
+          // falling back to the Event Type label e.g. "Study or Plan").  User
+          // emoji is preserved verbatim.  The constant `📅 Event reminder` is
+          // now only the blank-title fallback, applied inside the renderer.
+          //
+          // Both fields come from the single canonical renderer so the native
+          // ordinary transport and the worker/enriched transport can never
+          // drift apart.
+          detailedTitle: _eventReminderPresentation(occurrence).title,
+          detailedBody: _eventReminderPresentation(
+            occurrence,
+            notes: occurrence.notes,
+          ).body,
           showDetails: showDetails,
           refreshContent: refreshContent,
+          requiresEnrichment: requiresEnrichment,
           // Correction: include the resolved title in the render revision so
           // a title-display fix (or Event Type label change) refreshes the
           // SAME notification identity in place instead of leaving a blank
@@ -310,19 +374,48 @@ final class CalendarEventController extends Notifier<String?> {
     );
   }
 
+  /// Applies an explicit source-level purpose after the canonical Event and its
+  /// People links have committed, then reconciles the affected source.
+  ///
+  /// M7 section 8: purpose is written into the SERIES policy while its timing
+  /// is preserved, so a follow-up never silently disables or retimes the
+  /// reminder that was already configured for the source.
   Future<void> saveReminderPolicyAndReconcile({
     required String sourceId,
     required String occurrenceId,
     required ReminderPolicyMode mode,
     int? offsetMinutes,
+    ReminderPurpose? purpose,
+    String? contactId,
   }) async {
     await _saveReminderPolicy(
       sourceId: sourceId,
       occurrenceId: occurrenceId,
       mode: mode,
       offsetMinutes: offsetMinutes,
+      purpose: purpose,
+      contactId: contactId,
     );
     await reconcileEventHorizon(eventId: sourceId);
+  }
+
+  /// Applies ONLY a source-level purpose change, preserving the existing timing
+  /// mode/offset of that policy row (M7 sections 8/9).
+  Future<void> applySeriesReminderPurpose({
+    required String sourceId,
+    required ReminderPurpose purpose,
+    String? contactId,
+  }) async {
+    await ref
+        .read(reminderReconcilerProvider)
+        .updatePolicyPurpose(
+          profileId: _profileId,
+          sourceKind: ReminderSourceKind.calendarEvent,
+          sourceId: sourceId,
+          occurrenceId: ReminderPolicy.seriesOccurrenceId,
+          purpose: purpose,
+          contactId: contactId,
+        );
   }
 
   Future<void> _saveReminderPolicy({
@@ -330,6 +423,8 @@ final class CalendarEventController extends Notifier<String?> {
     required String occurrenceId,
     required ReminderPolicyMode mode,
     int? offsetMinutes,
+    ReminderPurpose? purpose,
+    String? contactId,
   }) async {
     await ref
         .read(reminderReconcilerProvider)
@@ -340,6 +435,8 @@ final class CalendarEventController extends Notifier<String?> {
           occurrenceId: occurrenceId,
           mode: mode,
           offsetMinutes: offsetMinutes,
+          purpose: purpose,
+          contactId: contactId,
         );
   }
 

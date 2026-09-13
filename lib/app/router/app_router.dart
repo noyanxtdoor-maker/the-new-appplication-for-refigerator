@@ -31,6 +31,7 @@ import 'package:rmplanner/features/maps/domain/map_coordinate.dart';
 import 'package:rmplanner/features/maps/presentation/map_location_picker_screen.dart';
 import 'package:rmplanner/features/maps/presentation/maps_screen.dart';
 import 'package:rmplanner/features/maps/presentation/maps_search_screen.dart';
+import 'package:rmplanner/features/notifications/domain/contact_follow_up_creation_intent.dart';
 import 'package:rmplanner/features/planner/application/planner_providers.dart';
 import 'package:rmplanner/features/planner/domain/calendar_event.dart';
 import 'package:rmplanner/features/planner/domain/planner_date.dart';
@@ -361,6 +362,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                       .split(',')
                       .where((id) => id.isNotEmpty)
                       .toList(growable: false),
+            // M7 section 8: the Contact Detail chooser forwards a typed
+            // ephemeral intent.  Unknown/malformed extra fails closed to
+            // ordinary creation rather than crashing.
+            followUpContactId: _followUpContactIdOf(state),
           );
         },
       ),
@@ -433,6 +438,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                       .where((id) => id.isNotEmpty)
                       .toList(growable: false),
             initialCoordinate: coordinate,
+            // M7 section 8: typed follow-up provenance from the Contact Detail
+            // chooser; unknown extra fails closed to ordinary creation.
+            followUpContactId: _followUpContactIdOf(state),
           );
         },
       ),
@@ -661,6 +669,20 @@ final appRouterProvider = Provider<GoRouter>((ref) {
   ref.onDispose(router.dispose);
   return router;
 });
+
+/// M7 section 8 — resolve the typed follow-up provenance carried by the
+/// Contact Detail chooser.
+///
+/// Only an explicit [ContactFollowUpCreationIntent] counts.  Anything else
+/// (null, an unknown object type, or a blank Contact id) fails closed to
+/// ordinary creation so an unforeseen `extra` can never invent provenance.
+String? _followUpContactIdOf(GoRouterState state) {
+  final extra = state.extra;
+  if (extra is! ContactFollowUpCreationIntent) {
+    return null;
+  }
+  return extra.isValid ? extra.contactId : null;
+}
 
 PlannerDate _periodStart(String? raw, PlannerDate today, Ref ref) {
   if (raw != null) {

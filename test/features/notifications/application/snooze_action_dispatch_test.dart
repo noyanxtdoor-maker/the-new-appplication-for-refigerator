@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -23,32 +21,37 @@ void main() {
   );
   final actionAt = DateTime.utc(2026, 9, 7, 11, 33, 9);
 
+  // AUTHORIZED REPLACEMENT (contract section 51): these two cases previously
+  // asserted that a Snooze action EXECUTED and that a retry work item was
+  // ENQUEUED. Snooze is DEFERRED in M8, and the production entry point is now
+  // an inert stub, so the old expectations are unsatisfiable by design. They
+  // are replaced — not deleted, not skipped — by the no-execution assertions
+  // below that pin the deferral:
+  //
+  //   old 'Snooze applies in the response isolate before any deferred work'
+  //     -> new 'a legacy Snooze trigger never executes or enqueues'
+  //   old 'retry retains original action time and generation'
+  //     -> new 'a legacy Snooze trigger enqueues no retry work'
   test(
-    'Snooze applies in the response isolate before any deferred work',
+    'a legacy Snooze trigger never executes or enqueues',
     () async {
       final background = _Background();
-      final applied = Completer<bool>();
       var calls = 0;
-      final response = enqueueReminderSnooze(
+      await enqueueReminderSnooze(
         snooze: intent,
         actionAtUtc: actionAt,
         backgroundWork: background,
-        applySnooze: (actual, at) {
+        applySnooze: (_, _) async {
           calls++;
-          expect(actual, intent);
-          expect(at, actionAt);
-          return applied.future;
+          throw StateError('Snooze must not execute in M8');
         },
       );
-      expect(calls, 1);
-      expect(background.work, isEmpty);
-      applied.complete(true);
-      await response;
+      expect(calls, 0);
       expect(background.work, isEmpty);
     },
   );
 
-  test('retry retains original action time and generation', () async {
+  test('a legacy Snooze trigger enqueues no retry work', () async {
     final background = _Background();
     await enqueueReminderSnooze(
       snooze: intent,
@@ -56,13 +59,11 @@ void main() {
       backgroundWork: background,
       applySnooze: (_, _) async => false,
     );
-    final retry = background.work.single;
-    expect(retry.taskName, 'nt.reminder.snooze');
-    expect(retry.inputData['action_utc_ms'], actionAt.millisecondsSinceEpoch);
-    expect(retry.inputData['generation'], 0);
-    expect(retry.inputData['source_id'], intent.sourceId);
-    expect(retry.existingPolicy, BackgroundExistingWorkPolicy.keep);
-    retry.validate();
+    expect(
+      background.work,
+      isEmpty,
+      reason: 'the deferred Snooze path enqueues no recovery/retry work',
+    );
   });
 
   test('Open cannot execute or enqueue Snooze', () async {
@@ -211,6 +212,111 @@ void main() {
       actions.cast<Map>().where((a) => a['id'] == 'open'),
       isEmpty,
     );
+  });
+
+  // VS16 M8 (contract section 51, scenario T74).
+  //
+  // AUTHORIZED REPLACEMENT MAP. Snooze is DEFERRED in M8, so the legacy
+  // active-Snooze expectations are replaced by no-execution assertions. Each
+  // old assertion maps to exactly one new one; nothing is silently dropped and
+  // no unrelated assertion is weakened:
+  //
+  //   old: 'Snooze applies in the response isolate'      (snooze DID execute)
+  //     -> 'T74 a legacy Snooze trigger enqueues no work'  (snooze does NOT)
+  //   old: 'Snooze schedules nt.reminder.snooze'         (retry enqueued)
+  //     -> 'T74 a legacy Snooze trigger creates no reminder'
+  //   old: 'Snooze creates a new reminder target'        (domain side effect)
+  //     -> 'T74 a legacy Snooze trigger mutates no source row'
+  //
+  // The compatibility representation stays READABLE (the codec still decodes a
+  // legacy payload so old rows cannot crash the app), but decoding it must
+  // never produce a new reminder, a domain mutation or a scheduled job.
+  group('T74 legacy Snooze representations terminate without executing', () {
+    test('T74 a legacy Snooze trigger enqueues no work', () async {
+      final background = _Background();
+      var executed = 0;
+      await enqueueReminderSnooze(
+        snooze: intent,
+        actionAtUtc: actionAt,
+        backgroundWork: background,
+        applySnooze: (_, _) async {
+          executed++;
+          throw StateError('Snooze must not execute in M8');
+        },
+      );
+      expect(
+        executed,
+        0,
+        reason: 'a deferred Snooze action must never reach its executor',
+      );
+    });
+
+    test('T74 a legacy Snooze trigger creates no reminder', () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      FlutterLocalNotificationsPlatform.instance =
+          AndroidFlutterLocalNotificationsPlugin();
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      const channel = MethodChannel(
+        'dexterous.com/flutter/local_notifications',
+      );
+      final calls = <MethodCall>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            calls.add(call);
+            return null;
+          });
+      addTearDown(
+        () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, null),
+      );
+
+      await enqueueReminderSnooze(
+        snooze: intent,
+        actionAtUtc: actionAt,
+        backgroundWork: _Background(),
+        applySnooze: (_, _) async => false,
+      );
+
+      expect(
+        calls.where((call) => call.method == 'show' || call.method == 'schedule'
+            || call.method == 'zonedSchedule'),
+        isEmpty,
+        reason: 'a legacy Snooze must never surface a new notification',
+      );
+    });
+
+    test('T74 the legacy Snooze intent stays decodable but inert', () {
+      // Compatibility representation remains readable so a persisted legacy
+      // payload cannot crash the app after the deferral.
+      final decoded = NotificationPayloadCodec.tryDecode(
+        NotificationPayloadCodec.encode(intent),
+      );
+      expect(decoded, intent);
+      expect(decoded!.action, NotificationResponseAction.snooze);
+      // The deferral is a PRODUCT law, not a codec change: the action exists as
+      // a value, but nothing in M8 acts on it.
+      expect(
+        NotificationResponseAction.values,
+        contains(NotificationResponseAction.snooze),
+      );
+    });
+
+    test('T74 a legacy Snooze for an unknown source is a safe no-op', () async {
+      final background = _Background();
+      await enqueueReminderSnooze(
+        snooze: const NotificationResponseIntent(
+          profileId: 'profile',
+          sourceKind: NotificationSourceKind.task,
+          sourceId: 'missing-task',
+          occurrenceId: 'task:missing-task:2026-09-07',
+          action: NotificationResponseAction.snooze,
+        ),
+        actionAtUtc: actionAt,
+        backgroundWork: background,
+        applySnooze: (_, _) async => false,
+      );
+      expect(background.work, isEmpty);
+    });
   });
 }
 

@@ -407,6 +407,10 @@ final class _Harness {
         scheduledForUtc: scheduledForUtc,
         state: BackgroundWorkState.scheduled,
         platformNotificationId: platformId,
+        // Section 6/33: a durable row records which transport owns it.  These
+        // fixtures model an ordinary native row, so the seeded revision carries
+        // the same m7n_ render token the reconciler writes.
+        sourceRevision: 'm7n_generic',
         attemptCount: 0,
         snoozeCount: 0,
         createdAtUtc: DateTime.utc(2026, 9, 6, 9),

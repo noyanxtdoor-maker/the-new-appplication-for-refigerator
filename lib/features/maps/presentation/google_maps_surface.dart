@@ -1545,6 +1545,12 @@ final class _GoogleMapsSurfaceState extends ConsumerState<GoogleMapsSurface> {
                     : const <ClusterManager>{},
                 myLocationEnabled: widget.myLocationOverride ?? _showMyLocation,
                 myLocationButtonEnabled: false,
+                // The Google Maps SDK owns the top-left needle compass: it
+                // appears for a non-north bearing and resets only the bearing
+                // when tapped. Keep it explicit so plugin/default changes
+                // cannot silently remove that accepted Maps behavior.
+                compassEnabled: true,
+                rotateGesturesEnabled: true,
                 mapToolbarEnabled: false,
                 zoomControlsEnabled: false,
                 onMapCreated: _onMapCreated,

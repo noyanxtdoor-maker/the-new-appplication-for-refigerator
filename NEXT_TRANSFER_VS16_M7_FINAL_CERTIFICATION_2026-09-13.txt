@@ -1,0 +1,1043 @@
+================================================================================
+NEXT TRANSFER — VS16 M7
+FINAL HISTORICAL RECOVERY + PLANNER RUNTIME ROOT CAUSE + MAPS COMPASS
+VERIFICATION → CERTIFY → BUILD → INSTALL
+
+VS16 M7 FINAL HISTORICAL RECOVERY + CERTIFICATION = PASSED
+  (code / tests / gates / fresh build)
+DEVICE INSTALL                                    = NOT PERFORMED (device offline)
+M7 PHYSICAL ACCEPTANCE                            = PENDING OWNER
+
+Report date : 2026-09-13
+Supersedes  : NEXT_TRANSFER_VS16_M7_FINAL_HISTORICAL_RECOVERY_CERTIFICATION_2026-09-13.txt
+              (that file was left PARTIAL — sections F3/G/H/I were placeholders;
+               this file is the completed certificate)
+================================================================================
+
+
+================================================================================
+A. AUTHORITATIVE WORKTREE AND READ-ONLY RECOVERY (PHASE 0)
+================================================================================
+
+A1. EXACT LIVE STATE RECOVERED — NOTHING DESTROYED
+
+  worktree : C:\Users\sherl\Downloads\NT_B5_DEVELOP__deepseek-m7m8-20260911
+  branch   : develop/vs16-m7-m8-deepseek-20260911
+  HEAD     : 7b1395c10232b51f7d59464214ffe915415c4bb1
+
+  git status --short : 38 modified (tracked) + 47 untracked
+  git diff --check   : exit 0
+  schemaVersion      : 47 exactly  (lib/core/database/app_database.dart:1476)
+
+  NO reset. NO clean. NO stash. NO broad restore. NO deleted partial work.
+  NO recreated worktree. NO reverted migration-race corrective.
+  Every pre-existing modification and untracked file was PRESERVED.
+
+A2. CLASSIFICATION OF THE DIRTY STATE
+
+  A. PLANNER RUNTIME INVESTIGATION
+     test/features/planner/presentation/planner_current_time_production_path_test.dart
+       -> NEW, authored this session (closes the disclosed test gap). See section E.
+     .m7_cti_evidence/ (evidence + archived probes)                       -> D
+  B. MAPS COMPASS VERIFICATION
+     test/features/maps/vs15_m33_auto_face_north_audit_test.dart          -> D
+     .m7_frozen_audit/phase_b_maps_auto_face_north_history.txt            -> D
+  C. MIGRATION-RACE CORRECTIVE
+     lib/core/database/app_database.dart            (shareAcrossIsolates) -> C
+     test/core/database/v47_migration_concurrency_test.dart               -> C
+     .m7_frozen_audit/migration_race_probe/ + MIGRATION_RACE_PROVEN_FIX.txt -> D
+  D. TEST / EVIDENCE ONLY
+     .m7_evidence/ .m7_frozen_audit/ .m7_v47_evidence/ .m7_cti_evidence/  -> D
+  E. UNEXPECTED
+     NONE.
+
+A3. THE ONLY SOURCE EDIT MADE BY THIS SESSION
+
+  Exactly ONE source file was written:
+    test/features/planner/presentation/planner_current_time_production_path_test.dart
+
+  It was subsequently edited once (a lint correction, see section E3). The
+  file was re-verified afterwards. NO production file (lib/) was modified by
+  this session. NO test was deleted or weakened.
+
+  Verified mechanically: the only lib/ or test/ file with an mtime newer than
+  the differential capture start is that one test file; every other newer file
+  under test/ is a test-generated `goldens/failures/*.png` output artefact.
+
+
+================================================================================
+B. PLANNER CURRENT-TIME READOUT — HISTORICAL CHECKPOINT SEARCH
+================================================================================
+
+B1. THE LINEAGE IS A RECOVERY LINEAGE
+
+  `git log --oneline 7b1395c` returns only FIVE commits; the root
+  (8bd94e9, 2026-09-08) imported the whole app state at once. The pre-import
+  Planner history therefore lives on OTHER refs — which is why inspecting only
+  7b1395c would have been insufficient.
+
+B2. THE FEATURE EXISTS IN EVERY ACCEPTED CHECKPOINT
+
+  Geometry class `PlannerCurrentTimeHorizontalGeometry` plus the widget keys
+  `planner-current-time-{overlay,indicator,label,dot,line}` are present in:
+
+      checkpoint/vs15-m3-accepted-20260902            CT-03
+      checkpoint/vs15-m3-complete-20260903            CT-03
+      checkpoint/phase-b-accepted-20260829  (76ee168) CT-03
+      develop/recovered-m5-baseline-20260909 (7b1395c) CT-03
+      candidate/goal-event-education-ui-20260909      CT-03
+      autonomous/stability-ux-pack-a-20260814         CT-03  <- earliest CT-03
+      audit/pre-stabilization-2026-08-12              OLD (9-constant variant)
+      stabilization/* (9 branches)                    OLD (9-constant variant)
+
+  The ACCEPTED, shipped variant is CT-03. The OLD variant survives only on the
+  pre-stabilization snapshot and the nine stabilization work branches, which are
+  NOT accepted checkpoints.
+
+B3. CURRENT SOURCE ALREADY MATCHES THE ACCEPTED CHECKPOINT
+
+  ref       geometry   lib/features/planner/presentation/planner_screen.dart
+  7b1395c   CT-03      identical to the working tree
+  8bd94e9   CT-03      identical to the working tree
+  2c89793   CT-03      identical to the working tree
+  76ee168   CT-03      differs ONLY inside _TimelineTaskBlock + one import
+
+  `git diff --stat 76ee168 7b1395c -- .../planner_screen.dart` = +43/-4, and
+  EVERY hunk lands inside `_TimelineTaskBlock` (~line 6043+), plus removal of one
+  import at line 9. NO hunk touches the current-time overlay region (~4820-4979)
+  or `formatPlannerCurrentTimeLabel` (~6668).
+
+B4. SECOND IMPLEMENTATION CHECKED AND CLEARED
+
+  The pager preview column has its OWN current-time painter
+  (`planner_interactive_day_pager.dart :: _PagerPreviewColumnState
+  ._positionedCurrentTime`, lines 1633-1740). It was inspected in full and is
+  SEMANTICALLY IDENTICAL to the production overlay: same
+  `PlannerCurrentTimeHorizontalGeometry` constants, same `FittedBox(scaleDown)`,
+  same `Container(height: capsuleHeight)`, same label/dot/line keys and
+  geometry. The preview column is therefore NOT a separate defect source.
+
+  Its constants resolve to the shared geometry
+  (`kPlannerPagerCurrentTimeIndicatorHeight = indicatorHeight`, etc., lines
+  285-294), so the two paths cannot drift.
+
+B5. ANSWER
+
+  PLANNER HISTORICAL FEATURE = FOUND (present in every accepted checkpoint).
+  CURRENT SOURCE = ALREADY MATCHES THE ACCEPTED CHECKPOINT (CT-03).
+  NO RESTORATION IS WARRANTED. Copying older code would be a regression, and the
+  handoff forbids importing unaccepted branches or copying whole files.
+
+
+================================================================================
+C. PLANNER CURRENT-TIME READOUT — PROVEN RUNTIME CAUSE
+================================================================================
+
+MECHANISM CLASSIFICATION = E. FittedBox / text-scale collapse.
+
+It is NOT A (left clipping), NOT B (hour-gutter clipping), NOT C (separate Stack
+clipping), NOT D (ruler paints over the label), NOT F (production Timer
+discrepancy), NOT G (visible-hour boundary as the sole cause), NOT I.
+
+C1. PRODUCTION-FAITHFUL MEASUREMENT AT THE OWNER'S GEOMETRY
+
+  Capture : .m7_cti_evidence/cti_owner_geometry_clip_pixel_proof.out
+  Harness : real Roboto loaded from
+            <FLUTTER_ROOT>/bin/cache/artifacts/material_fonts
+            (roboto-regular.ttf + roboto-bold.ttf) as family "Roboto",
+            because the production theme declares `fontFamily: 'Roboto'`.
+  View    : 1080x2400 physical @ DPR 2.625  =>  411.43 x 914.29 logical
+            (the Infinix X6731 geometry)
+  Window  : visibleStartHour 0 / visibleEndHour 24 (owner-reachable)
+
+  Sample 22:59 —
+    geometry  : indicatorHeight=12.0 capsuleHeight=18.0 labelWidth=62.0
+                labelLeft=-11.0 dotLeft=51.0 lineStartX=61.0
+                timeColumnWidth=56.0
+    labelArea : L13.13 T823.29 R63.00 B835.29 W49.87 H12.00
+    textRect  : L15.79 T824.29 R60.33 B834.29 W44.54 H10.00
+    dotRect   : L63.00 T824.29 R73.00 B834.29 W10.00 H10.00
+    lineRect  : L73.00 T828.29 R399.43 B830.29 W326.43 H2.00
+    declared  : text="10:59 PM" fontSize=15.0 weight=FontWeight.w700
+    fitted    : scale=0.6666666666666666  effectiveFontSize=10.00
+    hourLabel(21) : W56.00 H18.00 fontSize=13.0 "9 PM"   (NOT scaled)
+    hourLabel(22) : W56.00 H18.00 fontSize=13.0 "10 PM"  (NOT scaled)
+
+C2. THE LABEL IS NOT CLIPPED — MECHANISMS A / B / C DISPROVEN
+
+  A full render-ancestor walk from the label to the root finds exactly THREE
+  clip-producing ancestors:
+
+    RenderClipRect            L12.00 T-549.71 R399.43 B890.29  (pager ClipRect)
+    _RenderSingleChildViewport L0.00 T110.00 R411.43 B914.29   (day scroll)
+    RenderClipRect            L0.00 T110.00 R411.43 B914.29    (its sibling)
+
+  Intersecting the label's own rect with all three yields the IDENTICAL rect:
+
+    EFFECTIVE VISIBLE TEXT RECT = L15.79 T824.29 R60.33 B834.29 W44.54 H10.00
+      clipped away width  = 0.00 of 44.54 logical px
+      clipped away height = 0.00 of 10.00 logical px
+      => 100.0% of the label width survives
+
+  `labelLeft = -11` is negative only in the indicator Stack's OWN coordinates;
+  that Stack is already inset to `left: 12` by the scroll padding, so the label's
+  GLOBAL left is +13.13 (box) / +15.79 (text) — comfortably inside every clip and
+  inside `Stack(clipBehavior: Clip.none)`.
+
+C3. THE LABEL IS NOT PAINTED OVER — MECHANISM D DISPROVEN
+
+  In the timeline Stack the hour grid is emitted FIRST, then the current-time
+  overlay, then the Event blocks. The indicator is a LATER sibling, so it paints
+  ON TOP of the hour labels and hour lines. Confirmed by the source comment at
+  planner_interactive_day_pager.dart:1475-1481 documenting the intended z-order
+  (hour grid -> current-time indicator -> Event blocks).
+
+C4. THE PIXELS SURVIVE FINAL COMPOSITING
+
+  `RenderRepaintBoundary.toImage(pixelRatio: 2.0, rawRgba)` -> 823x1829 px raster.
+  Counting theme-primary pixels inside each element's rect:
+
+    primary-coloured raster pixels inside the TEXT rect = 469
+    primary-coloured raster pixels inside the DOT  rect = 298
+    primary-coloured raster pixels inside the LINE rect = 1959
+    => THE CURRENT-TIME TEXT RASTERISED.
+
+  Theme primary (Rose dark, the shipped default) =
+  Color(alpha 1.0, r 0.9216, g 0.4118, b 0.5255) = #EB6986.
+
+C5. WHY THE OWNER CANNOT SEE IT — THE ACTUAL EXPLANATION
+
+  The readout IS rendered, but it is rendered SMALLER THAN THE AMBIENT HOUR
+  LABELS IT SITS BESIDE:
+
+    declared `fontSize: 15` is shrunk by `FittedBox(BoxFit.scaleDown)` to an
+    EFFECTIVE 10.00 px, because the label `Container` declares
+    `height: capsuleHeight = 18` inside a band of only
+    `indicatorHeight = 12`  ->  paint scale 12/18 = 0.6667.
+
+    the ambient hour labels render at fontSize 13.0 with NO scaling.
+
+  So the "highlighted" current-time readout is drawn at ~77% of the size of the
+  plain grey hour labels, in the SAME left-hand hour-gutter column, immediately
+  left of the dot. The eye is drawn to the saturated 10x10 dot and the 326-px
+  line; the 10 px pink text reads as part of the hour-label column.
+
+  This directly contradicts the recorded CT-02/CT-03 intent in the source comment
+  at planner_screen.dart:4880-4889 ("The time text itself is the highlighted
+  element — semantic primary, larger (fontSize 15) in a 62dp leftward-widened
+  area with 4dp padding").
+
+  It is a PROPERTY OF THE ACCEPTED CT-03 IMPLEMENTATION, not an M7 regression:
+  the source is byte-identical to the accepted checkpoint (section B3).
+
+C6. THE VISIBILITY GATE — AND WHY IT CANNOT EXPLAIN THE OWNER'S REPORT
+
+  The gate (planner_screen.dart:4837) is ONE boolean:
+
+    widget.settings.showCurrentTime
+      && widget.selectedDate == PlannerDate.fromDateTime(currentNow)
+      && currentNow.hour >= _planWindowFirstHour
+      && currentNow.hour <  _planWindowLastHour
+
+  Shipped defaults (planner_settings.dart:34-38):
+    visibleStartHour = 6, visibleEndHour = 22, showCurrentTime = true
+
+  Therefore with DEFAULT settings, at 22:59 the test `22 < 22` is FALSE and the
+  ENTIRE indicator (label AND dot AND line) is hidden. A single boolean cannot
+  hide the label alone while leaving the dot and the line visible.
+
+  => The owner's "dot + line visible, time text absent" CANNOT be a gate failure.
+     The owner must have had a window containing the current hour; the
+     owner-reachable way to do that is the "Show full 24 hours" preset
+     (`planner-full-day-preset`, sets visibleStartHour 0 / visibleEndHour 24;
+     the settings screen also allows start 0..23 and end 1..24 with
+     end > start).
+
+C7. A SECOND, INDEPENDENT OWNER-SIDE FACTOR: THE TIMELINE MUST BE SCROLLED
+
+  The day timeline is a 24-hour canvas (1440 logical px at normal zoom) inside an
+  ~804 logical px viewport (L0 T110 R411.43 B914.29). A late-evening indicator is
+  laid out BELOW the visible area:
+
+    indicator global top at 22:59 (unscrolled) = 1497.0
+    viewport                                   = T110.0 .. B914.29
+
+  The owner must scroll down to reach it. After scrolling to the maximum offset
+  (673.7 of 0..673.7) the indicator sits at global top 823.3 — inside the
+  viewport. This is expected, correct behaviour (the timeline is a day canvas,
+  not an auto-follow viewport), and it is the viewing position reproduced in
+  section D.
+
+C8. VERDICT
+
+  PLANNER CURRENT-TIME READOUT = CURRENT IMPLEMENTATION VERIFIED CORRECT.
+  Root cause of the owner's observation = mechanism E: the accepted CT-03
+  geometry forces `FittedBox.scaleDown` to shrink the declared 15 px readout to
+  an effective 10 px, i.e. smaller than the 13 px hour labels beside it, inside
+  the same gutter column.
+
+  NO CORRECTION APPLIED. Changing `capsuleHeight`, the `FittedBox`, or the label
+  geometry would be a REDESIGN of frozen Planner code. The handoff permits that
+  only if historical evidence proves the accepted readout differs from the
+  current source — and it does not (section B3). The handoff's permitted
+  correction classes (clip boundary / Stack-overlay placement / text label
+  horizontal bounds / z-order / production Timer-notifier) were each
+  individually investigated and each is NOT the cause.
+
+
+================================================================================
+D. PLANNER CURRENT-TIME READOUT — PRODUCTION RENDER EVIDENCE
+================================================================================
+
+To settle the question against REAL RENDERED PIXELS rather than inference, the
+production `PlannerScreen` was rendered at the owner's exact device geometry and
+the result captured.
+
+  Harness : production `PlannerScreen`, production theme
+            `AppTheme.dark(ThemeColorMode.rose)` (the shipped default),
+            real Roboto, 1080x2400 @ DPR 2.625, timeline scrolled so the
+            indicator is inside the viewport (the owner's viewing position).
+  Capture : pixelRatio 2.625 -> a 1080x2400 PNG, i.e. the DEVICE'S OWN PIXEL GRID.
+
+  ARTEFACTS
+    .m7_cti_evidence/cti_fullscreen_2259.png     1080x2400, 56,641 bytes
+    .m7_cti_evidence/cti_band_native_2259.png     578x158 native device pixels
+    .m7_cti_evidence/cti_band_zoom6_2259.png     3468x948 x6 nearest-neighbour
+    .m7_cti_evidence/cti_fullscreen_render.out   full measurement log
+
+  MEASURED IN THAT RENDER (after scroll)
+    scroll offset         = 673.7 (range 0.0 .. 673.7)
+    indicator global top  = 823.3   (viewport T110.0 .. B914.29)
+    label rect            = L15.79 T824.29 R60.33 B834.29  W44.54 H10.00
+    dot rect              = L63.00 T824.29 R73.00 B834.29  W10.00 H10.00
+    line rect             = L73.00 T828.29 R399.43 B830.29 W326.43 H2.00
+    ambient hour label 22 = L12.00 T772.29 R68.00 B790.29  W56.00 H18.00
+    label text            = "10:59 PM"
+    declared fontSize     = 15.0, weight w700,
+                            colour #EB6986 (Rose dark primary)
+
+  VISUAL RESULT (inspected directly):
+    "10:59 PM" renders in PINK immediately left of the PINK DOT, with the PINK
+    HORIZONTAL LINE running from the dot to the right edge, and the grey "11 PM"
+    hour label just below. ALL THREE elements of the readout are present and
+    visible — text, dot, and line.
+
+    The pink readout is visibly SMALLER than the grey hour label beside it,
+    confirming the mechanism-E shrink.
+
+  => The current-time readout is present, painted, and legible in a faithful
+     rendering of the shipped widget at the owner's exact geometry.
+
+
+================================================================================
+E. PLANNER TEST GAP — CLOSED
+================================================================================
+
+E1. THE DISCLOSED GAP
+
+  `test/features/planner/presentation/planner_current_time_indicator_test.dart`
+  injects an external `currentTimeListenable` through
+  `PlannerScreen(currentTimeListenable:)`. That is correct for deterministic
+  geometry tests, but it never exercises the PRODUCTION wiring: the screen-owned
+  `ValueNotifier<DateTime>` created in `initState` and the minute-boundary
+  `Timer` that refreshes it.
+
+E2. THE CLOSURE
+
+  NEW permanent test:
+    test/features/planner/presentation/planner_current_time_production_path_test.dart
+
+  It pumps `const PlannerScreen()` with NO injected listenable, so the
+  production path runs, and asserts:
+
+    1. the overlay is bound to a screen-owned `ValueNotifier<DateTime>`,
+       observed from the widget tree (the `ValueListenableBuilder<DateTime>`
+       scoped to `Key('planner-current-time-overlay')`) — so no private state is
+       touched and the observed instance is the one the render pipeline uses;
+    2. the rendered label text equals
+       `formatPlannerCurrentTimeLabel(notifier.value)` exactly — proving the
+       production source is live, not the injected seam;
+    3. the minute-boundary ticker is LIVE: after `pump(61s)` the notifier holds a
+       DIFFERENT instance (`identical(...) == false`). `ValueNotifier` skips an
+       assignment only when the new value is `==`; a freshly constructed
+       `DateTime.now()` is never the same instance, so this is an exact,
+       non-flaky proof that the timer callback ran;
+    4. the ticker RE-ARMS across a second boundary;
+    5. `dispose` cancels the ticker (the tree is unmounted and
+       `takeException()` is null; flutter_test fails on a pending timer, so a
+       missing `cancel()` would be caught).
+
+  The pre-existing focused suite was NOT replaced or weakened. Nothing was
+  deleted.
+
+E3. THE ONE CORRECTION MADE TO IT
+
+  The first version reached the notifier through `dynamic` (the `State` type is
+  library-private), which the analyzer flagged:
+
+    info - Method invocation or property access on a 'dynamic' target
+           - planner_current_time_production_path_test.dart:167:7
+           - avoid_dynamic_calls
+
+  Because the gate is `--fatal-infos`, that single info failed the analyzer.
+  It was fixed properly rather than suppressed: the test now reads the WIRED
+  listenable from the widget tree (typed, no `dynamic`), which is a STRONGER
+  proof — it observes the instance the overlay is actually bound to, not merely
+  the one a private field holds.
+
+E4. RESULT
+
+  `flutter test .../planner_current_time_production_path_test.dart`
+    -> 00:01 +1: All tests passed!   (TEST_EXIT=0)
+
+  Capture: .m7_frozen_audit/prod_path_test_final.txt
+
+
+================================================================================
+F. MAPS AUTO FACE NORTH — NATIVE COMPASS VERIFICATION
+================================================================================
+
+All seven required questions were answered from the CURRENT PINNED PLUGIN
+SOURCE on this machine, not from memory.
+
+  pinned : google_maps_flutter 2.18.0
+           google_maps_flutter_android 2.19.13
+           google_maps_flutter_platform_interface 2.16.1
+  cache  : ~/AppData/Local/Pub/Cache/hosted/pub.dev/
+
+F1. Q1 — IS `compassEnabled` UNSET BY NEXT TRANSFER?  YES.
+
+  A scan of the whole app source for orientation tokens returns ZERO hits:
+
+    grep -rn -E "compassEnabled|resetBearing|rotateGesturesEnabled|
+                 tiltGesturesEnabled|zoomGesturesEnabled|scrollGesturesEnabled|
+                 northUp|faceNorth|face_north" lib/      ->  0
+
+  `lib/features/maps/presentation/google_maps_surface.dart` (the production
+  `GoogleMap(`) sets only: initialCameraPosition, mapType, markers, polygons,
+  circles, clusterManagers, myLocationEnabled, myLocationButtonEnabled: false,
+  mapToolbarEnabled: false, zoomControlsEnabled: false, onMapCreated,
+  onCameraMove, onCameraIdle, onLongPress, onTap.
+
+F2. Q2 — EFFECTIVE DEFAULT WHEN UNSET: COMPASS ENABLED.  PROVEN TWICE.
+
+  (a) Dart layer — google_maps_flutter 2.18.0:
+        lib/src/google_map.dart:104   this.compassEnabled = true,
+        lib/src/google_map.dart:171   final bool compassEnabled;
+        lib/src/google_map.dart:743   compassEnabled: map.compassEnabled,
+      `GoogleMap.toMapConfiguration()` therefore always SENDS
+      `compassEnabled: true` to the platform. The app does not have to opt in.
+
+  (b) Android layer — google_maps_flutter_android 2.19.13:
+        android/src/main/kotlin/io/flutter/plugins/googlemaps/Messages.kt:2218
+            val compassEnabled: Boolean? = null,          <- nullable, unset
+        android/src/main/java/io/flutter/plugins/googlemaps/Convert.java:502-505
+            final Boolean compassEnabled = config.getCompassEnabled();
+            if (compassEnabled != null) { sink.setCompassEnabled(compassEnabled); }
+        android/src/main/java/io/flutter/plugins/googlemaps/GoogleMapBuilder.java:74-75
+            public void setCompassEnabled(boolean compassEnabled) {
+              options.compassEnabled(compassEnabled); }
+        android/src/main/java/io/flutter/plugins/googlemaps/GoogleMapController.java:549-550
+            public void setCompassEnabled(boolean compassEnabled) {
+              googleMap.getUiSettings().setCompassEnabled(compassEnabled); }
+      The Pigeon field is null-guarded; because the Dart layer always supplies
+      `true`, `options.compassEnabled(true)` is applied.
+
+F3. Q3 — IS MAP ROTATION ENABLED?  YES.
+  google_map.dart:112 `this.rotateGesturesEnabled = true,` (Dart default), and
+  GoogleMapBuilder.java:114-115 `options.rotateGesturesEnabled(...)`.
+  Tilt is likewise enabled (google_map.dart:117).
+
+F4. Q4 — WHEN DOES THE NATIVE COMPASS APPEAR?  AFTER THE CAMERA IS ROTATED
+  away from north (its standard Google Maps Android SDK behaviour: hidden while
+  bearing is 0 / top-down, shown once the camera is rotated).
+
+F5. Q5 — DOES TAPPING IT RETURN THE MAP TO NORTH-UP?  YES — that is the
+  SDK-native affordance, and it is the only north affordance in this app.
+
+F6. Q6 — HAS ANY M7 CHANGE AFFECTED THE PLUGIN VERSION, CONFIG OR NATIVE
+  MAPS SURFACE?  NO.
+
+    git diff --stat 7b1395c -- lib/features/maps          -> EMPTY (byte-identical)
+    git diff --stat 7b1395c -- android pubspec.yaml pubspec.lock
+      -> android/app/src/main/res/drawable/ic_nt_notification.xml | 8 +++++++-
+         1 file changed, 7 insertions(+), 1 deletion(-)
+
+  No manifest delta, no plugin-version delta, no `pubspec` delta, no native
+  Maps config delta. The only Android change in the whole tree is the authorized
+  notification-icon corrective.
+
+F7. Q7 — DOES ANY OVERLAY COVER THE SDK-NATIVE COMPASS POSITION?
+
+  In the normal browse state: NO. `maps_screen.dart :: _buildMapStack` puts
+  `GoogleMapsSurface` first in `Stack(fit: StackFit.expand)`. The only
+  always-present later children are a 2-px `LinearProgressIndicator`
+  (`Alignment.topCenter`, loading only) and a bottom-centre error panel. The
+  conditional chrome (`_PreviewSheetHost`, `_PlacementChrome`,
+  `BoundaryModeChrome`, `ContactViewSelectorPanel`) and the in-surface overlays
+  are anchored `right: 16 / bottom: …`, `left: 16 / right: 16 / bottom: 16`, or
+  `Alignment.bottomCenter`. The SDK compass sits top-right INSIDE the native
+  platform view, so nothing covers it while browsing.
+
+  HONEST CAVEAT (transient modes only): two transient chrome layers are
+  TOP-anchored and can overlap the top-right area while they are active:
+    * `BoundaryModeChrome` — `Positioned(top: 12, left: 0, right: 0)` banner,
+      only while a boundary-drawing session is open;
+    * `_PlacementChrome` — `Positioned(top: 0, left: 0, right: 0)` helper banner,
+      only during inline placement / drop-pin mode.
+  These are modal-ish transient states with their own Cancel/Confirm controls,
+  not the browse state in which "rotate to face north" matters. No overlay covers
+  the compass during normal map browsing.
+
+F8. VERDICT
+
+  MAPS AUTO FACE NORTH = SDK-NATIVE COMPASS.
+
+  An explicit Face-North / compass-reset control was NEVER present in any
+  accepted Maps checkpoint (accepted Maps lineage: 385402b, b4d65b1, e0368dc,
+  76ee168, 7b1395c; `lib/features/maps/` is byte-identical from 76ee168 through
+  7b1395c to the working tree). Per the handoff, NO CUSTOM BUTTON WAS CREATED.
+  Fabricating one would be a redesign, not a restoration.
+
+  Owner interpretation honoured: the owner means "auto face north", NOT
+  "Locate me". The accepted north affordance is the SDK-native compass.
+
+
+================================================================================
+G. MAPS LOCATE ME
+================================================================================
+
+MAPS LOCATE ME = PRESERVED / NOT TOUCHED.
+
+  `google_maps_surface.dart` still sets `myLocationButtonEnabled: false` (the
+  accepted configuration — the SDK "Locate me" button is deliberately suppressed
+  and the app owns its own location affordance) and still passes
+  `myLocationEnabled: widget.myLocationOverride ?? _showMyLocation`.
+  `lib/features/maps/` is byte-identical to the accepted checkpoint.
+  No location permission was added; no background location; no geofence.
+
+
+================================================================================
+H. EVENT TYPE ensureLoaded / LOAD-EPOCH / IN-FLIGHT COALESCING
+================================================================================
+
+EVENT TYPE ensureLoaded = OWNER ACCEPTED.
+
+  `lib/features/planner/application/event_type_providers.dart` and
+  `lib/features/planner/presentation/event_type_picker_dialog.dart` are
+  RETAINED AS-IS. Per the owner acknowledgement the implementation is accepted;
+  it was NOT expanded, NOT redesigned, and NOT reverted by this session.
+
+
+================================================================================
+I. MIGRATION RACE — CORRECTIVE PRESERVED AND CERTIFIED
+================================================================================
+
+MIGRATION RACE = CORRECTED.
+
+  Corrective (present, untouched):
+    lib/core/database/app_database.dart:1345
+      const DriftNativeOptions kAppDatabaseNativeOptions =
+          DriftNativeOptions(shareAcrossIsolates: true);
+    ...:1415  super(driftDatabase(name: 'next_transfer',
+                                  native: kAppDatabaseNativeOptions));
+
+  The WITHDRAWN `busy_timeout` solution was NOT restored:
+    grep for `busy_timeout|busyTimeout` in app_database.dart -> 0 hits.
+
+  Preserved evidence/tests:
+    test/core/database/v47_migration_concurrency_test.dart
+      (FAIL-FIRST ARM: drift defaults lose the v46 -> v47 race;
+       NEGATIVE RESULT: WAL does NOT fix the race;
+       MECHANISM: with ONE connection the migration completes cleanly)
+    .m7_frozen_audit/migration_race_probe/
+    .m7_frozen_audit/MIGRATION_RACE_PROVEN_FIX.txt
+
+  Mechanism: the v46 -> v47 migration ran `BEGIN IMMEDIATE` concurrently across
+  isolates sharing one database file; `shareAcrossIsolates: true` makes every
+  isolate share ONE connection (IsolateNameServer port
+  `drift-db/next_transfer`), so only one migration transaction can exist.
+
+
+================================================================================
+J. OTHER FROZEN-FEATURE REGRESSIONS
+================================================================================
+
+OTHER FROZEN-FEATURE REGRESSIONS = NONE.
+
+  The lightweight sanity check against the existing delta certificate found
+  nothing beyond the single disclosed test rename. No third unexplained
+  regression appeared, so the handoff's STOP-and-report condition was not
+  triggered.
+
+  Preserved (each re-confirmed this pass):
+    * Goals                    — frozen behaviour preserved
+    * Startup                  — preserved except the migration/open race (now fixed)
+    * Theme                    — preserved (Rose dark is the shipped default;
+                                 AppTheme.dark(ThemeColorMode.rose).colorScheme
+                                 .primary = #EB6986, unchanged)
+    * Non-Notification Settings— preserved
+    * Contacts                 — only the authorized M7 Contact Follow-Up
+                                 integration differs
+    * Planner                  — hour grid, ruler, Event/Task geometry, drag /
+                                 resize, recurrence, pager, persistence all
+                                 unchanged; the current-time overlay source is
+                                 byte-identical to the accepted checkpoint
+    * Maps                     — byte-identical to the accepted checkpoint
+    * Notifications            — M7 Detailed corrective retained
+    * schemaVersion            — 47 exactly
+
+
+================================================================================
+K. UNEXPLAINED PRODUCTION DIFFERENCES
+================================================================================
+
+UNEXPLAINED PRODUCTION DIFFERENCES = 0.
+
+  Every production difference against 7b1395c is accounted for by an authorized
+  M7 workstream: the M7 notification corrective set, the M7 Contact Follow-Up
+  integration, the accepted Event Type `ensureLoaded` coalescing, the v47
+  persistence repair, the migration-race corrective, and the single authorized
+  Android notification-icon drawable. The full inventory lives in
+  .m7_frozen_audit/phase1_delta_inventory_postcorrective.txt and
+  .m7_frozen_audit/closure_scan.txt.
+
+
+================================================================================
+L. POST-FIX / POST-INVESTIGATION GATES (the 8 required)
+================================================================================
+
+L1. Planner current-time focused suites ......................... PASS
+    planner_current_time_indicator_test.dart +
+    planner_current_time_production_path_test.dart
+    21 tests passed, 0 failed, 0 skipped
+
+L2. Production-faithful Planner runtime test .................... PASS
+    planner_current_time_production_path_test.dart
+    1 test passed  (standalone run: "00:01 +1: All tests passed!")
+
+L3. Maps camera-bearing / native-compass audit .................. PASS
+    vs15_m33_auto_face_north_audit_test.dart +
+    vs15_m33_session_motion_controls_test.dart
+    22 tests passed, 0 failed, 0 skipped
+    (starts north-up; rotation observable; bearing PRESERVED across re-entry;
+     no control commands a bearing change; zoom/target preserved; no Locate me;
+     no location permission; no Saved Place / Maps domain write; no Event /
+     Task / Contact write; no background location or geofence; the accepted
+     surface carries no compass/north control)
+
+L4. Migration concurrency suite ................................. PASS
+    v47_migration_concurrency_test.dart
+    5 tests passed, 0 failed, 0 skipped
+
+L5. v47 persistence / migration suite ........................... PASS
+    m7c_persistence_repair_test.dart + migration_rollback_test.dart
+    39 tests passed, 0 failed, 0 skipped
+
+L6. M7 Detailed notification corrective suites .................. PASS
+    m7_bigtext / m7_contact_follow_up / m7_detailed_content /
+    m7_enriched_delivery / m7_headless_runtime_override /
+    m7_detailed_content_store / m7_event_reminder_repair_marker
+    91 tests passed, 0 failed, 0 skipped
+
+L7. Relevant Contacts Follow-Up suites .......................... PASS
+    m7_contact_purpose_invalidation_test.dart + m7_follow_up_creation_test.dart
+    19 tests passed, 0 failed, 0 skipped
+
+    FOCUSED GATES TOTAL: 198 passed, 0 failed, 0 skipped
+    Capture: .m7_frozen_audit/focused_gates_final.txt
+             (extracted from the FINAL frozen capture, not a re-run)
+
+    HONESTY NOTE — the 7 gate AREAS above are all green, but the WIDER Planner
+    test surface still carries INHERITED failures that are not part of any gate
+    area (e.g. planner_correction_pack_test.dart, the light_ui_c_contract C1/C2/C3
+    cases, planner_task_day_visibility_owner_fail_test.dart, several
+    planner_interactive_day_pager_* cases). They fail IDENTICALLY in the accepted
+    7b1395c baseline and are listed in the INHERITED section of
+    .m7_frozen_audit/FINAL_DIFFERENTIAL.txt (108 inherited in total). They are
+    pre-existing conditions of the stable checkpoint, NOT M7 regressions. The
+    focused_gates_final.txt record lists them explicitly so this section cannot be
+    misread as "all Planner tests pass".
+
+L8. FULL IDENTITY-BASED DIFFERENTIAL ............................ PASS
+    Capture: .m7_frozen_audit/candidate_final2.json  (end_marker=True)
+    Report : .m7_frozen_audit/FINAL_DIFFERENTIAL.txt
+
+      baseline  (.m7_evidence/baseline_complete_7b1395c.json, end_marker=True)
+        identities 1993   bad 122   skipped 8
+      candidate (candidate_final2.json, end_marker=True)
+        identities 2196   bad 108   skipped 8
+      matched 1992   net-new in candidate 204   gone 1
+
+      NEW failures : 0
+      NEW errors   : 0
+      NEW skips    : 0
+      GATE = PASS
+
+      inherited (bad in both)      : 108   <- pre-existing, not M7 regressions
+      fixed (bad only in baseline) : 14
+      baseline identities MISSING from candidate : 1
+
+      The single missing identity is EXACTLY the already-proven strengthening
+      rename:
+        [GONE] vs16_m4_platform_safety_test.dart
+               ::durable work payload safety delivery WorkManager input is
+                 stable-key-only
+      and its replacement IS present in the candidate:
+        [NEW ] vs16_m4_platform_safety_test.dart
+               ::durable work payload safety delivery WorkManager input is the
+                 strict three-field allowlist
+      (source: test/features/notifications/vs16_m4_platform_safety_test.dart:140)
+
+    The full differential was run TWICE — once before and once after the
+    section-E3 lint fix — and both captures return NEW FAILURES=0 / NEW ERRORS=0
+    / NEW SKIPS=0 with the same single rename. The certificate rests on the
+    SECOND capture, taken over the FINAL FROZEN tree.
+
+L9. DETERMINISM OF THE DIFFERENTIAL ITSELF ...................... PASS
+    The two independent full runs over the same frozen tree were compared
+    identity-by-identity:
+
+      RUN1 identities / RUN2 identities : 2196 / 2196
+      identities only in RUN1            : 0
+      identities only in RUN2            : 0
+      verdict differences between runs   : 0
+
+    => 2196/2196 identical verdicts across two full runs. The suite is
+       deterministic on this tree, so the gate result is not an artefact of a
+       flaky pass. Capture: .m7_frozen_audit/DETERMINISM_AND_GATE.txt
+
+  No gate required a fix other than the section-E3 lint correction, which was
+  applied and re-verified.
+
+
+================================================================================
+M. STATIC GATES
+================================================================================
+
+  flutter analyze --no-pub --fatal-infos lib test
+    -> "No issues found! (ran in 58.2s)"        ANALYZE_EXIT = 0
+  git diff --check
+    -> DIFFCHECK_EXIT = 0                       (LF/CRLF advisory warnings only)
+  schemaVersion
+    -> 47 exactly  (lib/core/database/app_database.dart:1476,
+                    `int get schemaVersion => _schemaVersionOverride ?? 47;`)
+
+  Capture: .m7_frozen_audit/static_gates_final.txt
+
+  RESULT: PASS. (An earlier run of this gate failed with exactly one
+  `avoid_dynamic_calls` info in the new test; it was fixed as described in E3 and
+  the gate now passes clean.)
+
+
+================================================================================
+N. PROTECTED GATES
+================================================================================
+
+  AndroidManifest.xml vs 7b1395c .................. IDENTICAL (empty diff)
+  All android/ deltas vs 7b1395c .................. 1 file only:
+      android/app/src/main/res/drawable/ic_nt_notification.xml (+7/-1)
+      (the authorized M7 notification-icon corrective)
+  Launcher icons (mipmap-* / ic_launcher*) ........ UNCHANGED
+  Permissions (manifest) .......................... UNCHANGED — 7 entries:
+      INTERNET, USE_BIOMETRIC, READ_CONTACTS, ACCESS_COARSE_LOCATION,
+      ACCESS_FINE_LOCATION, POST_NOTIFICATIONS, RECEIVE_BOOT_COMPLETED
+  Permissions (built APK) ......................... IDENTICAL, element for
+      element, to the previously certified v47 APK's 15-entry set
+  SCHEDULE_EXACT_ALARM ............................ 0
+  USE_EXACT_ALARM ................................. 0
+  ACCESS_BACKGROUND_LOCATION ...................... 0
+  geofence ........................................ 0
+  FOREGROUND_SERVICE_LOCATION ..................... 0
+  Saved Place reminders ........................... NONE ADDED
+  M8 work ......................................... NONE STARTED
+
+  RESULT: PASS — no unauthorized delta of any kind.
+
+
+================================================================================
+O. FINAL APK (freshly built — the stale artefact was NOT reused)
+================================================================================
+
+  The stale artefact was identified, hashed, and then REPLACED by a fresh build:
+
+    STALE  (must not be reused)
+      bytes  : 241,013,960
+      sha256 : 8506eb67143793bd560a67c42606b7392289eb9884781f2becf91ee2a201100a
+      mtime  : 2026-09-12 22:24:38 +0800
+      reason : PREDATES the applied migration-race corrective
+
+    FRESH  (this certification)
+      absolute path : C:\Users\sherl\Downloads\NT_B5_DEVELOP__deepseek-m7m8-20260911\
+                      build\app\outputs\flutter-apk\app-debug.apk
+      bytes         : 241,015,121
+      sha256        : f8450460de4ed70ab2ab03034ddb5b22dfd573d5ed12f1505a2c07e2c26a0c21
+      timestamp     : 2026-09-13 08:50:27 +0800
+      package       : com.nexttransfer.rmplanner
+      versionName   : 0.1.0
+      versionCode   : 1
+      minSdk        : 24
+      targetSdk     : 36
+      compileSdk    : 36
+      label         : Next Transfer
+      activity      : com.nexttransfer.rmplanner.MainActivity
+      schemaVersion : 47
+      permissions   : the 15-entry set listed in section N (unchanged)
+      build command : flutter build apk --debug
+      build result  : BUILD_EXIT=0, Gradle assembleDebug 311.4s,
+                      "√ Built build\app\outputs\flutter-apk\app-debug.apk"
+
+  DISTINCT from the stale artefact in BOTH byte size and SHA-256, so the fresh
+  build demonstrably incorporates the migration-race corrective.
+
+  Metadata record : .m7_v47_evidence/FRESH_M7_APK_METADATA.txt
+  Build log       : .m7_v47_evidence/fresh_apk_build_log.txt
+  Stale record    : .m7_v47_evidence/stale_apk_hash.txt
+
+O2. THE MIGRATION-RACE CORRECTIVE IS INSIDE THE SHIPPED APK (not just the tree)
+
+  A different byte size proves the APK CHANGED; it does not prove WHAT changed.
+  So the built APK's Dart kernel was streamed and scanned directly
+  (`assets/flutter_assets/kernel_blob.bin`, 100,731,096 bytes — a debug build
+  ships the kernel rather than AOT `libapp.so`):
+
+      shareAcrossIsolates          8 occurrences
+      kAppDatabaseNativeOptions    3 occurrences
+      drift-db/next_transfer       0 occurrences   <- expected, see below
+      busy_timeout                 1 occurrence    <- explained below
+      busyTimeout                  0 occurrences
+
+  => the corrective IS compiled into the shipped artefact.
+
+  The flag is LOAD-BEARING, not a no-op. `DriftNativeOptions` is defined in
+  `drift_flutter 0.3.1` (NOT in drift 2.34.2), where:
+      lib/src/connect.dart:143   this.shareAcrossIsolates = false,   <- DEFAULT OFF
+      lib/src/native.dart:73     if (native != null && native.shareAcrossIsolates) {
+      lib/src/native.dart:77       IsolateNameServer.lookupPortByName(portName(name))
+  Because the dependency defaults it OFF, only the app's explicit
+  `shareAcrossIsolates: true` makes every isolate converge on ONE shared
+  connection — the single `BEGIN IMMEDIATE` transaction that removes the race.
+
+  Two scan results are explained rather than left ambiguous:
+    * `drift-db/next_transfer` = 0 — the port name is built at RUNTIME by
+      interpolation: `native.dart:20 return 'drift-db/$databaseName';`. The
+      concatenated literal never exists contiguously in the kernel, so its
+      absence is expected and is NOT evidence of a missing corrective.
+    * `busy_timeout` = 1 — the single hit is a DOC COMMENT in a dependency
+      (`sqlite3-3.5.0/lib/src/database.dart:282`), and kernel files retain doc
+      comments. It is NOT the withdrawn app-level solution: `busy_timeout` /
+      `busyTimeout` have 0 hits in `lib/`, and 0 hits in `drift-2.34.2/lib/`.
+      => the withdrawn solution was NOT restored, confirmed at BOTH the source
+      level and the shipped-artefact level.
+
+  Capture: .m7_v47_evidence/APK_CORRECTIVE_PRESENCE.txt
+
+
+================================================================================
+P. DEVICE INSTALL — NOT PERFORMED (TRUE EXTERNAL BLOCKER: DEVICE OFFLINE)
+================================================================================
+
+DEVICE INSTALL = NOT PERFORMED.
+
+  The authorized target was:
+    Infinix X6731, serial 10620253B3004617, Android 14 / SDK 34
+    previously reachable as
+      adb-10620253B3004617-2m7ZVB._adb-tls-connect._tcp @ 192.168.1.54:42501
+
+  At the time of this certification the device is NOT REACHABLE:
+
+    adb devices -l          -> "List of devices attached" (empty)
+    adb mdns services       -> no discovered services (repeated over a 60s window)
+    adb mdns check          -> daemon healthy ("adb discovery 0.0.0]")
+    adb connect 192.168.1.54:42501 -> no response (10060, connection timed out)
+    adb connect 192.168.1.54:5555  -> no response
+    adb kill-server / start-server -> did not restore the link
+
+  The wireless-debugging link has dropped since the pre-install evidence was
+  captured (most likely the device slept, changed network, or wireless debugging
+  was toggled off — its port is re-randomised on each toggle).
+
+  NO DESTRUCTIVE ACTION WAS TAKEN, and none could be. Specifically:
+    * no `adb uninstall`
+    * no `pm clear`
+    * no downgrade, no wipe
+    * no owner-DB replacement, no manual DB edit
+    * no manual mutation of WorkManager / reminder state
+    * no install was attempted
+
+  PRE-INSTALL EVIDENCE (captured earlier this session, before the link dropped)
+
+    .m7_v47_evidence/pre_install_device_evidence_20260913.txt
+      model Infinix X6731, SDK 34, Android 14, serialno 10620253B3004617
+      firstInstallTime = 2026-07-27 15:42:22
+      lastUpdateTime   = 2026-09-12 22:44:05
+      versionName 0.1.0 / versionCode 1 / minSdk 24 / targetSdk 36
+      primaryCpuAbi arm64-v8a
+      installed base.apk = 241,013,960 bytes  (the stale artefact)
+      app DB next_transfer.sqlite = 1,748,992 bytes
+
+    .m7_v47_evidence/device_db_pre_20260913/next_transfer.sqlite  (read-only pull)
+      bytes  : 1,748,992
+      sha256 : 7f2a45a4e4d4e01f79b1978bd34a57229e8ce55de53b0a23545553f09fbadbfa
+
+    DEVICE DATABASE BASELINE — already healthy and already at schema 47:
+      user_version    : 47
+      integrity_check : ok
+      quick_check     : ok
+      tables          : 45
+      calendar_events 313 | contacts 16 | goals 28 | saved_places 5 |
+      planner_tasks 31 | calendar_event_operations 1255 | ... (full inventory
+      in .m7_v47_evidence/db_pre_table_inventory.txt)
+
+    NOTE: `sqlite3` does NOT exist on the device (`/system/bin/sqlite3` and
+    `/system/xbin/sqlite3` both absent), so integrity/row-count verification must
+    be done by pulling the file read-only and inspecting it on the host.
+
+  POST-INSTALL VERIFICATION — PREPARED AND READY
+
+    .m7_v47_evidence/device_db_verify.py
+      Opens both the pre- and post-install copies in SQLite READ-ONLY mode
+      (`file:...?mode=ro`) and asserts the non-destructive install contract:
+        schema version still 47
+        PRAGMA integrity_check = ok
+        PRAGMA quick_check     = ok
+        table count preserved
+        owner row counts preserved across ALL 45 tables
+      Self-tested against the pre-install copy: OVERALL = PASS
+      (capture: .m7_v47_evidence/db_verify_selftest.txt)
+
+  TO COMPLETE THE INSTALL (owner action required): re-enable wireless debugging
+  on the device (Settings -> Developer options -> Wireless debugging) and either
+  pair it again or plug it in over USB, then re-run:
+
+    adb install -r build/app/outputs/flutter-apk/app-debug.apk
+    # then pull the DB read-only and run:
+    python .m7_v47_evidence/device_db_verify.py \
+      .m7_v47_evidence/device_db_pre_20260913/next_transfer.sqlite \
+      <post-install copy>
+
+  The install method remains `adb install -r` ONLY, as authorized.
+
+
+================================================================================
+Q. PHYSICAL SMOKE — NOT PERFORMED (BLOCKED BY THE SAME DEVICE OUTAGE)
+================================================================================
+
+PHYSICAL SMOKE = NOT PERFORMED. Blocked by the device outage in section P.
+
+  PLANNER — because the device is unreachable, the on-device smoke
+  ("open TODAY near the current time; verify current-time text + dot +
+  horizontal line all visible") could NOT be run.
+
+  SUBSTITUTE EVIDENCE PRODUCED — a faithful render of the SHIPPED widget at the
+  owner's exact device geometry (section D), which shows "10:59 PM" in pink
+  together with the pink dot and the pink horizontal line, all three present.
+  This is the strongest available evidence short of the physical device, but it
+  is a harness render and does NOT replace the physical check.
+
+  Therefore, per the handoff, the physical Planner verdict REMAINS OPEN.
+
+  MAPS — the two-finger rotate / native-compass appearance / tap-to-north-up
+  smoke could not be run. The verification rests on the pinned-source analysis
+  in section F, which fully answers all seven required questions.
+
+  NOTIFICATIONS — no notification or domain data was manufactured. The owner's
+  notification state was not touched (the device was never reachable, and the
+  pre-install DB copy was taken read-only).
+
+
+================================================================================
+R. FINAL STATEMENTS
+================================================================================
+
+  VS16 M7 FINAL HISTORICAL RECOVERY + CERTIFICATION = PASSED
+    (recovery, Planner investigation, Maps verification, gates, static gates,
+     protected gates, fresh build)
+
+  PLANNER CURRENT-TIME READOUT = CURRENT IMPLEMENTATION VERIFIED CORRECT
+    Mechanism E — FittedBox / text-scale collapse: the accepted CT-03 geometry
+    declares `fontSize: 15` inside a `Container(height: capsuleHeight 18)` that
+    is squeezed into a band of `indicatorHeight 12`, so `BoxFit.scaleDown`
+    shrinks the readout to an effective 10.00 px while the ambient hour labels
+    render unscaled at 13.0 px. The label is NOT clipped (0.00 px of 44.54 px
+    lost), NOT occluded, and DOES rasterise (469 primary-coloured pixels; a
+    faithful 1080x2400 render shows "10:59 PM" beside the dot and line).
+    The source is byte-identical to the accepted checkpoint, so NO correction was
+    applied — changing it would be a redesign of frozen Planner code.
+    PHYSICALLY VERIFIED = NO (device offline).
+
+  MAPS AUTO FACE NORTH = SDK-NATIVE COMPASS VERIFIED
+    compassEnabled is unset by the app (0 grep hits) and resolves to ENABLED
+    (Dart default `true`, forwarded by `toMapConfiguration()`; the Android Pigeon
+    field is nullable and null-guarded, and the builder applies
+    `options.compassEnabled(true)`). Rotation and tilt are enabled. The compass
+    appears once the camera is rotated away from north and tapping it returns
+    north-up. No M7 change touched the Maps surface, plugin version, or config.
+    No overlay covers the compass position while browsing. NO custom button was
+    created.
+
+  MAPS LOCATE ME = PRESERVED / NOT TOUCHED
+
+  EVENT TYPE ensureLoaded = OWNER ACCEPTED (retained as-is, not expanded)
+
+  MIGRATION RACE = CORRECTED
+    `DriftNativeOptions(shareAcrossIsolates: true)` at the production
+    AppDatabase path; the withdrawn `busy_timeout` solution was NOT restored.
+
+  OTHER FROZEN-FEATURE REGRESSIONS = NONE
+
+  UNEXPLAINED PRODUCTION DIFFERENCES = 0
+
+  TEST GAP (Planner production Timer/notifier path) = CLOSED
+    New permanent, analyzer-clean, passing test.
+
+  FULL IDENTITY DIFFERENTIAL = PASS
+    NEW FAILURES = 0 / NEW ERRORS = 0 / NEW SKIPS = 0
+    (the single missing baseline identity is exactly the already-proven
+     strengthening rename of vs16_m4_platform_safety_test.dart)
+
+  STATIC GATES = PASS
+    flutter analyze --no-pub --fatal-infos lib test -> exit 0, "No issues found!"
+    git diff --check -> exit 0
+    schemaVersion = 47 exactly
+
+  PROTECTED GATES = PASS
+    manifest identical; permissions unchanged; launcher icons unchanged;
+    no exact alarm, no background location, no geofence, no new permissions,
+    no Saved Place reminders, no M8.
+
+  FRESH M7 APK = BUILT
+    241,015,121 bytes
+    sha256 f8450460de4ed70ab2ab03034ddb5b22dfd573d5ed12f1505a2c07e2c26a0c21
+    2026-09-13 08:50:27 +0800
+    (the stale 241,013,960-byte / 8506eb67... artefact was NOT reused)
+
+  FOCUSED GATES = PASS
+    198 passed / 0 failed / 0 skipped across the 7 required gate areas.
+    The wider Planner surface still carries INHERITED failures that fail
+    identically in the accepted baseline (see L1-L7 honesty note).
+
+  DIFFERENTIAL DETERMINISM = PASS
+    Two independent full runs over the frozen tree produced 2196/2196 identical
+    verdicts — 0 differences. The gate result is not a flaky pass.
+
+  APK CORRECTIVE PRESENCE = PROVEN
+    `shareAcrossIsolates` (x8) and `kAppDatabaseNativeOptions` (x3) are present
+    in the shipped APK's Dart kernel, and the dependency defaults the flag to
+    FALSE, so the app's opt-in is load-bearing. The withdrawn `busy_timeout`
+    solution is absent from app code and from the APK.
+
+  DEVICE INSTALL = NOT PERFORMED — blocked: the device is offline
+    (no `adb install -r` was attempted; no destructive action of any kind)
+
+  PHYSICAL SMOKE = NOT PERFORMED — blocked by the same device outage
+
+  M7 PHYSICAL ACCEPTANCE = PENDING OWNER
+
+  COMMIT = NOT PERFORMED
+  PUSH   = NOT PERFORMED
+  M8     = NOT STARTED
+
+================================================================================
+END OF CERTIFICATE
+================================================================================

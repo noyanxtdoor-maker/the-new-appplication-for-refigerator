@@ -5165,6 +5165,79 @@ class $NotificationPreferencesTable extends NotificationPreferences
     type: DriftSqlType.int,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _detailedShowTitleMeta = const VerificationMeta(
+    'detailedShowTitle',
+  );
+  @override
+  late final GeneratedColumn<bool> detailedShowTitle = GeneratedColumn<bool>(
+    'detailed_show_title',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("detailed_show_title" IN (0, 1))',
+    ),
+    defaultValue: const Constant(true),
+  );
+  static const VerificationMeta _detailedShowDescriptionMeta =
+      const VerificationMeta('detailedShowDescription');
+  @override
+  late final GeneratedColumn<bool> detailedShowDescription =
+      GeneratedColumn<bool>(
+        'detailed_show_description',
+        aliasedName,
+        false,
+        type: DriftSqlType.bool,
+        requiredDuringInsert: false,
+        defaultConstraints: GeneratedColumn.constraintIsAlways(
+          'CHECK ("detailed_show_description" IN (0, 1))',
+        ),
+        defaultValue: const Constant(true),
+      );
+  static const VerificationMeta _detailedShowTimeMeta = const VerificationMeta(
+    'detailedShowTime',
+  );
+  @override
+  late final GeneratedColumn<bool> detailedShowTime = GeneratedColumn<bool>(
+    'detailed_show_time',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("detailed_show_time" IN (0, 1))',
+    ),
+    defaultValue: const Constant(true),
+  );
+  static const VerificationMeta _detailedShowContactsMeta =
+      const VerificationMeta('detailedShowContacts');
+  @override
+  late final GeneratedColumn<bool> detailedShowContacts = GeneratedColumn<bool>(
+    'detailed_show_contacts',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("detailed_show_contacts" IN (0, 1))',
+    ),
+    defaultValue: const Constant(true),
+  );
+  static const VerificationMeta _detailedShowLocationMeta =
+      const VerificationMeta('detailedShowLocation');
+  @override
+  late final GeneratedColumn<bool> detailedShowLocation = GeneratedColumn<bool>(
+    'detailed_show_location',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("detailed_show_location" IN (0, 1))',
+    ),
+    defaultValue: const Constant(true),
+  );
   static const VerificationMeta _updatedAtUtcMeta = const VerificationMeta(
     'updatedAtUtc',
   );
@@ -5191,6 +5264,11 @@ class $NotificationPreferencesTable extends NotificationPreferences
     quietHoursEnabled,
     quietStartMinute,
     quietEndMinute,
+    detailedShowTitle,
+    detailedShowDescription,
+    detailedShowTime,
+    detailedShowContacts,
+    detailedShowLocation,
     updatedAtUtc,
   ];
   @override
@@ -5321,6 +5399,51 @@ class $NotificationPreferencesTable extends NotificationPreferences
         ),
       );
     }
+    if (data.containsKey('detailed_show_title')) {
+      context.handle(
+        _detailedShowTitleMeta,
+        detailedShowTitle.isAcceptableOrUnknown(
+          data['detailed_show_title']!,
+          _detailedShowTitleMeta,
+        ),
+      );
+    }
+    if (data.containsKey('detailed_show_description')) {
+      context.handle(
+        _detailedShowDescriptionMeta,
+        detailedShowDescription.isAcceptableOrUnknown(
+          data['detailed_show_description']!,
+          _detailedShowDescriptionMeta,
+        ),
+      );
+    }
+    if (data.containsKey('detailed_show_time')) {
+      context.handle(
+        _detailedShowTimeMeta,
+        detailedShowTime.isAcceptableOrUnknown(
+          data['detailed_show_time']!,
+          _detailedShowTimeMeta,
+        ),
+      );
+    }
+    if (data.containsKey('detailed_show_contacts')) {
+      context.handle(
+        _detailedShowContactsMeta,
+        detailedShowContacts.isAcceptableOrUnknown(
+          data['detailed_show_contacts']!,
+          _detailedShowContactsMeta,
+        ),
+      );
+    }
+    if (data.containsKey('detailed_show_location')) {
+      context.handle(
+        _detailedShowLocationMeta,
+        detailedShowLocation.isAcceptableOrUnknown(
+          data['detailed_show_location']!,
+          _detailedShowLocationMeta,
+        ),
+      );
+    }
     if (data.containsKey('updated_at_utc')) {
       context.handle(
         _updatedAtUtcMeta,
@@ -5396,6 +5519,26 @@ class $NotificationPreferencesTable extends NotificationPreferences
         DriftSqlType.int,
         data['${effectivePrefix}quiet_end_minute'],
       ),
+      detailedShowTitle: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}detailed_show_title'],
+      )!,
+      detailedShowDescription: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}detailed_show_description'],
+      )!,
+      detailedShowTime: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}detailed_show_time'],
+      )!,
+      detailedShowContacts: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}detailed_show_contacts'],
+      )!,
+      detailedShowLocation: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}detailed_show_location'],
+      )!,
       updatedAtUtc: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}updated_at_utc'],
@@ -5426,6 +5569,11 @@ class NotificationPreferenceRow extends DataClass
   final bool quietHoursEnabled;
   final int? quietStartMinute;
   final int? quietEndMinute;
+  final bool detailedShowTitle;
+  final bool detailedShowDescription;
+  final bool detailedShowTime;
+  final bool detailedShowContacts;
+  final bool detailedShowLocation;
   final DateTime updatedAtUtc;
   const NotificationPreferenceRow({
     required this.profileId,
@@ -5441,6 +5589,11 @@ class NotificationPreferenceRow extends DataClass
     required this.quietHoursEnabled,
     this.quietStartMinute,
     this.quietEndMinute,
+    required this.detailedShowTitle,
+    required this.detailedShowDescription,
+    required this.detailedShowTime,
+    required this.detailedShowContacts,
+    required this.detailedShowLocation,
     required this.updatedAtUtc,
   });
   @override
@@ -5477,6 +5630,11 @@ class NotificationPreferenceRow extends DataClass
     if (!nullToAbsent || quietEndMinute != null) {
       map['quiet_end_minute'] = Variable<int>(quietEndMinute);
     }
+    map['detailed_show_title'] = Variable<bool>(detailedShowTitle);
+    map['detailed_show_description'] = Variable<bool>(detailedShowDescription);
+    map['detailed_show_time'] = Variable<bool>(detailedShowTime);
+    map['detailed_show_contacts'] = Variable<bool>(detailedShowContacts);
+    map['detailed_show_location'] = Variable<bool>(detailedShowLocation);
     map['updated_at_utc'] = Variable<DateTime>(updatedAtUtc);
     return map;
   }
@@ -5505,6 +5663,11 @@ class NotificationPreferenceRow extends DataClass
       quietEndMinute: quietEndMinute == null && nullToAbsent
           ? const Value.absent()
           : Value(quietEndMinute),
+      detailedShowTitle: Value(detailedShowTitle),
+      detailedShowDescription: Value(detailedShowDescription),
+      detailedShowTime: Value(detailedShowTime),
+      detailedShowContacts: Value(detailedShowContacts),
+      detailedShowLocation: Value(detailedShowLocation),
       updatedAtUtc: Value(updatedAtUtc),
     );
   }
@@ -5546,6 +5709,17 @@ class NotificationPreferenceRow extends DataClass
       quietHoursEnabled: serializer.fromJson<bool>(json['quietHoursEnabled']),
       quietStartMinute: serializer.fromJson<int?>(json['quietStartMinute']),
       quietEndMinute: serializer.fromJson<int?>(json['quietEndMinute']),
+      detailedShowTitle: serializer.fromJson<bool>(json['detailedShowTitle']),
+      detailedShowDescription: serializer.fromJson<bool>(
+        json['detailedShowDescription'],
+      ),
+      detailedShowTime: serializer.fromJson<bool>(json['detailedShowTime']),
+      detailedShowContacts: serializer.fromJson<bool>(
+        json['detailedShowContacts'],
+      ),
+      detailedShowLocation: serializer.fromJson<bool>(
+        json['detailedShowLocation'],
+      ),
       updatedAtUtc: serializer.fromJson<DateTime>(json['updatedAtUtc']),
     );
   }
@@ -5578,6 +5752,13 @@ class NotificationPreferenceRow extends DataClass
       'quietHoursEnabled': serializer.toJson<bool>(quietHoursEnabled),
       'quietStartMinute': serializer.toJson<int?>(quietStartMinute),
       'quietEndMinute': serializer.toJson<int?>(quietEndMinute),
+      'detailedShowTitle': serializer.toJson<bool>(detailedShowTitle),
+      'detailedShowDescription': serializer.toJson<bool>(
+        detailedShowDescription,
+      ),
+      'detailedShowTime': serializer.toJson<bool>(detailedShowTime),
+      'detailedShowContacts': serializer.toJson<bool>(detailedShowContacts),
+      'detailedShowLocation': serializer.toJson<bool>(detailedShowLocation),
       'updatedAtUtc': serializer.toJson<DateTime>(updatedAtUtc),
     };
   }
@@ -5596,6 +5777,11 @@ class NotificationPreferenceRow extends DataClass
     bool? quietHoursEnabled,
     Value<int?> quietStartMinute = const Value.absent(),
     Value<int?> quietEndMinute = const Value.absent(),
+    bool? detailedShowTitle,
+    bool? detailedShowDescription,
+    bool? detailedShowTime,
+    bool? detailedShowContacts,
+    bool? detailedShowLocation,
     DateTime? updatedAtUtc,
   }) => NotificationPreferenceRow(
     profileId: profileId ?? this.profileId,
@@ -5623,6 +5809,12 @@ class NotificationPreferenceRow extends DataClass
     quietEndMinute: quietEndMinute.present
         ? quietEndMinute.value
         : this.quietEndMinute,
+    detailedShowTitle: detailedShowTitle ?? this.detailedShowTitle,
+    detailedShowDescription:
+        detailedShowDescription ?? this.detailedShowDescription,
+    detailedShowTime: detailedShowTime ?? this.detailedShowTime,
+    detailedShowContacts: detailedShowContacts ?? this.detailedShowContacts,
+    detailedShowLocation: detailedShowLocation ?? this.detailedShowLocation,
     updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
   );
   NotificationPreferenceRow copyWithCompanion(
@@ -5668,6 +5860,21 @@ class NotificationPreferenceRow extends DataClass
       quietEndMinute: data.quietEndMinute.present
           ? data.quietEndMinute.value
           : this.quietEndMinute,
+      detailedShowTitle: data.detailedShowTitle.present
+          ? data.detailedShowTitle.value
+          : this.detailedShowTitle,
+      detailedShowDescription: data.detailedShowDescription.present
+          ? data.detailedShowDescription.value
+          : this.detailedShowDescription,
+      detailedShowTime: data.detailedShowTime.present
+          ? data.detailedShowTime.value
+          : this.detailedShowTime,
+      detailedShowContacts: data.detailedShowContacts.present
+          ? data.detailedShowContacts.value
+          : this.detailedShowContacts,
+      detailedShowLocation: data.detailedShowLocation.present
+          ? data.detailedShowLocation.value
+          : this.detailedShowLocation,
       updatedAtUtc: data.updatedAtUtc.present
           ? data.updatedAtUtc.value
           : this.updatedAtUtc,
@@ -5698,6 +5905,11 @@ class NotificationPreferenceRow extends DataClass
           ..write('quietHoursEnabled: $quietHoursEnabled, ')
           ..write('quietStartMinute: $quietStartMinute, ')
           ..write('quietEndMinute: $quietEndMinute, ')
+          ..write('detailedShowTitle: $detailedShowTitle, ')
+          ..write('detailedShowDescription: $detailedShowDescription, ')
+          ..write('detailedShowTime: $detailedShowTime, ')
+          ..write('detailedShowContacts: $detailedShowContacts, ')
+          ..write('detailedShowLocation: $detailedShowLocation, ')
           ..write('updatedAtUtc: $updatedAtUtc')
           ..write(')'))
         .toString();
@@ -5718,6 +5930,11 @@ class NotificationPreferenceRow extends DataClass
     quietHoursEnabled,
     quietStartMinute,
     quietEndMinute,
+    detailedShowTitle,
+    detailedShowDescription,
+    detailedShowTime,
+    detailedShowContacts,
+    detailedShowLocation,
     updatedAtUtc,
   );
   @override
@@ -5741,6 +5958,11 @@ class NotificationPreferenceRow extends DataClass
           other.quietHoursEnabled == this.quietHoursEnabled &&
           other.quietStartMinute == this.quietStartMinute &&
           other.quietEndMinute == this.quietEndMinute &&
+          other.detailedShowTitle == this.detailedShowTitle &&
+          other.detailedShowDescription == this.detailedShowDescription &&
+          other.detailedShowTime == this.detailedShowTime &&
+          other.detailedShowContacts == this.detailedShowContacts &&
+          other.detailedShowLocation == this.detailedShowLocation &&
           other.updatedAtUtc == this.updatedAtUtc);
 }
 
@@ -5759,6 +5981,11 @@ class NotificationPreferencesCompanion
   final Value<bool> quietHoursEnabled;
   final Value<int?> quietStartMinute;
   final Value<int?> quietEndMinute;
+  final Value<bool> detailedShowTitle;
+  final Value<bool> detailedShowDescription;
+  final Value<bool> detailedShowTime;
+  final Value<bool> detailedShowContacts;
+  final Value<bool> detailedShowLocation;
   final Value<DateTime> updatedAtUtc;
   final Value<int> rowid;
   const NotificationPreferencesCompanion({
@@ -5775,6 +6002,11 @@ class NotificationPreferencesCompanion
     this.quietHoursEnabled = const Value.absent(),
     this.quietStartMinute = const Value.absent(),
     this.quietEndMinute = const Value.absent(),
+    this.detailedShowTitle = const Value.absent(),
+    this.detailedShowDescription = const Value.absent(),
+    this.detailedShowTime = const Value.absent(),
+    this.detailedShowContacts = const Value.absent(),
+    this.detailedShowLocation = const Value.absent(),
     this.updatedAtUtc = const Value.absent(),
     this.rowid = const Value.absent(),
   });
@@ -5792,6 +6024,11 @@ class NotificationPreferencesCompanion
     this.quietHoursEnabled = const Value.absent(),
     this.quietStartMinute = const Value.absent(),
     this.quietEndMinute = const Value.absent(),
+    this.detailedShowTitle = const Value.absent(),
+    this.detailedShowDescription = const Value.absent(),
+    this.detailedShowTime = const Value.absent(),
+    this.detailedShowContacts = const Value.absent(),
+    this.detailedShowLocation = const Value.absent(),
     required DateTime updatedAtUtc,
     this.rowid = const Value.absent(),
   }) : profileId = Value(profileId),
@@ -5810,6 +6047,11 @@ class NotificationPreferencesCompanion
     Expression<bool>? quietHoursEnabled,
     Expression<int>? quietStartMinute,
     Expression<int>? quietEndMinute,
+    Expression<bool>? detailedShowTitle,
+    Expression<bool>? detailedShowDescription,
+    Expression<bool>? detailedShowTime,
+    Expression<bool>? detailedShowContacts,
+    Expression<bool>? detailedShowLocation,
     Expression<DateTime>? updatedAtUtc,
     Expression<int>? rowid,
   }) {
@@ -5837,6 +6079,14 @@ class NotificationPreferencesCompanion
       if (quietHoursEnabled != null) 'quiet_hours_enabled': quietHoursEnabled,
       if (quietStartMinute != null) 'quiet_start_minute': quietStartMinute,
       if (quietEndMinute != null) 'quiet_end_minute': quietEndMinute,
+      if (detailedShowTitle != null) 'detailed_show_title': detailedShowTitle,
+      if (detailedShowDescription != null)
+        'detailed_show_description': detailedShowDescription,
+      if (detailedShowTime != null) 'detailed_show_time': detailedShowTime,
+      if (detailedShowContacts != null)
+        'detailed_show_contacts': detailedShowContacts,
+      if (detailedShowLocation != null)
+        'detailed_show_location': detailedShowLocation,
       if (updatedAtUtc != null) 'updated_at_utc': updatedAtUtc,
       if (rowid != null) 'rowid': rowid,
     });
@@ -5856,6 +6106,11 @@ class NotificationPreferencesCompanion
     Value<bool>? quietHoursEnabled,
     Value<int?>? quietStartMinute,
     Value<int?>? quietEndMinute,
+    Value<bool>? detailedShowTitle,
+    Value<bool>? detailedShowDescription,
+    Value<bool>? detailedShowTime,
+    Value<bool>? detailedShowContacts,
+    Value<bool>? detailedShowLocation,
     Value<DateTime>? updatedAtUtc,
     Value<int>? rowid,
   }) {
@@ -5882,6 +6137,12 @@ class NotificationPreferencesCompanion
       quietHoursEnabled: quietHoursEnabled ?? this.quietHoursEnabled,
       quietStartMinute: quietStartMinute ?? this.quietStartMinute,
       quietEndMinute: quietEndMinute ?? this.quietEndMinute,
+      detailedShowTitle: detailedShowTitle ?? this.detailedShowTitle,
+      detailedShowDescription:
+          detailedShowDescription ?? this.detailedShowDescription,
+      detailedShowTime: detailedShowTime ?? this.detailedShowTime,
+      detailedShowContacts: detailedShowContacts ?? this.detailedShowContacts,
+      detailedShowLocation: detailedShowLocation ?? this.detailedShowLocation,
       updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
       rowid: rowid ?? this.rowid,
     );
@@ -5947,6 +6208,27 @@ class NotificationPreferencesCompanion
     if (quietEndMinute.present) {
       map['quiet_end_minute'] = Variable<int>(quietEndMinute.value);
     }
+    if (detailedShowTitle.present) {
+      map['detailed_show_title'] = Variable<bool>(detailedShowTitle.value);
+    }
+    if (detailedShowDescription.present) {
+      map['detailed_show_description'] = Variable<bool>(
+        detailedShowDescription.value,
+      );
+    }
+    if (detailedShowTime.present) {
+      map['detailed_show_time'] = Variable<bool>(detailedShowTime.value);
+    }
+    if (detailedShowContacts.present) {
+      map['detailed_show_contacts'] = Variable<bool>(
+        detailedShowContacts.value,
+      );
+    }
+    if (detailedShowLocation.present) {
+      map['detailed_show_location'] = Variable<bool>(
+        detailedShowLocation.value,
+      );
+    }
     if (updatedAtUtc.present) {
       map['updated_at_utc'] = Variable<DateTime>(updatedAtUtc.value);
     }
@@ -5980,6 +6262,11 @@ class NotificationPreferencesCompanion
           ..write('quietHoursEnabled: $quietHoursEnabled, ')
           ..write('quietStartMinute: $quietStartMinute, ')
           ..write('quietEndMinute: $quietEndMinute, ')
+          ..write('detailedShowTitle: $detailedShowTitle, ')
+          ..write('detailedShowDescription: $detailedShowDescription, ')
+          ..write('detailedShowTime: $detailedShowTime, ')
+          ..write('detailedShowContacts: $detailedShowContacts, ')
+          ..write('detailedShowLocation: $detailedShowLocation, ')
           ..write('updatedAtUtc: $updatedAtUtc, ')
           ..write('rowid: $rowid')
           ..write(')'))
@@ -39131,6 +39418,11 @@ typedef $$NotificationPreferencesTableCreateCompanionBuilder =
       Value<bool> quietHoursEnabled,
       Value<int?> quietStartMinute,
       Value<int?> quietEndMinute,
+      Value<bool> detailedShowTitle,
+      Value<bool> detailedShowDescription,
+      Value<bool> detailedShowTime,
+      Value<bool> detailedShowContacts,
+      Value<bool> detailedShowLocation,
       required DateTime updatedAtUtc,
       Value<int> rowid,
     });
@@ -39149,6 +39441,11 @@ typedef $$NotificationPreferencesTableUpdateCompanionBuilder =
       Value<bool> quietHoursEnabled,
       Value<int?> quietStartMinute,
       Value<int?> quietEndMinute,
+      Value<bool> detailedShowTitle,
+      Value<bool> detailedShowDescription,
+      Value<bool> detailedShowTime,
+      Value<bool> detailedShowContacts,
+      Value<bool> detailedShowLocation,
       Value<DateTime> updatedAtUtc,
       Value<int> rowid,
     });
@@ -39255,6 +39552,31 @@ class $$NotificationPreferencesTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
+  ColumnFilters<bool> get detailedShowTitle => $composableBuilder(
+    column: $table.detailedShowTitle,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get detailedShowDescription => $composableBuilder(
+    column: $table.detailedShowDescription,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get detailedShowTime => $composableBuilder(
+    column: $table.detailedShowTime,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get detailedShowContacts => $composableBuilder(
+    column: $table.detailedShowContacts,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get detailedShowLocation => $composableBuilder(
+    column: $table.detailedShowLocation,
+    builder: (column) => ColumnFilters(column),
+  );
+
   ColumnFilters<DateTime> get updatedAtUtc => $composableBuilder(
     column: $table.updatedAtUtc,
     builder: (column) => ColumnFilters(column),
@@ -39352,6 +39674,31 @@ class $$NotificationPreferencesTableOrderingComposer
 
   ColumnOrderings<int> get quietEndMinute => $composableBuilder(
     column: $table.quietEndMinute,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get detailedShowTitle => $composableBuilder(
+    column: $table.detailedShowTitle,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get detailedShowDescription => $composableBuilder(
+    column: $table.detailedShowDescription,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get detailedShowTime => $composableBuilder(
+    column: $table.detailedShowTime,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get detailedShowContacts => $composableBuilder(
+    column: $table.detailedShowContacts,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get detailedShowLocation => $composableBuilder(
+    column: $table.detailedShowLocation,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -39455,6 +39802,31 @@ class $$NotificationPreferencesTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<bool> get detailedShowTitle => $composableBuilder(
+    column: $table.detailedShowTitle,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get detailedShowDescription => $composableBuilder(
+    column: $table.detailedShowDescription,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get detailedShowTime => $composableBuilder(
+    column: $table.detailedShowTime,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get detailedShowContacts => $composableBuilder(
+    column: $table.detailedShowContacts,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get detailedShowLocation => $composableBuilder(
+    column: $table.detailedShowLocation,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<DateTime> get updatedAtUtc => $composableBuilder(
     column: $table.updatedAtUtc,
     builder: (column) => column,
@@ -39538,6 +39910,11 @@ class $$NotificationPreferencesTableTableManager
                 Value<bool> quietHoursEnabled = const Value.absent(),
                 Value<int?> quietStartMinute = const Value.absent(),
                 Value<int?> quietEndMinute = const Value.absent(),
+                Value<bool> detailedShowTitle = const Value.absent(),
+                Value<bool> detailedShowDescription = const Value.absent(),
+                Value<bool> detailedShowTime = const Value.absent(),
+                Value<bool> detailedShowContacts = const Value.absent(),
+                Value<bool> detailedShowLocation = const Value.absent(),
                 Value<DateTime> updatedAtUtc = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => NotificationPreferencesCompanion(
@@ -39555,6 +39932,11 @@ class $$NotificationPreferencesTableTableManager
                 quietHoursEnabled: quietHoursEnabled,
                 quietStartMinute: quietStartMinute,
                 quietEndMinute: quietEndMinute,
+                detailedShowTitle: detailedShowTitle,
+                detailedShowDescription: detailedShowDescription,
+                detailedShowTime: detailedShowTime,
+                detailedShowContacts: detailedShowContacts,
+                detailedShowLocation: detailedShowLocation,
                 updatedAtUtc: updatedAtUtc,
                 rowid: rowid,
               ),
@@ -39575,6 +39957,11 @@ class $$NotificationPreferencesTableTableManager
                 Value<bool> quietHoursEnabled = const Value.absent(),
                 Value<int?> quietStartMinute = const Value.absent(),
                 Value<int?> quietEndMinute = const Value.absent(),
+                Value<bool> detailedShowTitle = const Value.absent(),
+                Value<bool> detailedShowDescription = const Value.absent(),
+                Value<bool> detailedShowTime = const Value.absent(),
+                Value<bool> detailedShowContacts = const Value.absent(),
+                Value<bool> detailedShowLocation = const Value.absent(),
                 required DateTime updatedAtUtc,
                 Value<int> rowid = const Value.absent(),
               }) => NotificationPreferencesCompanion.insert(
@@ -39592,6 +39979,11 @@ class $$NotificationPreferencesTableTableManager
                 quietHoursEnabled: quietHoursEnabled,
                 quietStartMinute: quietStartMinute,
                 quietEndMinute: quietEndMinute,
+                detailedShowTitle: detailedShowTitle,
+                detailedShowDescription: detailedShowDescription,
+                detailedShowTime: detailedShowTime,
+                detailedShowContacts: detailedShowContacts,
+                detailedShowLocation: detailedShowLocation,
                 updatedAtUtc: updatedAtUtc,
                 rowid: rowid,
               ),

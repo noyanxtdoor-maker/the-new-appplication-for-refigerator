@@ -35,6 +35,16 @@ is intercepted. It delivers CANCEL to the SDK before UP and dispatches through
 `NtMapInteraction`. Pan, multi-touch and long press follow the original SDK
 path. Other GoogleMap screens do not opt into the new method channel.
 
+A press that starts inside a docked SDK control is never intercepted. The SDK
+installs its built-in controls — the top-left needle compass above all — as
+corner-sized views (at most 48 logical pixels) beneath the map surface, which
+is never that small, so the walk in `overSdkControl` matches controls and
+nothing else. The SDK therefore keeps the completed tap and its accepted
+meaning: a compass tap returns the camera to north-up while target, zoom and
+the rest of the camera stay put. Without that exception the interception
+cancelled every completed tap before the SDK saw UP, so the needle stayed
+visible and rotated with the bearing but could no longer reset it.
+
 ## Hit policy
 
 The bridge registers the actual current rendered Marker handles and their

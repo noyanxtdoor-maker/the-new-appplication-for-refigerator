@@ -4,6 +4,7 @@ import 'package:rmplanner/core/database/app_database.dart'
     hide NotificationPreferences;
 import 'package:rmplanner/core/time/app_clock.dart';
 import 'package:rmplanner/features/notifications/application/notification_foundation_repository.dart';
+import 'package:rmplanner/features/notifications/data/detailed_content_preferences_store.dart';
 import 'package:rmplanner/features/notifications/domain/notification_preferences.dart';
 import 'package:rmplanner/features/notifications/domain/reminder_policy.dart';
 
@@ -18,6 +19,14 @@ final class DriftNotificationFoundationRepository
   });
 
   static const int _maximumPlatformId = 0x7fffffff;
+
+  /// Badge/launcher platform ID owned by
+  /// `FlutterLocalNotificationsLauncherBadgeGateway.notificationId`
+  /// (0x7ffffffe).  Reminder rows must never occupy it: doing so would let a
+  /// reminder cancellation or re-show erase the badge and corrupt the badge
+  /// count.  It is skipped by every allocation probe and relocated away from
+  /// when a legacy row already holds it (contract section 29).
+  static const int reservedPlatformNotificationId = 0x7ffffffe;
 
   final AppDatabase database;
   final AppClock clock;
@@ -53,6 +62,20 @@ final class DriftNotificationFoundationRepository
     preferences.validate();
     return preferences;
   }
+
+  DetailedContentPreferencesStore get _detailedStore =>
+      DetailedContentPreferencesStore(database: database, clock: clock);
+
+  @override
+  Future<DetailedContentPreferences> readDetailedContent({
+    required String profileId,
+  }) => _detailedStore.read(profileId);
+
+  @override
+  Future<DetailedContentPreferences> saveDetailedContent({
+    required String profileId,
+    required DetailedContentPreferences preferences,
+  }) => _detailedStore.write(profileId, preferences);
 
   @override
   Future<NotificationPreferences> savePreferences({
@@ -246,6 +269,11 @@ final class DriftNotificationFoundationRepository
       BackgroundWorkState.retryScheduled.name,
       BackgroundWorkState.scheduled.name,
     ];
+    // F03 fix (contract section 34): the two planning source kinds share
+    // `ownerKind = planning`, so the owner-kind filter alone retrieves BOTH
+    // families.  The stable-key family prefix is the only durable field that
+    // separates them, so it is part of the query rather than a caller
+    // convention.  Prefixes contain no LIKE metacharacters.
     final query = database.select(database.backgroundWorkRequests)
       ..where(
         (table) =>
@@ -254,6 +282,7 @@ final class DriftNotificationFoundationRepository
               BackgroundWorkCategory.reminderRecovery.name,
             ) &
             table.ownerKind.equals(ownerKind) &
+            table.stableKey.like('${sourceKind.stableKeyFamilyPrefix}%') &
             table.state.isIn(activeStates) &
             table.scheduledForUtc.isBiggerOrEqualValue(windowStartUtc) &
             table.scheduledForUtc.isSmallerThanValue(windowEndUtc) &
@@ -299,6 +328,46 @@ final class DriftNotificationFoundationRepository
           ),
         );
     return (await readWorkRequest(request.stableKey))!;
+  }
+
+  @override
+  Future<List<BackgroundWorkRequest>> readActiveReminderWork({
+    required String profileId,
+    int limit = 200,
+    String? afterStableKey,
+  }) async {
+    if (profileId.trim().isEmpty) {
+      throw ArgumentError.value(profileId, 'profileId');
+    }
+    if (limit <= 0) throw ArgumentError.value(limit, 'limit');
+    // Terminal states are history, not work.  The profile-scoped reconciliation
+    // marker is excluded because it is repair bookkeeping, not a notification.
+    final rows =
+        await (database.select(database.backgroundWorkRequests)
+              ..where(
+                (table) =>
+                    table.profileId.equals(profileId) &
+                    table.category.equals(
+                      BackgroundWorkCategory.reminderRecovery.name,
+                    ) &
+                    table.ownerKind.isNotIn(<String>[
+                      BackgroundWorkOwnerKind.profile.name,
+                    ]) &
+                    table.state.isNotIn(<String>[
+                      BackgroundWorkState.completed.name,
+                      BackgroundWorkState.cancelledObsolete.name,
+                      BackgroundWorkState.failedActionRequired.name,
+                    ]) &
+                    (afterStableKey == null
+                        ? const Constant<bool>(true)
+                        : table.stableKey.isBiggerThanValue(afterStableKey)),
+              )
+              ..orderBy(<OrderingTerm Function(BackgroundWorkRequests)>[
+                (table) => OrderingTerm.asc(table.stableKey),
+              ])
+              ..limit(limit))
+            .get();
+    return rows.map(_mapWorkRequest).toList(growable: false);
   }
 
   @override
@@ -353,11 +422,20 @@ final class DriftNotificationFoundationRepository
         throw StateError('Allocate IDs only for durable work requests.');
       }
       if (row.platformNotificationId != null) {
-        return row.platformNotificationId!;
+        // A reminder occupying the badge's reserved ID must be relocated to a
+        // free ID before it is used again; otherwise the badge gateway and this
+        // reminder would fight over one platform ID (section 29).
+        if (row.platformNotificationId != reservedPlatformNotificationId) {
+          return row.platformNotificationId!;
+        }
       }
       var candidate = platformIdSeed(stableKey) & _maximumPlatformId;
       if (candidate == 0) candidate = 1;
       for (var probes = 0; probes < _maximumPlatformId; probes++) {
+        if (candidate == reservedPlatformNotificationId) {
+          candidate = candidate == _maximumPlatformId ? 1 : candidate + 1;
+          continue;
+        }
         final collision =
             await (database.select(database.backgroundWorkRequests)
                   ..where(

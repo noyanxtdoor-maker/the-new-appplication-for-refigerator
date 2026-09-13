@@ -22,6 +22,7 @@ import 'package:rmplanner/features/contacts/presentation/widgets/contact_timelin
 import 'package:rmplanner/features/maps/application/map_coordinate_repository.dart';
 import 'package:rmplanner/features/maps/application/map_providers.dart';
 import 'package:rmplanner/features/maps/domain/map_coordinate.dart';
+import 'package:rmplanner/features/notifications/domain/contact_follow_up_creation_intent.dart';
 import 'package:rmplanner/features/planner/application/event_type_providers.dart';
 
 final contactProfileMapCoordinateProvider =
@@ -613,8 +614,16 @@ final class _ProfileTab extends ConsumerWidget {
     );
   }
 
+  /// M7 entry action (contract section 8).  The chooser is the ONLY place that
+  /// creates [ContactFollowUpCreationIntent]: it forwards the explicitly chosen
+  /// Contact id through the existing Event/Task create routes in `extra`, while
+  /// `contacts=` keeps the ordinary preselection semantics untouched.
   void _createFollowUp(BuildContext context) {
     final contact = detail.contact;
+    // A malformed row cannot produce a valid provenance object; fail closed to
+    // ordinary creation instead of crashing (section 8).
+    final intent = ContactFollowUpCreationIntent(contactId: contact.id);
+    final extra = intent.isValid ? intent : null;
     unawaited(
       showModalBottomSheet<String>(
         context: context,
@@ -651,9 +660,13 @@ final class _ProfileTab extends ConsumerWidget {
         if (value == 'event') {
           await context.push(
             '${RoutePaths.calendarEventCreate}?contacts=${contact.id}',
+            extra: extra,
           );
         } else {
-          await context.push('${RoutePaths.taskCreate}?contacts=${contact.id}');
+          await context.push(
+            '${RoutePaths.taskCreate}?contacts=${contact.id}',
+            extra: extra,
+          );
         }
       }),
     );

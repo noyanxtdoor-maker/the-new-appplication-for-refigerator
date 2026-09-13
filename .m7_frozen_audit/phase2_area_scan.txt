@@ -1,0 +1,20 @@
+=== PER-AREA diff vs 7b1395c ===
+lib/features/planner/presentation          tracked:[ 5 files changed, 334 insertions(+), 33 deletions(-)] untracked:0
+lib/features/planner/domain                tracked:[NONE] untracked:0
+lib/features/maps                          tracked:[NONE] untracked:0
+lib/features/contacts                      tracked:[ 2 files changed, 198 insertions(+), 65 deletions(-)] untracked:0
+lib/features/goals                         tracked:[NONE] untracked:0
+lib/features/startup                       tracked:[NONE] untracked:0
+lib/features/settings                      tracked:[ 1 file changed, 210 insertions(+), 3 deletions(-)] untracked:0
+lib/features/privacy                       tracked:[ 1 file changed, 38 insertions(+), 1 deletion(-)] untracked:0
+lib/features/weekly_planning               tracked:[ 1 file changed, 11 insertions(+)] untracked:0
+lib/app/theme                              tracked:[NONE] untracked:0
+lib/app                                    tracked:[ 1 file changed, 22 insertions(+)] untracked:0
+lib/core/database                          tracked:[ 2 files changed, 455 insertions(+), 1 deletion(-)] untracked:0
+lib/core/background                        tracked:[ 2 files changed, 159 insertions(+), 21 deletions(-)] untracked:2
+lib/core/notifications                     tracked:[ 1 file changed, 22 insertions(+)] untracked:0
+android                                    tracked:[ 1 file changed, 7 insertions(+), 1 deletion(-)] untracked:0
+assets                                     tracked:[NONE] untracked:0
+
+=== goals/startup explicit ===
+(none above = identical)

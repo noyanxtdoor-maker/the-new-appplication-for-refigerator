@@ -1,0 +1,352 @@
+NEXT TRANSFER - VS16 M7
+FINAL DEVICE INSTALL + DB PRESERVATION + PHYSICAL ACCEPTANCE SMOKE
+Date: 2026-09-13    Device clock at session end: 12:19 PST
+================================================================================
+
+VS16 M7 FINAL DEVICE INSTALL + PHYSICAL SMOKE = PASSED
+  (one physical step remains outstanding and is recorded below as PENDING OWNER:
+   the Maps two-finger rotate gesture, which adb cannot synthesise)
+
+================================================================================
+REQUIRED FIELDS
+================================================================================
+DEVICE                          Infinix X6731 / serial 10620253B3004617 /
+                                Android 14 / SDK 34 / arm64-v8a
+                                (rediscovered live at 192.168.1.54:38451 - the
+                                stale 42501 endpoint was NOT used)
+APK                             build/app/outputs/flutter-apk/app-debug.apk
+                                241,015,121 bytes
+                                SHA-256 f8450460de4ed70ab2ab03034ddb5b22dfd573d5ed12f1505a2c07e2c26a0c21
+                                (no rebuild performed - identity matched)
+INSTALL METHOD                  adb install -r
+ADB RESULT                      Success
+FIRST INSTALL TIME PRESERVED    YES   (2026-07-27 15:42:22 unchanged)
+LAST UPDATE TIME UPDATED        YES   (2026-09-12 22:44:05 -> 2026-09-13 11:52:04)
+INSTALLED APK HASH MATCH        YES   (readback base.apk = 241,015,121 bytes,
+                                sha256 f8450460...c26a0c21, byte-for-byte
+                                identical to the certified APK)
+APP FIRST LAUNCH                PASS
+DATABASE LOCK ERROR             NONE
+SCHEMA                          47
+DB INTEGRITY                    PASS  (integrity_check = ok, quick_check = ok)
+OWNER DATA PRESERVATION         PASS  (45/45 tables, all row counts preserved,
+                                all five detailed_show_* columns present)
+PLANNER CURRENT-TIME TEXT       PHYSICALLY VERIFIED
+PLANNER DOT                     VERIFIED
+PLANNER LINE                    VERIFIED
+MAPS AUTO FACE NORTH            SDK-NATIVE COMPASS PHYSICALLY PRESENT AND
+                                VISIBLE (rotate-and-tap step PENDING OWNER)
+MAPS LOCATE ME                  PRESERVED
+NOTIFICATION SETTINGS SMOKE     PASS
+M7 PHYSICAL ACCEPTANCE          PENDING OWNER
+COMMIT                          NOT PERFORMED
+PUSH                            NOT PERFORMED
+M8                              NOT STARTED
+
+================================================================================
+PHASE 1 - PRE-INSTALL VERIFICATION
+================================================================================
+APK identity verified byte-exact before touching the device (241,015,121 /
+f8450460...). Device rediscovered live via `adb mdns services`; identity
+confirmed as the authorized handset by reading ro.serialno per transport.
+
+Pre-install package state:
+  codePath  /data/app/~~TNMmJQ3JWWc9DKSxM-WMqg==/com.nexttransfer.rmplanner-uGOkYJLkB8XcrC7iIjaJ6g==
+  dataDir   /data/user/0/com.nexttransfer.rmplanner
+  versionCode 1 / versionName 0.1.0 / minSdk 24 / targetSdk 36
+  firstInstallTime 2026-07-27 15:42:22
+  lastUpdateTime   2026-09-12 22:44:05
+  app process: not running (clean snapshot); no -wal/-shm sidecars
+
+Read-only pre-install DB copy taken via `run-as ... exec-out cat` (READ-ONLY,
+nothing written back). Three independent pulls were byte-identical:
+  1,748,992 bytes, sha256 7f2a45a4e4d4e01f79b1978bd34a57229e8ce55de53b0a23545553f09fbadbfa
+Baseline: user_version 47, integrity_check ok, quick_check ok, 45 tables, full
+owner row-count inventory, all five detailed_show_* columns PRESENT.
+
+================================================================================
+PHASE 2 - INSTALL
+================================================================================
+  bash .m7_v47_evidence/adbdev.sh install -r build/app/outputs/flutter-apk/app-debug.apk
+  Performing Streamed Install
+  Success
+
+Only `adb install -r` was used - no other install flags. No uninstall, no
+`pm clear`, no downgrade, no wipe, no clear cache/data, no DB replace or
+restore, no manual DB edit, no WorkManager mutation, no reminder mutation.
+
+================================================================================
+PHASE 3 - REPLACE-INSTALL VERIFICATION
+================================================================================
+  firstInstallTime  2026-07-27 15:42:22   PRESERVED
+  lastUpdateTime    2026-09-13 11:52:04   UPDATED
+  dataDir           /data/user/0/com.nexttransfer.rmplanner   PRESERVED
+  versionCode 1 / versionName 0.1.0 / minSdk 24 / targetSdk 36   unchanged
+
+Installed base.apk read back from the new codePath and hashed:
+  241,015,121 bytes, sha256 f8450460de4ed70ab2ab03034ddb5b22dfd573d5ed12f1505a2c07e2c26a0c21
+  cmp against the built APK -> BYTE-FOR-BYTE IDENTICAL: YES
+  (INSTALLED APK HASH MATCH = YES; the STOP condition was not triggered)
+
+================================================================================
+PHASE 4 - FIRST LAUNCH
+================================================================================
+  am start -W -n com.nexttransfer.rmplanner/.MainActivity
+  Status: ok   LaunchState: UNKNOWN (0)   WaitTime: 3066   Complete
+
+IMPORTANT SEQUENCING NOTE (recorded for honesty):
+The display was DOZING / screen OFF at first launch (mWakefulness=Dozing,
+mScreenState=OFF, keyguard showing). Flutter started (Impeller/Vulkan) but with
+no visible surface the app never reached its DB-open path - next_transfer.sqlite
+mtime stayed at 2026-09-12 23:15 and no -wal/-shm appeared. The "no database
+lock" check would therefore have been vacuous.
+
+The display was woken (input keyevent KEYCODE_WAKEUP, non-destructive) and the
+keyguard was found to be non-secure (isKeyguardShowing=false, app window held
+mCurrentFocus). Only then did the app reach DB open: mtime moved to 2026-09-13
+12:01. The lock/exception scan was then performed against a genuinely
+DB-opening launch.
+
+Post-DB-open scan over the captured logcat:
+  FATAL EXCEPTION        0
+  SqliteException        0
+  database is locked     0
+  BEGIN IMMEDIATE        0
+  Unhandled Exception    0
+  ANR in                 0
+  ProviderException      0
+  SQLITE_BUSY            0
+  MigrationException     0
+  E/-level lines         0
+
+No splash window remained in the window stack; MainActivity was the resumed
+activity and held focus; the UI reached a usable state showing the owner's real
+data (Life Goals, contacts, Swim / Temple Visit goals) with all four tabs.
+The expected corrective DriftNativeOptions(shareAcrossIsolates: true) is present
+in the shipped kernel (8 occurrences) and the withdrawn busy_timeout is absent
+(its only kernel hit is a package:sqlite3 doc comment).
+
+APP FIRST LAUNCH = PASS     DATABASE LOCK ERROR = NONE
+
+================================================================================
+PHASE 5 - POST-INSTALL DB PRESERVATION
+================================================================================
+Read-only post-install pulls were taken and verified twice: once immediately
+after first launch, and once again after all physical smoke interaction.
+
+  PRE-INSTALL  sha256 7f2a45a4...dbadbfa  1,748,992 bytes
+  POST-LAUNCH  integrity ok, user_version 47, 45 tables, 0 differing row counts
+               between two independent pulls
+  FINAL        sha256 426117aa5473c13f3c2af0d9a34269cb5a03ca324d093359bbabf64569e17443
+               (two independent pulls byte-identical -> quiescent)
+
+Verifier (device_db_verify.py, extended this session to assert the five M7
+columns), pre-install vs FINAL:
+  [PASS] schema version still 47
+  [PASS] integrity_check = ok
+  [PASS] quick_check = ok
+  [PASS] table count preserved
+  [PASS] owner row counts preserved (45 tables)
+  [PASS] M7 detailed_show_* columns present (5)
+  OVERALL = PASS
+
+The five M7 Detailed-notification columns are still present:
+  detailed_show_title, detailed_show_description, detailed_show_time,
+  detailed_show_contacts, detailed_show_location
+
+Churn analysis (so the byte-level difference is not misread as data change):
+journal_mode = delete (hence no -wal/-shm). Between two idle pulls the SQLite
+file change counter advanced 14363 -> 14364 while ZERO tables changed content -
+a no-op write transaction, not a data change. No owner row was lost.
+
+The owner's DB was NOT mutated to make any test pass.
+
+================================================================================
+PHASE 6 - PHYSICAL PLANNER CURRENT-TIME SMOKE
+================================================================================
+Planner opened, date Sun 13 Sep 2026 = TODAY selected, device clock 12:03:21.
+The indicator sat inside the viewport (no scroll needed) and inside the shipped
+6..22 visible-hour window. App theme: light.
+
+Rendered on the REAL device framebuffer (1080x2400, dpr 2.625), blue primary
+rgb(23, 90, 143) sampled from both text and line:
+
+  COMPONENT   BLUE PIXELS   BBOX (device px)         GEOMETRY
+  text        2031          x  69..190  y 758..787   h 30 px = 11.4 logical
+  dot          479          x 192..217  y 758..787   diameter 30 px = 11.4 logical
+  line        3984          x 218..1043 y 770..775   h 6 px = 2.3 logical
+
+The dot's column-height sweep peaks smoothly at 30 px (x=200..207), matching
+PlannerCurrentTimeHorizontalGeometry.dotSize = 10 logical (10 x 2.625 = 26.25 px
+core + antialiased rim). 6x nearest-neighbour crop
+(step1_indicator_tight_zoom6.png) shows the blue "12:03 PM" readout, the dot and
+the line together, with the grey "12 PM" hour label beneath.
+
+The blue readout renders smaller than the grey hour label - the expected,
+already-accepted CT-03 consequence of Mechanism E (FittedBox scaleDown inside
+the 12 px band yields ~10.00 logical px versus the hour label's 13.0 px). It
+remains clearly legible on the physical panel.
+
+  PLANNER CURRENT-TIME TEXT = PHYSICALLY VERIFIED
+  PLANNER DOT               = VERIFIED
+  PLANNER LINE              = VERIFIED
+  PLANNER PHYSICAL SMOKE    = PASS
+
+Planner was NOT redesigned and no production source was changed.
+
+================================================================================
+PHASE 7 - PHYSICAL MAPS SMOKE
+================================================================================
+Maps opened in NORMAL BROWSING state (satellite, owner markers and saved-place
+boundary overlay). No boundary-drawing or pin-placement mode was active during
+evidence capture.
+
+  SDK-NATIVE COMPASS   PRESENT AND VISIBLE at the top-left of the map surface:
+                       white circular button, red north pointer, grey south tail.
+                       This is the SDK's own control (evidence:
+                       maps_compass_topleft_zoom4.png, 4x crop).
+  MAPS LOCATE ME       PRESERVED as its own separate feature. The floating
+                       control column contains exactly three FABs, confirmed in
+                       source (google_maps_surface.dart:1600-1638):
+                         maps-drop-pin-button  Icons.location_pin     'Drop pin'
+                         maps-type-button      Icons.layers_outlined 'Map type'
+                         maps-locate-button    Icons.my_location     'Locate me'
+                       Locate me was NOT used as the compass test.
+  NO CUSTOM FACE NORTH BUTTON
+                       grep over lib/features/maps for compassEnabled|faceNorth|
+                       Face North|bearing|rotateGestures|tiltGestures|northUp
+                       returns ZERO control tokens (one doc comment only).
+                       No custom Face North button was added.
+
+OUTSTANDING STEP - the two-finger rotate. `adb input` is single-pointer only and
+cannot synthesise a two-finger rotate. A single-pointer tap at the compass
+location was delivered and produced no visible camera or compass change, which
+is consistent with a camera that is already north-up (tapping a compass on a
+north-up camera is a no-op). This is NOT claimed as a pass.
+
+  MAPS AUTO FACE NORTH = SDK-NATIVE COMPASS PRESENT AND VISIBLE;
+                         rotate-and-tap step PENDING OWNER
+
+Honest note: an earlier stray tap entered the app's Drop Pin placement mode
+("Move map to place pin"). It was cancelled with the X control, normal browsing
+was restored and re-captured, and nothing was placed, drawn or saved.
+
+================================================================================
+PHASE 8 - NOTIFICATION SETTINGS SMOKE (NONDESTRUCTIVE)
+================================================================================
+Reached via drawer -> Settings -> Notifications. Read only; nothing toggled.
+
+  [PASS] Notifications Settings opens (AppBar title 'Notifications')
+  [PASS] DETAILED CONTENT section present
+  [PASS] All five Detailed fields rendered with their own toggles, all ON:
+         Show title / Show description / Show time / Show contacts /
+         Show location (source: notifications_settings_screen.dart:448,458,470,480,490)
+  [PASS] Live Preview card renders a real composite notification, captioned
+         "This is the exact text a notification will show."
+  [PASS] Privacy Lock behaviour and UI intact: PRIVACY -> 'Notification preview'
+         toggle; privacyLockActive is authoritative and resolved WITHOUT
+         consulting the per-field toggles (:431-435); the locked-state copy
+         "Privacy Lock forces Generic previews while protected without changing
+         your saved choice." is present (:249-253).
+  [PASS] No explicit Open action button (grep snooze|'Open'|Open action|
+         actionButton = ZERO matches)
+  [PASS] No Snooze action introduced (same grep = ZERO matches)
+  [PASS] No obvious notification-settings regression
+
+  NOTIFICATION SETTINGS SMOKE = PASS
+
+No reminder or domain data was manufactured. No destructive reminder experiment
+was run.
+
+================================================================================
+FAIL CONDITIONS - ALL CHECKED, NONE TRIGGERED
+================================================================================
+wrong device                                  NO - authorized handset confirmed
+multiple ambiguous devices                    NO - single device, serial pinned
+APK size/hash mismatch                        NO
+adb install -r fails                          NO - Success
+firstInstallTime changes                      NO - preserved
+app data disappears                           NO - dataDir preserved
+app hangs / crashes / ANRs                    NO - zero fatal/ANR signatures
+SqliteException / database lock returns       NO - zero occurrences
+schema changes away from 47                   NO - still 47
+integrity_check fails                         NO - ok
+quick_check fails                             NO - ok
+owner row counts unexpectedly change          NO - 45/45 preserved
+Planner current-time text physically absent   NO - PHYSICALLY VERIFIED
+Maps native compass fails to appear           NO - compass present and visible
+installed APK readback differs                NO - byte-for-byte identical
+
+No destructive repair was attempted or required.
+
+================================================================================
+FINAL BOUNDARY
+================================================================================
+COMMIT = NOT PERFORMED
+PUSH   = NOT PERFORMED
+M8     = NOT STARTED
+
+No commit, no push, no M8 work, no unrelated cleanup, and no change to the
+Planner, Maps or notification implementation. Planner, Maps and notification
+source files were read for verification only. The owner decides checkpoint and
+promotion separately.
+
+--------------------------------------------------------------------------------
+DISCLOSURES (device-state changes made during verification)
+--------------------------------------------------------------------------------
+1. The display was woken with `input keyevent KEYCODE_WAKEUP` (non-destructive,
+   reversible) because the device was dozing and the app could not otherwise
+   reach its DB-open path.
+2. `svc power stayon true` was issued to keep the screen on during the physical
+   smoke. `settings get global stay_on_while_plugged_in` now reads 15. If the
+   owner did not previously have "Stay awake while charging" enabled, this is
+   the one device setting that should be checked and reverted in Developer
+   options. Nothing else in device settings was changed.
+3. The owner appears to have been using the phone concurrently with the
+   automation (the foreground moved to the owner's game and to the system photo
+   picker between commands). Two stray taps landed outside the app because of
+   this; both are described above. No owner app data was modified by them.
+4. The app was left on the Notifications settings screen inside the app.
+
+--------------------------------------------------------------------------------
+EVIDENCE INVENTORY
+--------------------------------------------------------------------------------
+.m7_v47_evidence/install_result_20260913.txt                     Success
+.m7_v47_evidence/post_install_package_state_20260913.txt          timestamps
+.m7_v47_evidence/installed_apk_readback/base.apk                  readback APK
+.m7_v47_evidence/first_launch_result_20260913.txt                 am start -W
+.m7_v47_evidence/logcat_first_launch_20260913.txt                 launch log
+.m7_v47_evidence/logcat_after_wake_20260913.txt                   post-wake log
+.m7_v47_evidence/db_verify_pre_install_baseline.txt               baseline
+.m7_v47_evidence/db_verify_pre_vs_post_20260913.txt               after launch
+.m7_v47_evidence/db_verify_pre_vs_final_20260913.txt              after smoke
+.m7_v47_evidence/device_db_pre3_20260913/next_transfer.sqlite     pre-install
+.m7_v47_evidence/device_db_post_20260913/next_transfer.sqlite     post-launch
+.m7_v47_evidence/device_db_final_20260913/next_transfer.sqlite    final
+.m7_v47_evidence/PHASE6_PLANNER_PHYSICAL_SMOKE_20260913.txt
+.m7_v47_evidence/PHASE7_8_MAPS_AND_NOTIFICATIONS_SMOKE_20260913.txt
+.m7_v47_evidence/screens/step1_planner_20260913.png
+.m7_v47_evidence/screens/step1_indicator_tight_zoom6.png
+.m7_v47_evidence/screens/maps_compass_topleft_zoom4.png
+.m7_v47_evidence/screens/maps_right_fabs_zoom3.png
+.m7_v47_evidence/screens/notifications_detailed_20260913.png
+.m7_v47_evidence/screens/notifications_privacy_20260913.png
+.m7_v47_evidence/screens/final_home_state_20260913.png
+
+================================================================================
+OUTSTANDING - OWNER ACTION REQUESTED
+================================================================================
+One physical step could not be automated. On the device, in Maps normal
+browsing mode:
+
+  1. Rotate the map away from north with a two-finger twist.
+     Expected: the SDK-native compass remains visible at the top-left and its
+     needle tracks north.
+  2. Tap that compass.
+     Expected: the map animates back to north-up and the needle straightens.
+  3. Confirm zoom and target remain appropriate, and that Locate me still works
+     as a separate control.
+
+Report back and this final step can be closed as PASS.
+================================================================================
+END OF REPORT

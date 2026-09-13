@@ -1,0 +1,15 @@
+=== CTI-critical files: diff vs 7b1395c (should be EMPTY) ===
+IDENTICAL  lib/features/planner/presentation/planner_screen.dart
+IDENTICAL  lib/features/planner/presentation/widgets/planner_interactive_day_pager.dart
+IDENTICAL  lib/features/planner/domain/planner_settings.dart
+IDENTICAL  lib/features/planner/domain/planner_timeline_layout.dart
+IDENTICAL  lib/features/planner/domain/planner_view.dart
+IDENTICAL  lib/features/planner/presentation/planner_settings_screen.dart
+IDENTICAL  test/features/planner/presentation/planner_current_time_indicator_test.dart
+IDENTICAL  test/features/planner/presentation/planner_interactive_day_pager_current_time_test.dart
+IDENTICAL  test/features/planner/presentation/planner_interactive_day_pager_preview_test.dart
+IDENTICAL  test/features/planner/presentation/planner_correction_pack_test.dart
+
+=== sha256 of the two live indicator sources (working tree) ===
+36450a206e2cd005d4d8b1e70718b214d64637e8df4e8cc63f624429fd991f85 *lib/features/planner/presentation/planner_screen.dart
+5f4120938730a3c696d6a5b0eab4041aac7a0dc6f5c6333ebb6b7f0f4d936a0b *lib/features/planner/presentation/widgets/planner_interactive_day_pager.dart

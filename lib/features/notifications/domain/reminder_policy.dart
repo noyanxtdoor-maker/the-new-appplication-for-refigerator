@@ -1,5 +1,27 @@
 enum ReminderSourceKind { calendarEvent, task, weeklyReview, awaitingReport }
 
+/// The stable-key family prefix owned by one reminder source kind.
+///
+/// Forensic finding F03: `weeklyReview` and `awaitingReport` both persist
+/// `ownerKind = planning`, so a profile + category + owner-kind filter cannot
+/// tell the two planning families apart.  A cleanup pass for one family could
+/// therefore retrieve the other family's durable rows and rebuild a
+/// cancellation under the WRONG family key from a shared occurrence token.
+///
+/// Durable-work queries and cancellations consequently also match this prefix.
+/// This is the single derivation; no caller re-spells the literal.
+extension ReminderSourceKindFamily on ReminderSourceKind {
+  String get stableKeyFamilyPrefix => switch (this) {
+    ReminderSourceKind.weeklyReview => 'planning:weekly-review:',
+    ReminderSourceKind.awaitingReport => 'planning:awaiting-report:',
+    ReminderSourceKind.calendarEvent => 'reminder:calendarEvent:',
+    ReminderSourceKind.task => 'reminder:task:',
+  };
+
+  bool ownsStableKey(String stableKey) =>
+      stableKey.startsWith(stableKeyFamilyPrefix);
+}
+
 enum ReminderPurpose { standard, contactFollowUp }
 
 enum ReminderPolicyMode { inherit, off, offset }
@@ -58,22 +80,47 @@ final class ReminderPolicy {
     }
   }
 
+  /// Sentinel used by purpose-update APIs to distinguish "argument omitted"
+  /// from "explicitly set to null".
+  static const Object unsetContactId = Object();
+
+  /// Purpose/Contact law (contract section 9): an omitted [purpose] preserves
+  /// the current value; an explicit [ReminderPurpose.standard] clears
+  /// [contactId]; [ReminderPurpose.contactFollowUp] sets the supplied Contact,
+  /// or keeps the existing one when [contactId] is omitted.  [clearPurpose] is
+  /// an explicit escape hatch so null-ambiguity can never make clearing
+  /// impossible.
   ReminderPolicy copyWith({
     ReminderPolicyMode? mode,
     int? offsetMinutes,
     bool clearOffset = false,
     DateTime? updatedAtUtc,
-  }) => ReminderPolicy(
-    id: id,
-    profileId: profileId,
-    sourceKind: sourceKind,
-    sourceId: sourceId,
-    occurrenceId: occurrenceId,
-    purpose: purpose,
-    contactId: contactId,
-    mode: mode ?? this.mode,
-    offsetMinutes: clearOffset ? null : offsetMinutes ?? this.offsetMinutes,
-    createdAtUtc: createdAtUtc,
-    updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
-  );
+    ReminderPurpose? purpose,
+    Object? contactId = unsetContactId,
+    bool clearPurpose = false,
+  }) {
+    final resolvedPurpose = clearPurpose
+        ? ReminderPurpose.standard
+        : (purpose ?? this.purpose);
+    final resolvedContactId = switch (resolvedPurpose) {
+      ReminderPurpose.standard => null,
+      ReminderPurpose.contactFollowUp =>
+        identical(contactId, unsetContactId)
+            ? this.contactId
+            : contactId as String?,
+    };
+    return ReminderPolicy(
+      id: id,
+      profileId: profileId,
+      sourceKind: sourceKind,
+      sourceId: sourceId,
+      occurrenceId: occurrenceId,
+      purpose: resolvedPurpose,
+      contactId: resolvedContactId,
+      mode: mode ?? this.mode,
+      offsetMinutes: clearOffset ? null : offsetMinutes ?? this.offsetMinutes,
+      createdAtUtc: createdAtUtc,
+      updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
+    );
+  }
 }

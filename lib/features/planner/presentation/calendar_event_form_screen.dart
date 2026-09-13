@@ -22,6 +22,7 @@ import 'package:rmplanner/features/maps/presentation/map_location_picker_screen.
 import 'package:rmplanner/features/maps/presentation/map_pin_section.dart';
 import 'package:rmplanner/features/notifications/application/notification_providers.dart';
 import 'package:rmplanner/features/notifications/domain/reminder_policy.dart';
+import 'package:rmplanner/features/notifications/domain/reminder_policy_label.dart';
 import 'package:rmplanner/features/notifications/presentation/reminder_time_picker.dart';
 import 'package:rmplanner/features/planner/application/calendar_event_creation_draft_provider.dart';
 import 'package:rmplanner/features/planner/application/calendar_event_providers.dart';
@@ -62,6 +63,7 @@ final class CalendarEventFormScreen extends ConsumerStatefulWidget {
     this.initialDurationMinutes,
     this.onClose,
     this.initialContactIds = const <String>[],
+    this.followUpContactId,
     this.sheetPresentation = false,
     this.sheetScrollController,
     this.sheetController,
@@ -103,7 +105,9 @@ final class CalendarEventFormScreen extends ConsumerStatefulWidget {
        onClose = null,
        initialTitle = null,
        initialEventTypeLabel = null,
-       initialStatusIntent = null;
+       initialStatusIntent = null,
+       // A Task->Event link is an ordinary creation, never a follow-up entry.
+       followUpContactId = null;
 
   const CalendarEventFormScreen.edit({
     required this.eventId,
@@ -133,7 +137,10 @@ final class CalendarEventFormScreen extends ConsumerStatefulWidget {
        initialDurationMinutes = null,
        onClose = null,
        sourceTaskId = null,
-       initialContactIds = const <String>[];
+       initialContactIds = const <String>[],
+       // M7 adds no general UI for purpose reassignment: only the chooser
+       // establishes provenance, so edit never seeds it (section 9).
+       followUpContactId = null;
 
   const CalendarEventFormScreen.reschedule({
     required this.eventId,
@@ -160,7 +167,8 @@ final class CalendarEventFormScreen extends ConsumerStatefulWidget {
        initialContactIds = const <String>[],
        initialTitle = null,
        initialEventTypeLabel = null,
-       initialStatusIntent = null;
+       initialStatusIntent = null,
+       followUpContactId = null;
 
   final CalendarEventFormMode mode;
   final PlannerDate? initialDate;
@@ -189,6 +197,11 @@ final class CalendarEventFormScreen extends ConsumerStatefulWidget {
   final bool deferRecurrenceScopeToSave;
   final String? sourceTaskId;
   final List<String> initialContactIds;
+
+  /// M7 section 8 — the ONE Contact explicitly chosen in the Contact Detail
+  /// follow-up chooser.  Null on every ordinary creation path; never seeded by
+  /// edit or reschedule, because M7 adds no general purpose-reassignment UI.
+  final String? followUpContactId;
 
   /// NX-06: identity seeds for the Edit Event loading shell (known from the
   /// detail sheet at open time). Null keeps the previous blank-pause behavior
@@ -240,6 +253,12 @@ final class _CalendarEventFormScreenState
   // distinguish "same-type preservation" (no new-selection gate) from an
   // explicit type change (must pass current eligibility) per contract E.
   String? _loadedTypeId;
+
+  /// O9 (section 66): an explicit user selection flag.  Comparing the selected
+  /// id with the master [_loadedTypeId] is insufficient — re-selecting the
+  /// original type in the picker still counts as a deliberate selection and
+  /// must use the canonical current label, not the loaded snapshot.
+  bool _eventTypeSelectionChanged = false;
   bool _isBackupAppointment = false;
   String? _backupForEventId;
   String? _backupRelationshipProvenance;
@@ -365,7 +384,11 @@ final class _CalendarEventFormScreenState
 
   Future<void> _loadConfiguration() async {
     final controller = ref.read(eventTypeControllerProvider.notifier);
-    await controller.load();
+    // O1/O10: a warm same-profile successful load is reused rather than forced
+    // through a redundant reload; a cold or foreign-profile state still waits
+    // truthfully here.  The narrow readiness gate below stays the authority on
+    // whether the data may seed creation eligibility.
+    await controller.ensureLoaded();
     if (!mounted) {
       return;
     }
@@ -448,7 +471,23 @@ final class _CalendarEventFormScreenState
     // Eligible Other fallback (contract E), without any preference write.
     // When eligibility never resolved, fall back to raw Other so the form
     // stays usable without advertising an unvalidated slot type.
-    selected ??= eligibilityReady
+    //
+    // O9 (section 66): for an EXISTING Event whose occurrence snapshot is the
+    // only truthful label, the Other slot must never be advertised as this
+    // Event's type.  A persisted `activityTypeId` that no longer resolves is
+    // unmapped, not "Other": the form keeps a null selection (honest
+    // "Edit Event" heading, raw label as the last-resort field wording) rather
+    // than claiming a semantic type the Event never had.
+    final loadedTypeIdentity =
+        existingDraft?.activityTypeId ?? widget.initialEventTypeId;
+    final suppressOtherFallback =
+        widget.mode != CalendarEventFormMode.create &&
+        loadedTypeIdentity != null &&
+        selected == null &&
+        (_loadedEventTypeLabel?.trim().isNotEmpty ?? false);
+    selected ??= suppressOtherFallback
+        ? null
+        : eligibilityReady
         ? eligibleChoices
               .where(
                 (choice) =>
@@ -559,6 +598,8 @@ final class _CalendarEventFormScreenState
         .updateEventType(selected);
     setState(() {
       _selectedEventType = selected;
+      // A deliberate picker decision, even reselecting the original type.
+      _eventTypeSelectionChanged = true;
       _applyEventTypeDefaults(selected);
       if (selected.isLockedWliType) {
         _linkedIndicatorKey = selected.exactIndicatorKey;
@@ -669,25 +710,54 @@ final class _CalendarEventFormScreenState
   /// keeps its loaded occurrence/master snapshot label until the user
   /// explicitly changes the type. Resolver unavailability falls back to the
   /// raw label — display only, identity stays on the raw type.
+  /// O9 (section 66): resolves the display label for this Event's type.
+  ///
+  /// Before any deliberate picker change the form must show the label of the
+  /// occurrence it ACTUALLY opened — the freshly loaded effective occurrence
+  /// label and identity — not the raw master row, whose `activityTypeId` can be
+  /// a retired/Other binding while the occurrence carries a truthful exception.
+  /// The master snapshot is only a fallback when the occurrence is unavailable,
+  /// and [widget.initialEventTypeLabel] stays a loading seed rather than an
+  /// eternal override of newer reads.
   String _formTypeDisplayLabel() {
     final selected = _selectedEventType;
     if (selected == null) {
       return 'Not selected';
     }
-    if (widget.mode == CalendarEventFormMode.create ||
-        selected.id != _loadedTypeId) {
-      final choices = ref
-          .read(eventTypeCreationChoicesProvider)
-          .value;
-      if (choices != null) {
-        for (final choice in choices) {
-          if (choice.type.id == selected.id) {
-            return choice.displayLabel;
-          }
-        }
+    // A deliberate selection always wins: it is the user's current intent, and
+    // its label comes from the canonical creation choice.
+    if (widget.mode == CalendarEventFormMode.create || _eventTypeSelectionChanged) {
+      final resolved = _creationChoiceLabelOf(selected.id);
+      if (resolved != null) {
+        return resolved;
       }
+      return selected.label;
+    }
+    // Unchanged Edit: prefer the effective occurrence label captured at load.
+    final loaded = _loadedEventTypeLabel?.trim();
+    if (loaded != null && loaded.isNotEmpty) {
+      return loaded;
+    }
+    final resolved = _creationChoiceLabelOf(selected.id);
+    if (resolved != null) {
+      return resolved;
     }
     return selected.label;
+  }
+
+  /// The canonical creation-choice display label for [typeId], when the
+  /// provider currently exposes an eligible choice for it.
+  String? _creationChoiceLabelOf(String typeId) {
+    final choices = ref.read(eventTypeCreationChoicesProvider).value;
+    if (choices == null) {
+      return null;
+    }
+    for (final choice in choices) {
+      if (choice.type.id == typeId) {
+        return choice.displayLabel;
+      }
+    }
+    return null;
   }
 
   Widget _buildEventTypeField() {
@@ -929,6 +999,9 @@ final class _CalendarEventFormScreenState
     _loadedEventTypeLabel =
         occurrence?.activityTypeLabel ?? draft.activityTypeLabelSnapshot;
     _loadedTypeId = draft.activityTypeId;
+    // O9: a fresh load is not a deliberate selection.  The displayed label
+    // follows the loaded effective occurrence until the user picks a type.
+    _eventTypeSelectionChanged = false;
     // Owner fix: prefill Backup from the effective occurrence (which merges
     // occurrence-scoped overrides) so a Backup set via "This event only" —
     // or by an earlier edit — still shows ON when the form is reopened.
@@ -2121,21 +2194,48 @@ final class _CalendarEventFormScreenState
     ],
   );
 
+  /// O9 (section 66): the Edit heading must agree with the type field, so it
+  /// resolves through the SAME effective display label rather than the raw
+  /// master row.  When no trustworthy label exists the form keeps the plain
+  /// "Edit Event" wording instead of inventing a semantic type.
   String get _formHeading => switch (widget.mode) {
     CalendarEventFormMode.create when widget.sourceTaskId != null =>
       'Create Event from Task',
     CalendarEventFormMode.create =>
       _selectedEventType == null
           ? 'Create Event'
-          : 'Create ${_selectedEventType!.label}',
+          : 'Create ${_resolvedHeadingLabel()}',
     CalendarEventFormMode.edit =>
       _selectedEventType == null
           ? widget.initialEventTypeLabel?.trim().isNotEmpty == true
                 ? 'Edit ${widget.initialEventTypeLabel} Event'
                 : 'Edit Event'
-          : 'Edit ${_selectedEventType!.label} Event',
+          : _trustworthyTypeLabel() == null
+          ? 'Edit Event'
+          : 'Edit ${_resolvedHeadingLabel()} Event',
     CalendarEventFormMode.reschedule => 'Reschedule Event',
   };
+
+  /// The heading label, resolved exactly like [_formTypeDisplayLabel] so the
+  /// heading and the type field can never disagree about the same Event.
+  String _resolvedHeadingLabel() {
+    final label = _formTypeDisplayLabel();
+    return label == 'Not selected' ? 'Event' : label;
+  }
+
+  /// The type label for heading purposes, or null when the only available
+  /// wording would be an untrustworthy raw fallback for an existing type.
+  String? _trustworthyTypeLabel() {
+    if (widget.mode == CalendarEventFormMode.create ||
+        _eventTypeSelectionChanged) {
+      return _formTypeDisplayLabel();
+    }
+    final loaded = _loadedEventTypeLabel?.trim();
+    if (loaded != null && loaded.isNotEmpty) {
+      return loaded;
+    }
+    return _creationChoiceLabelOf(_selectedEventType!.id);
+  }
 
   /// NX-06: truthful Edit loading shell. When the detail sheet has already
   /// seeded the known identity, the loading state shows the seeded title
@@ -2403,6 +2503,9 @@ final class _CalendarEventFormScreenState
         awaitPlannerRefresh: false,
         reminderMode: _reminderMode,
         reminderOffsetMinutes: _reminderOffsetMinutes,
+        // M7 section 8: the explicit Contact follow-up path withholds the
+        // controller's early scheduling until People + purpose have committed.
+        deferReminderReconciliation: widget.followUpContactId != null,
       ),
       CalendarEventFormMode.edit => await _saveEdit(draft, controller),
       CalendarEventFormMode.reschedule => await controller.rescheduleEvent(
@@ -2534,6 +2637,13 @@ final class _CalendarEventFormScreenState
           );
         }
       }
+      // M7 section 8 step 4/5: apply the explicit source-level purpose to the
+      // SERIES policy (preserving its timing) and then reconcile that source.
+      // This runs only for the chooser-created follow-up; every ordinary save
+      // already scheduled inside its own controller call above.
+      if (!await _finalizeFollowUp()) {
+        return;
+      }
       if (!mounted) {
         return;
       }
@@ -2542,6 +2652,67 @@ final class _CalendarEventFormScreenState
         return;
       }
       _closeForm(true);
+    }
+  }
+
+  /// M7 section 8 step 1/4/5 — finalize an explicit Contact follow-up.
+  ///
+  /// Returns `true` when the save may continue closing the form.  Returns
+  /// `false` only when the follow-up could not be applied AFTER the canonical
+  /// Event commit: the form stays open with the exact truthful copy, its stable
+  /// ids are kept, and the user can retry the same source id idempotently.
+  ///
+  /// The Contact is validated against CURRENT canonical truth here, not against
+  /// the intent captured when the chooser opened.  If it is no longer an active
+  /// member of this profile the normal source save stands and the pending
+  /// follow-up intent is dropped with the exact "Saved without follow-up."
+  /// copy — no phantom Contact is created and no valid history is rolled back.
+  Future<bool> _finalizeFollowUp() async {
+    final contactId = widget.followUpContactId;
+    if (contactId == null) {
+      return true;
+    }
+    final profileId = ref.read(contactProfileIdProvider);
+    var contactIsActive = false;
+    try {
+      final detail = await ref
+          .read(contactRepositoryProvider)
+          .readContactDetail(profileId: profileId, contactId: contactId);
+      contactIsActive = detail.contact.isActive;
+    } on Object {
+      contactIsActive = false;
+    }
+    if (!mounted) {
+      return false;
+    }
+    if (!contactIsActive) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Saved without follow-up.')),
+      );
+      return true;
+    }
+    try {
+      final controller = ref.read(calendarEventControllerProvider.notifier);
+      await controller.applySeriesReminderPurpose(
+        sourceId: _draftId,
+        purpose: ReminderPurpose.contactFollowUp,
+        contactId: contactId,
+      );
+      await controller.reconcileEventHorizon(eventId: _draftId);
+      return true;
+    } on Object {
+      // The Event and its People links are committed; we must NOT claim the
+      // source was not saved.  Keep the stable id so a retry is idempotent.
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Saved, but follow-up could not be applied. Try again.',
+            ),
+          ),
+        );
+      }
+      return false;
     }
   }
 
@@ -2801,13 +2972,11 @@ final class _CalendarEventFormScreenState
         if (inherited == null) {
           return 'Default (Off)  ›';
         }
-        return inherited == 0
-            ? 'Default (At event time)  ›'
-            : 'Default ($inherited min before)  ›';
+        return 'Default (${ReminderPolicyLabel.inheritedOffsetMinutes(inherited)})  ›';
       case ReminderPolicyMode.off:
         return 'Off  ›';
       case ReminderPolicyMode.offset:
-        return '${_reminderOffsetMinutes ?? 0} minutes before  ›';
+        return '${ReminderPolicyLabel.offsetMinutes(_reminderOffsetMinutes ?? 0)}  ›';
     }
   }
 

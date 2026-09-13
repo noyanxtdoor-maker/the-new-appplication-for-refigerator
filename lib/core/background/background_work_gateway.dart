@@ -2,6 +2,12 @@ enum BackgroundNetworkConstraint { notRequired, connected, unmetered }
 
 enum BackgroundExistingWorkPolicy { keep, replace }
 
+/// Mirrors the installed plugin's [BackoffPolicy] without leaking it into the
+/// domain layer.  Contract section 31 requires exponential minimum backoff for
+/// bounded delivery retries; the composition layer supplies the concrete
+/// delays (30s/60s/120s/240s for attempts 1-4).
+enum BackgroundBackoffPolicy { linear, exponential }
+
 enum BackgroundGatewayWorkState { absent, scheduled }
 
 final class BackgroundWorkConstraints {
@@ -27,6 +33,8 @@ final class BackgroundWorkSpec {
     this.tag,
     this.constraints = const BackgroundWorkConstraints(),
     this.existingPolicy = BackgroundExistingWorkPolicy.keep,
+    this.backoffPolicy,
+    this.backoffPolicyDelay,
   });
 
   static final RegExp _safeKey = RegExp(r'^[a-z0-9_]{1,64}$');
@@ -39,6 +47,11 @@ final class BackgroundWorkSpec {
   final String? tag;
   final BackgroundWorkConstraints constraints;
   final BackgroundExistingWorkPolicy existingPolicy;
+
+  /// Optional bounded-retry configuration (contract section 31).  Absent means
+  /// the platform default; delivery work that is allowed to retry sets both.
+  final BackgroundBackoffPolicy? backoffPolicy;
+  final Duration? backoffPolicyDelay;
 
   void validate() {
     if (tag != null && !_safeValue.hasMatch(tag!)) throw ArgumentError('Invalid background tag.');

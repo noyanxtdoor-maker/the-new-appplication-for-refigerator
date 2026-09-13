@@ -14,7 +14,6 @@ import 'package:rmplanner/features/indicators/application/indicator_providers.da
 import 'package:rmplanner/features/notifications/application/launcher_badge_providers.dart';
 import 'package:rmplanner/features/notifications/application/notification_privacy_refresh_provider.dart';
 import 'package:rmplanner/features/notifications/application/notification_providers.dart';
-import 'package:rmplanner/features/notifications/application/reminder_background_runtime.dart';
 import 'package:rmplanner/features/planner/application/calendar_event_providers.dart';
 import 'package:rmplanner/features/planner/application/calendar_event_repository.dart';
 import 'package:rmplanner/features/planner/application/planner_providers.dart';
@@ -100,6 +99,24 @@ final class _NextTransferAppState extends ConsumerState<NextTransferApp>
     if (!mounted || ref.read(startupControllerProvider) is! StartupReady) {
       return;
     }
+    // Section 28: a DURABLE dirty marker turns into one bounded KEEP recovery
+    // job, so a repair that commits with a mutation survives the app being
+    // killed mid-pass.  KEEP never cancels a recovery that is already running.
+    // No marker means nothing to repair and no OS work is scheduled.
+    try {
+      final startup = ref.read(startupControllerProvider);
+      final profileId =
+          ref.read(reminderRuntimeProfileIdProvider) ??
+          (startup is StartupReady ? startup.profile.id : null);
+      if (profileId != null) {
+        await ref
+            .read(reminderRecoveryCoordinatorProvider)
+            .enqueueIfDirty(profileId: profileId);
+      }
+    } on Object {
+      // Recovery enqueue is opportunistic; the in-process pass below and the
+      // native boot/time receiver both remain available.
+    }
     try {
       await ref.read(reconcileRemindersProvider)();
     } on Object {
@@ -135,10 +152,9 @@ final class _NextTransferAppState extends ConsumerState<NextTransferApp>
     NotificationResponseIntent intent,
   ) async {
     if (intent.action == NotificationResponseAction.snooze) {
-      await enqueueReminderSnooze(
-        snooze: intent,
-        actionAtUtc: DateTime.now().toUtc(),
-      );
+      // Snooze is DEFERRED (contract section 48).  Response routing is one of
+      // the required kill-switch entry points: a legacy or forged-but-valid
+      // Snooze intent terminates here without scheduling or mutating anything.
       return;
     }
     final startup = ref.read(startupControllerProvider);
@@ -174,7 +190,7 @@ final class _NextTransferAppState extends ConsumerState<NextTransferApp>
           // One frame later the shell exists; capture the navigator via a
           // microtask-safe read so the overlay context outlives the async gap.
           await Future<void>.delayed(Duration.zero);
-          final navigator = appRootNavigatorKey.currentState;
+          final navigator = _navigatorAfterAwait(intent.profileId);
           if (navigator == null || !navigator.mounted) return;
           await showNotificationEventPreview(
             navigator.context,
@@ -192,7 +208,7 @@ final class _NextTransferAppState extends ConsumerState<NextTransferApp>
           // then the shared Task preview presenter.
           router.go(RoutePaths.planner);
           await Future<void>.delayed(Duration.zero);
-          final navigator = appRootNavigatorKey.currentState;
+          final navigator = _navigatorAfterAwait(intent.profileId);
           if (navigator == null || !navigator.mounted) return;
           await showNotificationTaskPreview(navigator.context, taskId: task.id);
         }
@@ -236,7 +252,7 @@ final class _NextTransferAppState extends ConsumerState<NextTransferApp>
         }
         router.go(RoutePaths.planner);
         await Future<void>.delayed(Duration.zero);
-        final navigator = appRootNavigatorKey.currentState;
+        final navigator = _navigatorAfterAwait(intent.profileId);
         if (navigator == null || !navigator.mounted) return;
         await showNotificationEventPreview(
           navigator.context,
@@ -247,6 +263,20 @@ final class _NextTransferAppState extends ConsumerState<NextTransferApp>
       default:
         return;
     }
+  }
+
+  /// Post-await readiness recheck (contract section 19, forensic F06).
+  ///
+  /// `router.go` plus a zero-duration delay yields a frame, and Privacy Lock can
+  /// re-lock the app in that gap.  The pending notification must therefore be
+  /// re-validated against the CURRENT mounted state and the CURRENT ready
+  /// profile before any preview is presented; a stale resolution is a safe
+  /// no-op rather than a presentation over a locked app.
+  NavigatorState? _navigatorAfterAwait(String profileId) {
+    if (!_notificationProfileReady(profileId)) return null;
+    final navigator = appRootNavigatorKey.currentState;
+    if (navigator == null || !navigator.mounted) return null;
+    return navigator;
   }
 
   @override
