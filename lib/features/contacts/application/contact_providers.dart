@@ -102,6 +102,8 @@ final contactsControllerProvider =
 
 final class ContactsController extends Notifier<ContactsState> {
   int _generation = 0;
+  Future<void>? _activeLoad;
+  bool _reloadDirty = false;
 
   ContactRepository get _repository => ref.read(contactRepositoryProvider);
 
@@ -120,7 +122,7 @@ final class ContactsController extends Notifier<ContactsState> {
     ref.listen(contactChangesProvider(profileId), (_, _) {
       unawaited(refresh());
     });
-    unawaited(Future<void>.microtask(_load));
+    unawaited(Future<void>.microtask(_requestLoad));
     return const ContactsState(
       status: ContactsLoadStatus.loading,
       criteria: ContactFilterCriteria(),
@@ -164,7 +166,28 @@ final class ContactsController extends Notifier<ContactsState> {
     }
   }
 
-  Future<void> refresh() => _load();
+  Future<void> refresh() => _requestLoad();
+
+  /// M4 P03: collapse pulse bursts to one active read plus, when needed, one
+  /// trailing read of the final criteria/source state. Generation checks in
+  /// [_load] remain the durable state-publication guard.
+  Future<void> _requestLoad() {
+    if (_activeLoad != null) {
+      _reloadDirty = true;
+      return _activeLoad!;
+    }
+    late final Future<void> active;
+    active = () async {
+      do {
+        _reloadDirty = false;
+        await _load();
+      } while (_reloadDirty);
+    }();
+    _activeLoad = active;
+    return active.whenComplete(() {
+      if (identical(_activeLoad, active)) _activeLoad = null;
+    });
+  }
 
   void applyFilter(
     ContactFilterCriteria criteria, {
@@ -181,7 +204,7 @@ final class ContactsController extends Notifier<ContactsState> {
       viewCriteria: criteria,
       replaceViewCriteria: updateCurrentView,
     );
-    unawaited(_load());
+    unawaited(_requestLoad());
   }
 
   void applyStandardView(ContactStandardView standardView) {
@@ -193,14 +216,14 @@ final class ContactsController extends Notifier<ContactsState> {
       clearAppliedFilter: true,
       clearDisplayedFieldsOverride: true,
     );
-    unawaited(_load());
+    unawaited(_requestLoad());
   }
 
   /// Applies a compact-rail data criterion without replacing the current
   /// Status/All/saved base view. The baseline is retained for funnel reset.
   void applyQuickFilter(ContactFilterCriteria criteria) {
     state = state.copyWith(criteria: criteria);
-    unawaited(_load());
+    unawaited(_requestLoad());
   }
 
   void setDisplayedFieldsOverride(List<ContactDisplayedField>? fields) {
@@ -209,7 +232,7 @@ final class ContactsController extends Notifier<ContactsState> {
 
   void setSort(ContactSortBy sortBy) {
     state = state.copyWith(sortBy: sortBy);
-    unawaited(_load());
+    unawaited(_requestLoad());
   }
 
   /// Removes temporary quick-filter changes while retaining the selected
@@ -220,7 +243,7 @@ final class ContactsController extends Notifier<ContactsState> {
       criteria: baseline,
       clearDisplayedFieldsOverride: true,
     );
-    unawaited(_load());
+    unawaited(_requestLoad());
   }
 
   void clearMessage() {

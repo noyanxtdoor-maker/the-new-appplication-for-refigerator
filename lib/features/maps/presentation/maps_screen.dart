@@ -556,11 +556,9 @@ final class _MapsScreenState extends ConsumerState<MapsScreen>
   }
 
   void _retryMarkers() {
-    ref.invalidate(mapMarkersProvider);
-    ref.invalidate(mapPeopleMarkersProvider);
-    ref.invalidate(mapEventMarkersProvider);
-    ref.invalidate(mapSavedPlaceMarkersProvider);
-    ref.invalidate(mapProjectedMarkersProvider);
+    for (final owner in MapCoordinateOwner.values) {
+      _invalidateMarkerOwner(owner);
+    }
   }
 
   void _selectMarker(MapMarker marker) {
@@ -645,7 +643,7 @@ final class _MapsScreenState extends ConsumerState<MapsScreen>
       return;
     }
     if (!mounted) return;
-    _invalidateMarkers();
+    _invalidateMarkerOwner(session.marker.owner);
     final updated = MapMarker(
       owner: session.marker.owner,
       recordId: session.marker.recordId,
@@ -801,7 +799,7 @@ final class _MapsScreenState extends ConsumerState<MapsScreen>
                       ),
                     );
                 if (!mounted) return;
-                _invalidateMarkers();
+                _invalidateMarkerOwner(MapCoordinateOwner.savedPlace);
                 _selectedMarkerController.select(
                   MapMarker(
                     owner: MapCoordinateOwner.savedPlace,
@@ -863,7 +861,7 @@ final class _MapsScreenState extends ConsumerState<MapsScreen>
     }
     if (!mounted) return;
     _dismissSelection();
-    _invalidateMarkers();
+    _invalidateMarkerOwner(MapCoordinateOwner.savedPlace);
   }
 
   Future<void> _openAddContact(MapCoordinate coordinate) async {
@@ -871,7 +869,7 @@ final class _MapsScreenState extends ConsumerState<MapsScreen>
       RoutePaths.contactCreate,
       extra: AddContactMapExtra(coordinate: coordinate),
     );
-    if (mounted) _invalidateMarkers();
+    if (mounted) _invalidateMarkerOwner(MapCoordinateOwner.contact);
   }
 
   Future<void> _openAddEvent(MapCoordinate coordinate) async {
@@ -883,7 +881,7 @@ final class _MapsScreenState extends ConsumerState<MapsScreen>
       '&lng=${coordinate.longitude}&date=${today.iso8601}'
       '&startMinute=$startMinute',
     );
-    if (mounted) _invalidateMarkers();
+    if (mounted) _invalidateMarkerOwner(MapCoordinateOwner.event);
   }
 
   Future<void> _savePlace(SavedPlaceDraft draft) async {
@@ -891,7 +889,7 @@ final class _MapsScreenState extends ConsumerState<MapsScreen>
         .read(savedPlaceRepositoryProvider)
         .create(profileId: ref.read(savedPlaceProfileIdProvider), draft: draft);
     if (!mounted) return;
-    _invalidateMarkers();
+    _invalidateMarkerOwner(MapCoordinateOwner.savedPlace);
   }
 
   /// Cancels whichever provisional placement mode is active (inline edit,
@@ -1142,11 +1140,18 @@ final class _MapsScreenState extends ConsumerState<MapsScreen>
     return overlay;
   }
 
-  void _invalidateMarkers() {
+  void _invalidateMarkerOwner(MapCoordinateOwner owner) {
+    ref.invalidate(mapOwnerMarkersProvider(owner));
     ref.invalidate(mapMarkersProvider);
-    ref.invalidate(mapPeopleMarkersProvider);
-    ref.invalidate(mapEventMarkersProvider);
-    ref.invalidate(mapSavedPlaceMarkersProvider);
+    switch (owner) {
+      case MapCoordinateOwner.contact:
+        ref.invalidate(mapPeopleMarkersProvider);
+      case MapCoordinateOwner.event:
+        ref.invalidate(mapEventMarkersProvider);
+        ref.invalidate(mapFocusedEventMarkersProvider);
+      case MapCoordinateOwner.savedPlace:
+        ref.invalidate(mapSavedPlaceMarkersProvider);
+    }
     ref.invalidate(mapProjectedMarkersProvider);
   }
 }

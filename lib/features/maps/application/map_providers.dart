@@ -426,24 +426,102 @@ final mapProfileIdProvider = Provider<String>((ref) {
   return startup.profile.id;
 });
 
-/// All located markers for the current profile, refreshed on any contact or
-/// calendar-event table change (including a new map pin being persisted).
+/// M4 P07 source-specific marker feed. Each owner uses its own table-change
+/// stream and read whenever the repository supports it; older narrow test
+/// doubles deliberately retain the previous broad read/filter fallback.
+final mapOwnerMarkersProvider =
+    StreamProvider.family<List<MapMarker>, MapCoordinateOwner>((ref, owner) {
+      final profileId = ref.read(mapProfileIdProvider);
+      final repository = ref.watch(mapCoordinateRepositoryProvider);
+      final MapCoordinateOwnerRepository? ownerRepository =
+          repository is MapCoordinateOwnerRepository
+          ? repository as MapCoordinateOwnerRepository
+          : null;
+      final changes = ownerRepository?.watchOwnerChanges(profileId, owner) ??
+          repository.watchChanges(profileId);
+      return _coalescedMarkerReads(
+        changes: changes,
+        read: () async {
+          if (ownerRepository case final ownerSource?) {
+            return ownerSource.readOwnerMarkers(profileId, owner);
+          }
+          final markers = await repository.readMarkers(profileId);
+          return markers
+              .where((marker) => marker.owner == owner)
+              .toList(growable: false);
+        },
+      );
+    });
+
+/// Compatibility union for existing consumers. M4 keeps composition cheap:
+/// a source mutation changes its own feed, then this union only rejoins the
+/// latest three source values without rereading their sibling owner tables.
 final mapMarkersProvider = StreamProvider<List<MapMarker>>((ref) async* {
-  final profileId = ref.read(mapProfileIdProvider);
-  final repository = ref.watch(mapCoordinateRepositoryProvider);
-  ref.watch(mapChangesProvider(profileId));
-  yield await repository.readMarkers(profileId);
+  final values = await Future.wait(<Future<List<MapMarker>>>[
+    ref.watch(mapOwnerMarkersProvider(MapCoordinateOwner.contact).future),
+    ref.watch(mapOwnerMarkersProvider(MapCoordinateOwner.event).future),
+    ref.watch(mapOwnerMarkersProvider(MapCoordinateOwner.savedPlace).future),
+  ]);
+  yield <MapMarker>[...values[0], ...values[1], ...values[2]];
 });
 
 final mapChangesProvider = StreamProvider.family<int, String>((ref, profileId) {
   return ref.read(mapCoordinateRepositoryProvider).watchChanges(profileId);
 });
 
+Stream<List<MapMarker>> _coalescedMarkerReads({
+  required Stream<int> changes,
+  required Future<List<MapMarker>> Function() read,
+}) {
+  late final StreamController<List<MapMarker>> controller;
+  StreamSubscription<int>? subscription;
+  Future<void>? active;
+  var dirty = false;
+
+  Future<void> request() {
+    if (active != null) {
+      dirty = true;
+      return active!;
+    }
+    late final Future<void> running;
+    running = () async {
+      do {
+        dirty = false;
+        try {
+          controller.add(await read());
+        } on Object catch (error, stackTrace) {
+          controller.addError(error, stackTrace);
+        }
+      } while (dirty);
+    }();
+    active = running;
+    return running.whenComplete(() {
+      if (identical(active, running)) active = null;
+    });
+  }
+
+  controller = StreamController<List<MapMarker>>(
+    onListen: () {
+      subscription = changes.listen(
+        (_) => unawaited(request()),
+        onError: controller.addError,
+      );
+      unawaited(request());
+    },
+    onCancel: () async {
+      await subscription?.cancel();
+    },
+  );
+  return controller.stream;
+}
+
 /// Truthful located-Contact projection. Canonical filtering and canonical
 /// search are intersected before the coordinate requirement is applied.
 final mapPeopleMarkersProvider = FutureProvider<List<MapMarker>>((ref) async {
   final profileId = ref.read(mapProfileIdProvider);
-  final raw = await ref.watch(mapMarkersProvider.future);
+  final raw = await ref.watch(
+    mapOwnerMarkersProvider(MapCoordinateOwner.contact).future,
+  );
   final rawById = <String, MapMarker>{
     for (final marker in raw)
       if (marker.owner == MapCoordinateOwner.contact) marker.recordId: marker,
@@ -522,8 +600,9 @@ Future<List<ContactSummary>> searchMapPeople(
     repository.searchContacts(profileId: profileId, query: query, today: today),
   ]);
   final filteredIds = results[0].map((item) => item.contact.id).toSet();
-  final locatedIds = (await ref.read(mapMarkersProvider.future))
-      .where((marker) => marker.owner == MapCoordinateOwner.contact)
+  final locatedIds = (await ref.read(
+        mapOwnerMarkersProvider(MapCoordinateOwner.contact).future,
+      ))
       .map((marker) => marker.recordId)
       .toSet();
   return results[1]
@@ -568,7 +647,9 @@ final class MapLocalDayController extends Notifier<PlannerDate> {
 /// Calendar repository's recurrence/exception owner and never loads Tasks.
 final mapEventMarkersProvider = FutureProvider<List<MapMarker>>((ref) async {
   final profileId = ref.read(mapProfileIdProvider);
-  final raw = await ref.watch(mapMarkersProvider.future);
+  final raw = await ref.watch(
+    mapOwnerMarkersProvider(MapCoordinateOwner.event).future,
+  );
   final rawById = <String, MapMarker>{
     for (final marker in raw)
       if (marker.owner == MapCoordinateOwner.event) marker.recordId: marker,
@@ -621,7 +702,9 @@ final mapFocusedEventMarkersProvider = FutureProvider<List<MapMarker>>((
   if (focus?.ownerKind != MapFocusOwnerKind.eventOccurrence) return const [];
   final today = ref.watch(mapLocalDayProvider);
   final profileId = ref.read(mapProfileIdProvider);
-  final raw = await ref.watch(mapMarkersProvider.future);
+  final raw = await ref.watch(
+    mapOwnerMarkersProvider(MapCoordinateOwner.event).future,
+  );
   final rawById = {
     for (final marker in raw)
       if (marker.owner == MapCoordinateOwner.event) marker.recordId: marker,
@@ -665,10 +748,7 @@ final mapFocusedEventMarkersProvider = FutureProvider<List<MapMarker>>((
 final mapSavedPlaceMarkersProvider = FutureProvider<List<MapMarker>>((
   ref,
 ) async {
-  final raw = await ref.watch(mapMarkersProvider.future);
-  return raw
-      .where((marker) => marker.owner == MapCoordinateOwner.savedPlace)
-      .toList(growable: false);
+  return ref.watch(mapOwnerMarkersProvider(MapCoordinateOwner.savedPlace).future);
 });
 
 bool _isMissingRootOverride(Object error, String repositoryName) => error

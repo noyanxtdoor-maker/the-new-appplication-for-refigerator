@@ -133,3 +133,17 @@ abstract interface class MapCoordinateRepository {
   /// Every located Contact, Event, and Saved Place marker in the profile.
   Future<List<MapMarker>> readMarkers(String profileId);
 }
+
+/// Optional narrow Maps seam used by M4.  Implementations that can identify
+/// the owning table expose source-specific change streams and reads, allowing
+/// a Contact/Event/Saved Place write to avoid refreshing the other layers.
+/// Legacy test doubles retain [MapCoordinateRepository] compatibility and
+/// safely use the broad fallback in the provider graph.
+abstract interface class MapCoordinateOwnerRepository {
+  Stream<int> watchOwnerChanges(String profileId, MapCoordinateOwner owner);
+
+  Future<List<MapMarker>> readOwnerMarkers(
+    String profileId,
+    MapCoordinateOwner owner,
+  );
+}

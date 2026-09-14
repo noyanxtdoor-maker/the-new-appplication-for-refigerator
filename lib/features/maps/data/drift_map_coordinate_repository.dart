@@ -16,7 +16,8 @@ import 'package:rmplanner/features/planner/domain/planner_date.dart';
 /// invariant (both present or both absent) is enforced on every write, and
 /// clearing a pin touches ONLY the coordinate columns — address/location
 /// text is never modified.
-final class DriftMapCoordinateRepository implements MapCoordinateRepository {
+final class DriftMapCoordinateRepository
+    implements MapCoordinateRepository, MapCoordinateOwnerRepository {
   DriftMapCoordinateRepository({required this.database, required this.clock});
 
   final AppDatabase database;
@@ -37,6 +38,14 @@ final class DriftMapCoordinateRepository implements MapCoordinateRepository {
             database.savedPlaces,
           ]),
         )
+        .map((_) => ++generation);
+  }
+
+  @override
+  Stream<int> watchOwnerChanges(String profileId, MapCoordinateOwner owner) {
+    var generation = 0;
+    return database
+        .tableUpdates(TableUpdateQuery.onAllTables(_ownerTables(owner)))
         .map((_) => ++generation);
   }
 
@@ -182,84 +191,117 @@ final class DriftMapCoordinateRepository implements MapCoordinateRepository {
   @override
   Future<List<MapMarker>> readMarkers(String profileId) async {
     final markers = <MapMarker>[];
-    final contactRows =
-        await (database.select(database.contacts)..where(
-              (table) =>
-                  table.profileId.equals(profileId) &
-                  table.latitude.isNotNull() &
-                  table.longitude.isNotNull(),
-            ))
-            .get();
-    for (final row in contactRows) {
-      final coordinate = MapCoordinate.tryParse(row.latitude, row.longitude);
-      if (coordinate == null) {
-        continue;
-      }
-      markers.add(
-        MapMarker(
-          owner: MapCoordinateOwner.contact,
-          recordId: row.id,
-          coordinate: coordinate,
-          displayName: row.displayName,
-        ),
-      );
-    }
-    final eventRows =
-        await (database.select(database.calendarEvents)..where(
-              (table) =>
-                  table.profileId.equals(profileId) &
-                  table.latitude.isNotNull() &
-                  table.longitude.isNotNull(),
-            ))
-            .get();
-    for (final row in eventRows) {
-      final coordinate = MapCoordinate.tryParse(row.latitude, row.longitude);
-      if (coordinate == null) {
-        continue;
-      }
-      markers.add(
-        MapMarker(
-          owner: MapCoordinateOwner.event,
-          recordId: row.id,
-          coordinate: coordinate,
-          displayName: row.title,
-          eventOriginalDate: _safeParseDate(row.startDate),
-        ),
-      );
-    }
-    final savedPlaceRows =
-        await (database.select(database.savedPlaces)
-              ..where((table) => table.profileId.equals(profileId))
-              ..orderBy([
-                (table) => OrderingTerm.asc(table.label),
-                (table) => OrderingTerm.asc(table.id),
-              ]))
-            .get();
-    for (final row in savedPlaceRows) {
-      final mode = SavedPlaceMarkerModePersistence.fromStorage(row.markerMode);
-      markers.add(
-        MapMarker(
-          owner: MapCoordinateOwner.savedPlace,
-          recordId: row.id,
-          coordinate: MapCoordinate(
-            latitude: row.latitude,
-            longitude: row.longitude,
-          ),
-          displayName: row.label,
-          colorValue: markerColorHexToArgb(row.markerColor),
-          placeMarkerMode: mode,
-          placeStandardCategory:
-              SavedPlaceStandardCategoryPresentation.fromStorage(
-                row.standardCategory,
-              ),
-          placeEmoji: mode == SavedPlaceMarkerMode.custom
-              ? row.customEmoji
-              : null,
-        ),
-      );
+    for (final owner in MapCoordinateOwner.values) {
+      markers.addAll(await readOwnerMarkers(profileId, owner));
     }
     return markers;
   }
+
+  @override
+  Future<List<MapMarker>> readOwnerMarkers(
+    String profileId,
+    MapCoordinateOwner owner,
+  ) => switch (owner) {
+    MapCoordinateOwner.contact => _readContactMarkers(profileId),
+    MapCoordinateOwner.event => _readEventMarkers(profileId),
+    MapCoordinateOwner.savedPlace => _readSavedPlaceMarkers(profileId),
+  };
+
+  Future<List<MapMarker>> _readContactMarkers(String profileId) async {
+    final rows = await (database.select(database.contacts)..where(
+          (table) =>
+              table.profileId.equals(profileId) &
+              table.latitude.isNotNull() &
+              table.longitude.isNotNull(),
+        ))
+        .get();
+    return <MapMarker>[
+      for (final row in rows)
+        if (MapCoordinate.tryParse(row.latitude, row.longitude)
+            case final coordinate?)
+          MapMarker(
+            owner: MapCoordinateOwner.contact,
+            recordId: row.id,
+            coordinate: coordinate,
+            displayName: row.displayName,
+          ),
+    ];
+  }
+
+  Future<List<MapMarker>> _readEventMarkers(String profileId) async {
+    final rows = await (database.select(database.calendarEvents)..where(
+          (table) =>
+              table.profileId.equals(profileId) &
+              table.latitude.isNotNull() &
+              table.longitude.isNotNull(),
+        ))
+        .get();
+    return <MapMarker>[
+      for (final row in rows)
+        if (MapCoordinate.tryParse(row.latitude, row.longitude)
+            case final coordinate?)
+          MapMarker(
+            owner: MapCoordinateOwner.event,
+            recordId: row.id,
+            coordinate: coordinate,
+            displayName: row.title,
+            eventOriginalDate: _safeParseDate(row.startDate),
+          ),
+    ];
+  }
+
+  Future<List<MapMarker>> _readSavedPlaceMarkers(String profileId) async {
+    final rows = await (database.select(database.savedPlaces)
+          ..where((table) => table.profileId.equals(profileId))
+          ..orderBy([
+            (table) => OrderingTerm.asc(table.label),
+            (table) => OrderingTerm.asc(table.id),
+          ]))
+        .get();
+    return <MapMarker>[
+      for (final row in rows)
+        (() {
+          final mode = SavedPlaceMarkerModePersistence.fromStorage(
+            row.markerMode,
+          );
+          return MapMarker(
+            owner: MapCoordinateOwner.savedPlace,
+            recordId: row.id,
+            coordinate: MapCoordinate(
+              latitude: row.latitude,
+              longitude: row.longitude,
+            ),
+            displayName: row.label,
+            colorValue: markerColorHexToArgb(row.markerColor),
+            placeMarkerMode: mode,
+            placeStandardCategory:
+                SavedPlaceStandardCategoryPresentation.fromStorage(
+                  row.standardCategory,
+                ),
+            placeEmoji: mode == SavedPlaceMarkerMode.custom
+                ? row.customEmoji
+                : null,
+          );
+        })(),
+    ];
+  }
+
+  List<ResultSetImplementation> _ownerTables(MapCoordinateOwner owner) =>
+      switch (owner) {
+        MapCoordinateOwner.contact => <ResultSetImplementation>[
+          database.contacts,
+          database.contactGroupMemberships,
+          database.contactGroups,
+        ],
+        MapCoordinateOwner.event => <ResultSetImplementation>[
+          database.calendarEvents,
+          database.calendarEventExceptions,
+          database.outcomeReports,
+        ],
+        MapCoordinateOwner.savedPlace => <ResultSetImplementation>[
+          database.savedPlaces,
+        ],
+      };
 
   static PlannerDate? _safeParseDate(String raw) {
     try {
