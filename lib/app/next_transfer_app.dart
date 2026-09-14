@@ -287,7 +287,9 @@ final class _NextTransferAppState extends ConsumerState<NextTransferApp>
       case AppLifecycleState.paused:
       case AppLifecycleState.hidden:
       case AppLifecycleState.detached:
-        if (ref.read(privacyControllerProvider).settings.lockEnabled) {
+        // M1 (S01): unknown privacy provenance still requires protection, so
+        // a fallback "disabled" value cannot skip the accepted session timer.
+        if (ref.read(privacyControllerProvider).requiresProtection) {
           _backgroundSession.enterBackground(() {
             _relockForBackground(controller);
           });

@@ -30,39 +30,64 @@ final class StartupController extends Notifier<StartupState> {
     return const StartupOpening();
   }
 
+  /// M1 (S01): a result is published only while its attempt is still the newest
+  /// security resolution and this notifier is still mounted.  Stale results and
+  /// stale failures are discarded, never converted into a new state.
+  bool _isCurrent(int attempt) => attempt == _attempt && ref.mounted;
+
   Future<void> initialize() async {
-    _attempt += 1;
+    final attempt = ++_attempt;
     state = const StartupOpening();
     _diagnostics.record(
       'startup_initialize',
-      context: <String, Object?>{'attempt': _attempt},
+      context: <String, Object?>{'attempt': attempt},
     );
     try {
       final snapshot = await _repository.resolveStartup();
+      if (!_isCurrent(attempt)) {
+        return;
+      }
       state = _stateFromSnapshot(snapshot);
     } on Object {
+      if (!_isCurrent(attempt)) {
+        return;
+      }
       _diagnostics.record(
         'startup_recovery_required',
-        context: <String, Object?>{'attempt': _attempt},
+        context: <String, Object?>{'attempt': attempt},
       );
       state = const StartupRecovery(reasonCode: 'database_open_failed');
     }
   }
 
   Future<void> continueLocalOnly() async {
+    final attempt = _attempt;
     try {
       final checkpoint = await _repository.beginOrResumeOnboarding();
+      if (!_isCurrent(attempt)) {
+        return;
+      }
       state = StartupOnboarding(checkpoint);
     } on Object {
+      if (!_isCurrent(attempt)) {
+        return;
+      }
       state = const StartupRecovery(reasonCode: 'onboarding_start_failed');
     }
   }
 
   Future<void> saveDraft(String? displayName) async {
+    final attempt = _attempt;
     try {
       final checkpoint = await _repository.saveOnboardingDraft(displayName);
+      if (!_isCurrent(attempt)) {
+        return;
+      }
       state = StartupOnboarding(checkpoint);
     } on Object {
+      if (!_isCurrent(attempt)) {
+        return;
+      }
       _diagnostics.record(
         'onboarding_draft_save_failed',
         context: const <String, Object?>{'onboarding_stage': 'profileDraft'},
@@ -71,14 +96,21 @@ final class StartupController extends Notifier<StartupState> {
   }
 
   Future<void> completeOnboarding() async {
+    final attempt = _attempt;
     try {
       final profile = await _repository.completeOnboarding();
+      if (!_isCurrent(attempt)) {
+        return;
+      }
       state = StartupReady(
         profile: profile,
         accountSessionState: AccountSessionState.localOnly,
         syncState: LocalSyncState.notConfigured,
       );
     } on Object {
+      if (!_isCurrent(attempt)) {
+        return;
+      }
       state = const StartupRecovery(reasonCode: 'profile_creation_failed');
     }
   }
@@ -88,7 +120,15 @@ final class StartupController extends Notifier<StartupState> {
     if (current is! StartupReady) {
       return;
     }
+    final attempt = _attempt;
     final profile = await _repository.updateDisplayName(displayName);
+    if (!_isCurrent(attempt)) {
+      return;
+    }
+    final latest = state;
+    if (latest is! StartupReady || latest.profile.id != current.profile.id) {
+      return;
+    }
     state = StartupReady(
       profile: profile,
       accountSessionState: current.accountSessionState,

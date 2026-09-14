@@ -323,7 +323,7 @@ final class _HomeScreenState extends ConsumerState<HomeScreen> {
       today: today,
     );
     final handled = next.catchError((Object error, StackTrace stackTrace) {
-      debugPrint('Home daily target update failed: $error');
+      debugPrint('[NextTransfer] home_daily_target_write_failed');
       // Honest rollback: the canonical store did not move, so drop the
       // optimistic overlay and reconcile from the repository.
       if (mounted) {
