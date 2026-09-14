@@ -470,9 +470,9 @@ abstract final class AppTheme {
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
       ),
-      // B2-CORRECTION: Light FABs use the semantic primary fill with an
-      // onPrimary icon (Rose #A62C49 / Blue #175A8F + white).  Dark keeps
-      // the M3 default so dark goldens stay byte-identical.
+      // App-owned primary FABs share one semantic role in every palette.
+      // Individual feature FABs must not bypass this with container colors:
+      // same theme + same primary-action role = primary/onPrimary.
       floatingActionButtonTheme: FloatingActionButtonThemeData(
         backgroundColor: primary,
         foregroundColor: onPrimary,
@@ -602,6 +602,13 @@ abstract final class AppTheme {
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
+      ),
+      // Keep the owner-accepted dark accents on the same canonical primary
+      // FAB role as Light mode. Contacts, Maps, and Planner inherit this
+      // treatment rather than independently selecting container roles.
+      floatingActionButtonTheme: FloatingActionButtonThemeData(
+        backgroundColor: primary,
+        foregroundColor: blueDarkOnPrimary,
       ),
       // Pack 2 accent restraint: the selected root uses the theme primary
       // (Rose Dark baseline = canonical rose; Blue Dark = blue accent), while

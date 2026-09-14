@@ -60,20 +60,21 @@ void main() {
     });
 
     test('dark FABs resolve the canonical primary/onPrimary', () {
-      // The dark ThemeData keeps the M3 FAB default (fill from
-      // primaryContainer), while the screen-owned FABs (Contacts, Planner,
-      // Home) explicitly use colorScheme.primary/onPrimary.  Both roles
-      // must come from the canonical corrected tokens.
-      final blue = AppTheme.dark(ThemeColorMode.blue).colorScheme;
-      final rose = AppTheme.dark(ThemeColorMode.rose).colorScheme;
-      expect(blue.primaryContainer, const Color(0xFF123A5C));
+      final blueTheme = AppTheme.dark(ThemeColorMode.blue);
+      final roseTheme = AppTheme.dark(ThemeColorMode.rose);
+      final blue = blueTheme.colorScheme;
+      final rose = roseTheme.colorScheme;
       expect(blue.primary, AppTheme.blueDarkPrimary);
       expect(blue.onPrimary, AppTheme.blueDarkOnPrimary);
       expect(rose.primary, AppTheme.roseDarkPrimary);
       expect(rose.onPrimary, AppTheme.blueDarkOnPrimary);
+      expect(blueTheme.floatingActionButtonTheme.backgroundColor, blue.primary);
+      expect(blueTheme.floatingActionButtonTheme.foregroundColor, blue.onPrimary);
+      expect(roseTheme.floatingActionButtonTheme.backgroundColor, rose.primary);
+      expect(roseTheme.floatingActionButtonTheme.foregroundColor, rose.onPrimary);
     });
 
-    test('Contacts and all three Maps FABs share Home/Planner container roles', () {
+    test('Contacts and all three Maps FABs inherit the shared primary FAB role', () {
       final contacts = File(
         'lib/features/contacts/presentation/contacts_screen.dart',
       ).readAsStringSync();
@@ -81,16 +82,16 @@ void main() {
         'lib/features/maps/presentation/google_maps_surface.dart',
       ).readAsStringSync();
       expect(contacts, contains("key: const Key('add-contact-fab')"));
-      expect(contacts, contains('backgroundColor: Theme.of(context).colorScheme.primaryContainer'));
-      expect(contacts, contains('foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer'));
+      expect(contacts, isNot(contains('backgroundColor: Theme.of(context).colorScheme.primaryContainer')));
+      expect(contacts, isNot(contains('foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer')));
       for (final key in <String>[
         'maps-drop-pin-button',
         'maps-type-button',
         'maps-locate-button',
       ]) {
         final control = maps.substring(maps.indexOf(key));
-        expect(control, contains('backgroundColor: Theme.of(context).colorScheme.primaryContainer'));
-        expect(control, contains('foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer'));
+        expect(control, isNot(contains('backgroundColor: Theme.of(context).colorScheme.primaryContainer')));
+        expect(control, isNot(contains('foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer')));
       }
       expect(maps, isNot(contains('_controlSurfaceOf')));
     });
@@ -155,6 +156,22 @@ void main() {
   });
 
   group('no-change boundaries', () {
+    test('Light Blue and Light Rose primary FAB roles match Planner defaults', () {
+      for (final theme in <ThemeData>[
+        AppTheme.light(ThemeColorMode.blue),
+        AppTheme.light(ThemeColorMode.rose),
+      ]) {
+        expect(
+          theme.floatingActionButtonTheme.backgroundColor,
+          theme.colorScheme.primary,
+        );
+        expect(
+          theme.floatingActionButtonTheme.foregroundColor,
+          theme.colorScheme.onPrimary,
+        );
+      }
+    });
+
     test('Light primaries are byte-identical', () {
       expect(AppTheme.blueLightPrimary, const Color(0xFF175A8F));
       expect(AppTheme.roseLightPrimary, const Color(0xFFA62C49));
