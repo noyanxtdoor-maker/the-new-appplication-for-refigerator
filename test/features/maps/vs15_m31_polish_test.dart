@@ -44,7 +44,7 @@ void main() {
   );
   for (final mode in ThemeColorMode.values) {
     test(
-      'M3.1 $mode dark accent is saturated, legible, and strong on white',
+      'M3.1 $mode dark accent is saturated, legible, and readable',
       () {
         final theme = AppTheme.dark(mode);
         final scheme = theme.colorScheme;
@@ -58,7 +58,6 @@ void main() {
           contrast(scheme.primary, scheme.onPrimary),
           greaterThanOrEqualTo(4.5),
         );
-        expect(contrast(scheme.primary, Colors.white), greaterThanOrEqualTo(3));
       },
     );
     for (final dark in [false, true]) {
@@ -90,13 +89,8 @@ void main() {
           final button = tester.widget<FloatingActionButton>(
             find.byKey(Key(key)),
           );
-          expect(
-            button.backgroundColor,
-            mode == ThemeColorMode.blue
-                ? AppTheme.blueLightPrimary
-                : AppTheme.roseLightPrimary,
-          );
-          expect(button.foregroundColor, Colors.white);
+          expect(button.backgroundColor, theme.colorScheme.primaryContainer);
+          expect(button.foregroundColor, theme.colorScheme.onPrimaryContainer);
         }
         tester.view.physicalSize = const Size(431, 912);
         tester.view.devicePixelRatio = 1;

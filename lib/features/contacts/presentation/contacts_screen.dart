@@ -177,8 +177,8 @@ final class _ContactsScreenState extends ConsumerState<ContactsScreen> {
         heroTag: 'contacts-fab',
         tooltip: 'Add Contact',
         onPressed: () => context.push(RoutePaths.contactCreate),
-        backgroundColor: Theme.of(context).colorScheme.primary,
-        foregroundColor: Theme.of(context).colorScheme.onPrimary,
+        backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+        foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer,
         child: const Icon(Icons.person_add_alt, size: 29),
       ),
     );

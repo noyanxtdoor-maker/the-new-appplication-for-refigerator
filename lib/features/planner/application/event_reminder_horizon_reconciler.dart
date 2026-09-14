@@ -7,6 +7,11 @@ import 'package:rmplanner/features/planner/application/calendar_event_repository
 import 'package:rmplanner/features/planner/domain/planner_date.dart';
 import 'package:rmplanner/features/planner/domain/planner_day.dart';
 
+/// M3 P01 — a read-only source that can serve the source-scoped canonical
+/// range.  Production [DriftCalendarEventRepository] implements it; test
+/// doubles may implement only the unscoped capability.
+typedef ScopedEventRangeSource = CalendarEventScopedRangeSource;
+
 typedef ReconcileEventOccurrence =
     Future<void> Function({
       required String eventId,
@@ -41,11 +46,23 @@ final class EventReminderHorizonReconciler {
     String? eventId,
   }) async {
     final endDate = today.addDays(horizonDays);
-    final canonical = await rangeSource.readRange(
-      profileId: profileId,
-      startDate: today,
-      endDate: endDate,
-    );
+    // M3 P01: a SOURCE-scoped reconciliation must not project the entire
+    // profile horizon.  When the caller names one Event and the source can
+    // scope, constrain the SQL source rows to that Event BEFORE batching and
+    // per-date expansion.  Global recovery (eventId == null) and sources
+    // without the scoped capability keep the exact full-range path.
+    final canonical = eventId == null || rangeSource is! ScopedEventRangeSource
+        ? await rangeSource.readRange(
+            profileId: profileId,
+            startDate: today,
+            endDate: endDate,
+          )
+        : await (rangeSource as ScopedEventRangeSource).readRangeForEvents(
+            profileId: profileId,
+            startDate: today,
+            endDate: endDate,
+            eventIds: <String>{eventId},
+          );
     final expectedKeys = <String>{};
     final processedOccurrenceIds = <String>{};
     final nowUtc = clock.nowUtc();

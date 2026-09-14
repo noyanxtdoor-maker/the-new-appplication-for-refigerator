@@ -1327,21 +1327,6 @@ final class _GoogleMapsSurfaceState extends ConsumerState<GoogleMapsSurface> {
     }
   }
 
-  Color _controlSurfaceOf(BuildContext context) {
-    // Reuse the strong NT family tokens in both brightness modes. Dark
-    // primary accents are intended for foregrounds, not white-icon fills.
-    final primary = Theme.of(context).colorScheme.primary;
-    if (primary == AppTheme.blueLightPrimary ||
-        primary == AppTheme.blueDarkPrimary) {
-      return AppTheme.blueLightPrimary;
-    }
-    if (primary == AppTheme.roseLightPrimary ||
-        primary == AppTheme.roseDarkPrimary) {
-      return AppTheme.roseLightPrimary;
-    }
-    return primary;
-  }
-
   Future<void> _showMapTypes() async {
     await showModalBottomSheet<void>(
       context: context,
@@ -1525,7 +1510,6 @@ final class _GoogleMapsSurfaceState extends ConsumerState<GoogleMapsSurface> {
     final mapType = ref.watch(
       mapsSessionProvider.select((session) => session.mapType),
     );
-    final controlSurface = _controlSurfaceOf(context);
     final replacement = widget.mapBuilder?.call(context, visibleMarkers);
     return Stack(
       fit: StackFit.expand,
@@ -1610,8 +1594,8 @@ final class _GoogleMapsSurfaceState extends ConsumerState<GoogleMapsSurface> {
                     key: const Key('maps-drop-pin-button'),
                     tooltip: 'Drop pin',
                     onPressed: widget.onDropPin,
-                    backgroundColor: controlSurface,
-                    foregroundColor: Colors.white,
+                    backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                    foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer,
                     child: const Icon(Icons.location_pin),
                   ),
                   const SizedBox(height: 12),
@@ -1620,8 +1604,8 @@ final class _GoogleMapsSurfaceState extends ConsumerState<GoogleMapsSurface> {
                     key: const Key('maps-type-button'),
                     tooltip: 'Map type',
                     onPressed: _showMapTypes,
-                    backgroundColor: controlSurface,
-                    foregroundColor: Colors.white,
+                    backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                    foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer,
                     child: const Icon(Icons.layers_outlined),
                   ),
                   const SizedBox(height: 12),
@@ -1630,14 +1614,14 @@ final class _GoogleMapsSurfaceState extends ConsumerState<GoogleMapsSurface> {
                     key: const Key('maps-locate-button'),
                     tooltip: 'Locate me',
                     onPressed: _locating ? null : _locate,
-                    backgroundColor: controlSurface,
-                    foregroundColor: Colors.white,
+                    backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                    foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer,
                     child: _locating
-                        ? const SizedBox.square(
+                        ? SizedBox.square(
                             dimension: 18,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
-                              color: Colors.white,
+                              color: Theme.of(context).colorScheme.onPrimaryContainer,
                             ),
                           )
                         : const Icon(Icons.my_location),

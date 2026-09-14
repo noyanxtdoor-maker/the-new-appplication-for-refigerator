@@ -166,6 +166,29 @@ abstract interface class CalendarEventRangeSource {
   });
 }
 
+/// M3 P01 — optional SOURCE-SCOPED range capability.
+///
+/// Identical projection contract to [CalendarEventRangeSource.readRange]
+/// (same `_buildOccurrence` recurrence/exception/timezone/report/Task
+/// semantics, same 42-day inclusive window handled by the caller), except
+/// the SQL source rows are constrained to the requested Event IDs FIRST so
+/// batching and per-date expansion only ever process those sources.
+///
+/// Law:
+/// - an EMPTY ID set returns an EMPTY projection (never a full read);
+/// - a NULL id set means "no source constraint" and MUST behave exactly like
+///   the unscoped readRange (used by global recovery);
+/// - a result is still ordered and deduplicated exactly like readRange;
+/// - the result of a SCOPED read is never the full badge/planner universe.
+abstract interface class CalendarEventScopedRangeSource {
+  Future<List<PlannerCalendarItem>> readRangeForEvents({
+    required String profileId,
+    required PlannerDate startDate,
+    required PlannerDate endDate,
+    required Set<String>? eventIds,
+  });
+}
+
 abstract interface class CalendarEventDuplicateContextTransfer {
   Future<void> copyPeopleOnDuplicate({
     required String profileId,

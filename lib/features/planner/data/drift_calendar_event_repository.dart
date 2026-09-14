@@ -45,6 +45,7 @@ final class DriftCalendarEventRepository
     implements
         CalendarEventRepository,
         CalendarEventRangeSource,
+        CalendarEventScopedRangeSource,
         CalendarEventOccurrenceIdLookup {
   const DriftCalendarEventRepository({
     required this.database,
@@ -91,6 +92,43 @@ final class DriftCalendarEventRepository
     required String profileId,
     required PlannerDate startDate,
     required PlannerDate endDate,
+  }) => _readRangeInternal(
+    profileId: profileId,
+    startDate: startDate,
+    endDate: endDate,
+    eventIds: null,
+  );
+
+  /// M3 P01 — source-scoped canonical projection.  The SQL source rows are
+  /// constrained by profile + requested Event IDs BEFORE batching and
+  /// per-date expansion; everything downstream (reports, exceptions, Task
+  /// context, `_buildOccurrence`, ordering, dedup) is byte-for-byte the
+  /// shared unscoped path.  A null ID set behaves exactly like [readRange];
+  /// an EMPTY ID set returns an empty projection without touching the
+  /// Events table.
+  @override
+  Future<List<PlannerCalendarItem>> readRangeForEvents({
+    required String profileId,
+    required PlannerDate startDate,
+    required PlannerDate endDate,
+    required Set<String>? eventIds,
+  }) {
+    if (eventIds != null && eventIds.isEmpty) {
+      return Future.value(const <PlannerCalendarItem>[]);
+    }
+    return _readRangeInternal(
+      profileId: profileId,
+      startDate: startDate,
+      endDate: endDate,
+      eventIds: eventIds,
+    );
+  }
+
+  Future<List<PlannerCalendarItem>> _readRangeInternal({
+    required String profileId,
+    required PlannerDate startDate,
+    required PlannerDate endDate,
+    required Set<String>? eventIds,
   }) async {
     if (endDate.compareTo(startDate) < 0) {
       throw ArgumentError.value(
@@ -101,7 +139,13 @@ final class DriftCalendarEventRepository
     }
     final rows =
         await (database.select(database.calendarEvents)
-              ..where((table) => table.profileId.equals(profileId))
+              ..where(
+                (table) =>
+                    table.profileId.equals(profileId) &
+                    (eventIds == null
+                        ? const Constant<bool>(true)
+                        : table.id.isIn(eventIds)),
+              )
               ..orderBy(<OrderingTerm Function(CalendarEvents)>[
                 (table) => OrderingTerm.asc(table.createdAtUtc),
               ]))

@@ -10,6 +10,7 @@ import 'package:rmplanner/features/planner/domain/calendar_event.dart';
 import 'package:rmplanner/features/planner/domain/event_type.dart';
 import 'package:rmplanner/features/planner/domain/outcome_reporting.dart';
 import 'package:rmplanner/features/planner/domain/planner_date.dart';
+import 'package:rmplanner/features/planner/domain/planner_day.dart';
 import 'package:rmplanner/features/planner/domain/planner_task.dart';
 import 'package:rmplanner/features/planner/domain/task_event_link.dart';
 import 'package:uuid/uuid.dart';
@@ -842,7 +843,79 @@ final class DriftIndicatorRepository implements IndicatorRepository {
     );
   }
 
+  /// M3 P02 — the next applicable Temple visit, resolved through ONE scoped
+  /// canonical range projection instead of a per-date/per-occurrence
+  /// readOccurrence walk (M0 baseline: 2,203 SQL statements / ~311 ms for a
+  /// single daily Temple series).
+  ///
+  /// Eligibility law is preserved EXACTLY from the previous path:
+  /// - Temple source rows only (profile + SystemEventTypeIds.templeVisit);
+  /// - occurrence must be `scheduled`;
+  /// - occurrence must NOT be a replacement (`replacementEventId == null`);
+  /// - visible displayDate inside today..today+366 inclusive;
+  /// - the earliest such displayDate wins;
+  /// - a source with no eligible occurrence contributes nothing.
   Future<PlannerDate?> _readNextTempleVisit({
+    required String profileId,
+    required PlannerDate today,
+  }) async {
+    if (calendarEvents is! CalendarEventScopedRangeSource) {
+      return _readNextTempleVisitLegacy(profileId: profileId, today: today);
+    }
+    final horizon = today.addDays(366);
+    final scoped = calendarEvents as CalendarEventScopedRangeSource;
+    // Source-scoped range over the EXISTING today..today+366 window.  The
+    // canonical projection resolves recurrence, moved exceptions, reports,
+    // and timezone display dates once, in bounded batches.
+    final items = await scoped.readRangeForEvents(
+      profileId: profileId,
+      startDate: today,
+      endDate: horizon,
+      eventIds: await templeSourceIds(profileId),
+    );
+    PlannerDate? earliest;
+    for (final item in items) {
+      if (item.activityTypeId != SystemEventTypeIds.templeVisit ||
+          item.state != PlannerEventState.scheduled ||
+          item.replacementId != null) {
+        continue;
+      }
+      final displayDate = item.date;
+      if (displayDate.compareTo(today) < 0 ||
+          displayDate.compareTo(horizon) > 0) {
+        continue;
+      }
+      final currentEarliest = earliest;
+      if (currentEarliest == null ||
+          displayDate.compareTo(currentEarliest) < 0) {
+        earliest = displayDate;
+      }
+    }
+    return earliest;
+  }
+
+  /// The Temple source IDs for one profile, from ONE bounded source query.
+  /// Returns null only when the table read itself fails — never an empty
+  /// substitute for unknown truth (an empty set is a valid "no Temple
+  /// sources" answer and yields an empty scoped projection).
+  Future<Set<String>?> templeSourceIds(String profileId) async {
+    try {
+      final rows =
+          await (database.select(database.calendarEvents)..where(
+                (table) =>
+                    table.profileId.equals(profileId) &
+                    table.activityTypeId.equals(SystemEventTypeIds.templeVisit),
+              ))
+              .get();
+      return <String>{for (final row in rows) row.id};
+    } on Object {
+      return null;
+    }
+  }
+
+  /// The pre-M3 per-occurrence walk, retained ONLY for sources that cannot
+  /// serve the scoped range.  Semantics are frozen exactly as shipped.
+  Future<PlannerDate?> _readNextTempleVisitLegacy({
     required String profileId,
     required PlannerDate today,
   }) async {

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:rmplanner/app/theme/app_theme.dart';
@@ -69,6 +71,28 @@ void main() {
       expect(blue.onPrimary, AppTheme.blueDarkOnPrimary);
       expect(rose.primary, AppTheme.roseDarkPrimary);
       expect(rose.onPrimary, AppTheme.blueDarkOnPrimary);
+    });
+
+    test('Contacts and all three Maps FABs share Home/Planner container roles', () {
+      final contacts = File(
+        'lib/features/contacts/presentation/contacts_screen.dart',
+      ).readAsStringSync();
+      final maps = File(
+        'lib/features/maps/presentation/google_maps_surface.dart',
+      ).readAsStringSync();
+      expect(contacts, contains("key: const Key('add-contact-fab')"));
+      expect(contacts, contains('backgroundColor: Theme.of(context).colorScheme.primaryContainer'));
+      expect(contacts, contains('foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer'));
+      for (final key in <String>[
+        'maps-drop-pin-button',
+        'maps-type-button',
+        'maps-locate-button',
+      ]) {
+        final control = maps.substring(maps.indexOf(key));
+        expect(control, contains('backgroundColor: Theme.of(context).colorScheme.primaryContainer'));
+        expect(control, contains('foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer'));
+      }
+      expect(maps, isNot(contains('_controlSurfaceOf')));
     });
 
     test('dark selected navigation resolves to the canonical primary', () {
@@ -148,13 +172,8 @@ void main() {
       expect(AppTheme.goalIconFallbackBlue, const Color(0xFF5CAEC9));
     });
 
-    test('Maps control claim still maps both dark primaries to Light fills',
+    test('Maps controls resolve both dark primaries through the active role',
         () {
-      // google_maps_surface._controlSurfaceOf maps a dark primary to its
-      // Light family token for white-icon control fills; the corrected dark
-      // tokens must still be recognized by identity against the constants
-      // (they resolve from the same canonical statics, so this holds by
-      // construction — asserted here so a future hardcode cannot drift).
       final darkBlue = AppTheme.dark(ThemeColorMode.blue).colorScheme.primary;
       final darkRose = AppTheme.dark(ThemeColorMode.rose).colorScheme.primary;
       expect(darkBlue, AppTheme.blueDarkPrimary);
