@@ -16,8 +16,10 @@
 ///   All five default to TRUE.
 /// - When every Detailed field is off the renderer falls back to the exact
 ///   Generic copy; it must never emit a blank notification.
-/// - Privacy Lock is authoritative: it forces Generic while retaining the saved
-///   Detailed toggle preferences.
+/// - M2 OWNER CORRECTION (Issue 1): Privacy Lock no longer forces Generic at
+///   render time.  Notification content follows ONLY the saved Detailed
+///   preference and per-field options; Privacy Lock stays authoritative for
+///   app-entry authentication and pending-OPEN handling exclusively.
 ///
 /// Frozen rules:
 /// - Generic / Privacy Lock: ONLY the neutral title and body, never any time,
@@ -211,7 +213,6 @@ abstract final class ReminderNotificationRenderer {
   /// null/blank title falls back to [eventDetailedTitleFallback].
   /// [options] gates each field independently; when every field is off the
   /// renderer returns the exact [generic] copy.
-  /// [privacyLockForcesGeneric] is authoritative and overrides everything.
   static RenderedReminder eventDetailed({
     String? eventTitle,
     DateTime? startDisplay,
@@ -220,9 +221,8 @@ abstract final class ReminderNotificationRenderer {
     String? followUpName,
     String? locationText,
     ReminderDetailOptions options = ReminderDetailOptions.all,
-    bool privacyLockForcesGeneric = false,
   }) {
-    if (privacyLockForcesGeneric || options.isEmpty) return generic;
+    if (options.isEmpty) return generic;
 
     final title = options.showTitle
         ? resolveDetailedTitle(
@@ -263,9 +263,8 @@ abstract final class ReminderNotificationRenderer {
     String? followUpName,
     bool use24HourTime = false,
     ReminderDetailOptions options = ReminderDetailOptions.all,
-    bool privacyLockForcesGeneric = false,
   }) {
-    if (privacyLockForcesGeneric || options.isEmpty) return generic;
+    if (options.isEmpty) return generic;
 
     final title = options.showTitle
         ? resolveDetailedTitle(

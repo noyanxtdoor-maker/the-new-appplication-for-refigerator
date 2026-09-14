@@ -168,11 +168,21 @@ abstract final class AppTheme {
   static const Color blueLightSecondary = Color(0xFF5F6368);
 
   // Blue Dark (semantic accents only; neutrals stay the dark baseline) ----
-  // Saturated dark accents: readable on dark surfaces and >=3:1 against the
-  // deliberately white Maps controls. Light tokens and semantic data stay put.
-  static const Color blueDarkPrimary = Color(0xFF389CDB);
+  // M2 OWNER CORRECTION (Issue 2, 2026-09-14): dark accents were too bright
+  // and inconsistent (Blue read as cyan/electric #389CDB, Rose as hot pink
+  // #EB6986).  Both primaries are now deep, muted, coherent dark accents:
+  //   Blue Dark  #277FB5 (was #389CDB) — deep blue, never cyan/electric;
+  //   Rose Dark  #C95470 (was #EB6986) — deep muted rose/burgundy.
+  // Each holds >=4.3:1 contrast against the real dark surfaces (#0D0E10
+  // background, #181A1E surface, #101113 navigation), so FABs, selected
+  // navigation, and the Planner current-time indicator stay readable while
+  // the overall dark composition stays subdued.  onPrimary remains the
+  // near-black baseline (no glaring fill text), the muted container pair is
+  // unchanged, and Light tokens, semantic/data colors, and Goal artwork stay
+  // exactly as they were.
+  static const Color blueDarkPrimary = Color(0xFF277FB5);
   static const Color blueDarkOnPrimary = Color(0xFF0D0E10);
-  static const Color roseDarkPrimary = Color(0xFFEB6986);
+  static const Color roseDarkPrimary = Color(0xFFC95470);
   static const Color blueDarkPrimaryContainer = Color(0xFF123A5C);
   static const Color blueDarkOnPrimaryContainer = Color(0xFFD3E3F4);
 

@@ -35,11 +35,10 @@ final class PlanningReminderReconciler {
 
   Future<void> reconcile({required String profileId}) async {
     final preferences = await repository.readPreferences(profileId: profileId);
+    // M2 OWNER CORRECTION (Issue 1): notification content follows ONLY the
+    // saved preview preference.  Privacy Lock is no longer an input.
     final showDetails =
-        resolveNotificationPreviewMode(
-          settings: privacy,
-          privacyProtectionRequired: privacy.lockEnabled,
-        ) ==
+        resolveNotificationPreviewMode(settings: privacy) ==
         EffectiveNotificationPreviewMode.detailed;
     final zone = tz.getLocation(
       weeklyPlans is WeeklyPlanningProfileTimeZoneSource

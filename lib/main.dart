@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:rmplanner/app/next_transfer_app.dart';
+import 'package:rmplanner/app/startup_bootstrap.dart';
 import 'package:rmplanner/core/background/reminder_recovery_request.dart';
 import 'package:rmplanner/core/background/workmanager_background_work_gateway.dart';
 import 'package:rmplanner/core/database/app_database.dart';
@@ -212,18 +213,13 @@ Future<void> main() async {
     database: database,
     clock: clock,
   );
-  // Pack B2: the persisted device Appearance is read BEFORE runApp so the
-  // first MaterialApp build already has the correct ThemeMode (no
-  // wrong-theme first frame).  B2-CORRECTION: the independent Theme Color is
-  // read in the same single-row device read (no wrong-color first frame).
-  // Neither read waits on profile/startup readiness.
-  final initialAppearance = await appearanceRepository.readAppearance();
-  final initialThemeColor = await appearanceRepository.readThemeColor();
-  // VS-15 M6.2: the durable device Maps preferences are read BEFORE runApp
-  // (Appearance precedent) so the first Maps render already uses the
-  // persisted map type — no Road → Satellite startup flash.
-  final initialMapsPreferences = await mapsPreferencesRepository
-      .readPreferences();
+  // M2 P04: resolve the existing device seeds once before runApp.  A read
+  // failure is an explicit recovery result, never a private Home frame built
+  // from fallback appearance or Maps values.
+  final bootstrap = await StartupBootstrap(
+    appearanceRepository: appearanceRepository,
+    mapsPreferencesRepository: mapsPreferencesRepository,
+  ).resolve();
   final startupRepository = DriftStartupRepository(
     database: database,
     clock: clock,
@@ -270,7 +266,13 @@ Future<void> main() async {
       overrides: [
         appEnvironmentProvider.overrideWithValue(environment),
         diagnosticsProvider.overrideWithValue(diagnostics),
-        startupRepositoryProvider.overrideWithValue(startupRepository),
+        startupRepositoryProvider.overrideWithValue(
+          bootstrap.isReady
+              ? startupRepository
+              : BootstrapFailureStartupRepository(
+                  delegate: startupRepository,
+                ),
+        ),
         privacyRepositoryProvider.overrideWithValue(privacyRepository),
         privacyGateProvider.overrideWithValue(privacyGate),
         deviceAuthenticatorProvider.overrideWithValue(
@@ -327,7 +329,7 @@ Future<void> main() async {
           mapsPreferencesRepository,
         ),
         initialMapsPreferencesProvider.overrideWithValue(
-          initialMapsPreferences,
+          bootstrap.mapsPreferences,
         ),
         weeklyPlanningRepositoryProvider.overrideWithValue(
           weeklyPlanningRepository,
@@ -336,8 +338,8 @@ Future<void> main() async {
         deviceAppearanceRepositoryProvider.overrideWithValue(
           appearanceRepository,
         ),
-        initialAppearanceProvider.overrideWithValue(initialAppearance),
-        initialThemeColorProvider.overrideWithValue(initialThemeColor),
+        initialAppearanceProvider.overrideWithValue(bootstrap.appearance),
+        initialThemeColorProvider.overrideWithValue(bootstrap.themeColor),
         taskEventLinkRepositoryProvider.overrideWithValue(
           taskEventLinkRepository,
         ),

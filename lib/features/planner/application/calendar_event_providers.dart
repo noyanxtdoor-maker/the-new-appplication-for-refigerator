@@ -213,11 +213,10 @@ final class CalendarEventController extends Notifier<String?> {
         .read(eventTypeRepositoryProvider)
         .readPlannerSettings(profileId: _profileId);
     final privacy = await ref.read(privacyRepositoryProvider).readSettings();
+    // M2 OWNER CORRECTION (Issue 1): notification content follows ONLY the
+    // saved preview preference.  Privacy Lock is no longer an input.
     final showDetails =
-        resolveNotificationPreviewMode(
-          settings: privacy,
-          privacyProtectionRequired: privacy.lockEnabled,
-        ) ==
+        resolveNotificationPreviewMode(settings: privacy) ==
         EffectiveNotificationPreviewMode.detailed;
     // Section 6A transport selection: this occurrence needs the targeted worker
     // when its EFFECTIVE policy carries a Contact follow-up purpose or its

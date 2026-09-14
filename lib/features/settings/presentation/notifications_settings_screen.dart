@@ -250,7 +250,7 @@ final class _NotificationsSettingsScreenState
                         const Padding(
                           padding: EdgeInsets.fromLTRB(16, 0, 16, 14),
                           child: Text(
-                            'Privacy Lock forces Generic previews while protected without changing your saved choice.',
+                            'Privacy Lock protects app entry. It does not change notification content — use the Detailed Content options above.',
                           ),
                         ),
                     ],
@@ -428,11 +428,9 @@ final class _DetailedContentCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final preferences = ref.watch(detailedContentPreferencesProvider);
-    final privacy = ref.watch(privacyControllerProvider);
     final stored = preferences.value;
-    // Privacy Lock is authoritative and is resolved WITHOUT consulting the
-    // saved Detailed choices, so the lock can never mutate them.
-    final lockActive = privacy.settings.lockEnabled;
+    // M2 OWNER CORRECTION (Issue 1): the preview follows ONLY the saved
+    // Detailed choices.  Privacy Lock is not consulted for content.
     final options = stored ?? DetailedContentPreferences.defaults;
 
     return _Card(
@@ -513,15 +511,10 @@ final class _DetailedContentCard extends ConsumerWidget {
                 _DetailedPreview(
                   key: const Key('notifications-detailed-preview'),
                   options: options,
-                  privacyLockActive: lockActive,
                 ),
                 const SizedBox(height: 10),
                 Text(
-                  lockActive
-                      ? 'Privacy Lock is on, so notifications show the generic '
-                            'text. Your choices here are kept for when it is '
-                            'turned off.'
-                      : 'This is the exact text a notification will show.',
+                  'This is the exact text a notification will show.',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: AppTheme.secondaryTextOf(context),
                   ),
@@ -563,18 +556,15 @@ final class _DetailedPreview extends StatelessWidget {
   const _DetailedPreview({
     super.key,
     required this.options,
-    required this.privacyLockActive,
   });
 
   final DetailedContentPreferences options;
-  final bool privacyLockActive;
 
   @override
   Widget build(BuildContext context) {
     final reminder = buildDetailedPreview(
       isEvent: true,
       options: options,
-      privacyLockActive: privacyLockActive,
       sourceTitle: _DetailedContentCard._sampleEventTitle,
       startDisplay: DateTime(2026, 1, 1, 9, 30),
       endDisplay: DateTime(2026, 1, 1, 10, 30),

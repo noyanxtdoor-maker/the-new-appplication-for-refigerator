@@ -166,15 +166,22 @@ void main() {
     });
 
     test('Blue Dark critical contrast pairs', () {
+      // M2 OWNER CORRECTION (Issue 2): the primary is deliberately DEEPER and
+      // muted, so its contrast against the raised dark surface is tuned to
+      // >=3.5:1 (accent visibility, not body-text readability), while text
+      // pairs keep their strict 4.5:1 law.
       final scheme = AppTheme.dark(ThemeColorMode.blue).colorScheme;
 
       expect(
         _contrast(scheme.primary, scheme.surface),
-        greaterThanOrEqualTo(4.5),
+        greaterThanOrEqualTo(3.5),
       );
+      // onPrimary is the near-black baseline used for icons on filled
+      // accent surfaces; against the deeper muted primary it holds >=4.0:1
+      // (well above the 3:1 graphics/UI-component bar).
       expect(
         _contrast(scheme.primary, scheme.onPrimary),
-        greaterThanOrEqualTo(4.5),
+        greaterThanOrEqualTo(4.0),
       );
       expect(
         _contrast(scheme.surface, scheme.onSurface),

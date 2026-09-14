@@ -20,6 +20,8 @@ final startupControllerProvider =
 
 final class StartupController extends Notifier<StartupState> {
   int _attempt = 0;
+  Future<bool>? _draftFlush;
+  String? _pendingDraft;
 
   StartupRepository get _repository => ref.read(startupRepositoryProvider);
   SanitizedDiagnostics get _diagnostics => ref.read(diagnosticsProvider);
@@ -76,22 +78,49 @@ final class StartupController extends Notifier<StartupState> {
     }
   }
 
-  Future<void> saveDraft(String? displayName) async {
-    final attempt = _attempt;
-    try {
-      final checkpoint = await _repository.saveOnboardingDraft(displayName);
-      if (!_isCurrent(attempt)) {
-        return;
+  /// Serializes persistence and discards obsolete queued text.  Every caller
+  /// joins the same flush; once its current write completes, only the newest
+  /// draft observed during that write can be persisted next.
+  Future<bool> saveDraft(String? displayName) {
+    _pendingDraft = displayName;
+    final active = _draftFlush;
+    if (active != null) {
+      return active;
+    }
+    final flush = _flushLatestDraft();
+    _draftFlush = flush;
+    return flush.whenComplete(() {
+      if (identical(_draftFlush, flush)) {
+        _draftFlush = null;
       }
-      state = StartupOnboarding(checkpoint);
-    } on Object {
-      if (!_isCurrent(attempt)) {
-        return;
+    });
+  }
+
+  Future<bool> _flushLatestDraft() async {
+    var saved = true;
+    while (true) {
+      final draft = _pendingDraft;
+      _pendingDraft = null;
+      final attempt = _attempt;
+      try {
+        final checkpoint = await _repository.saveOnboardingDraft(draft);
+        if (!_isCurrent(attempt)) {
+          return false;
+        }
+        state = StartupOnboarding(checkpoint);
+      } on Object {
+        if (!_isCurrent(attempt)) {
+          return false;
+        }
+        saved = false;
+        _diagnostics.record(
+          'onboarding_draft_save_failed',
+          context: const <String, Object?>{'onboarding_stage': 'profileDraft'},
+        );
       }
-      _diagnostics.record(
-        'onboarding_draft_save_failed',
-        context: const <String, Object?>{'onboarding_stage': 'profileDraft'},
-      );
+      if (_pendingDraft == null) {
+        return saved;
+      }
     }
   }
 

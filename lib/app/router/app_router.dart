@@ -60,6 +60,7 @@ import 'package:rmplanner/features/settings/presentation/start_of_week_screen.da
 import 'package:rmplanner/features/shell/about_screen.dart';
 import 'package:rmplanner/features/shell/messages_screen.dart';
 import 'package:rmplanner/features/startup/application/startup_providers.dart';
+import 'package:rmplanner/features/startup/domain/startup_state.dart';
 import 'package:rmplanner/features/startup/presentation/home_screen.dart';
 import 'package:rmplanner/features/startup/presentation/link_recovery_screen.dart';
 import 'package:rmplanner/features/startup/presentation/onboarding_screen.dart';
@@ -77,13 +78,18 @@ final _rootNavigatorKey = appRootNavigatorKey;
 final _shellNavigatorKey = GlobalKey<NavigatorState>(debugLabel: 'shell');
 
 final appRouterProvider = Provider<GoRouter>((ref) {
-  final startupState = ref.watch(startupControllerProvider);
-  final router = GoRouter(
+  late final GoRouter router;
+  ref.listen<StartupState>(startupControllerProvider, (previous, next) {
+    if (_StartupRouterRefresh.requiresRefresh(previous, next)) {
+      router.refresh();
+    }
+  });
+  router = GoRouter(
     navigatorKey: _rootNavigatorKey,
     initialLocation: RoutePaths.startup,
     redirect: (context, state) {
       return StartupRouteGuard.redirect(
-        state: startupState,
+        state: ref.read(startupControllerProvider),
         currentLocation: state.matchedLocation,
       );
     },
@@ -666,9 +672,25 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     errorBuilder: (context, state) =>
         LinkRecoveryScreen(attemptedLocation: state.uri.toString()),
   );
-  ref.onDispose(router.dispose);
+  ref.onDispose(() {
+    router.dispose();
+  });
   return router;
 });
+
+/// Keeps one router alive while redirects refresh only across access gates.
+/// Onboarding draft/checkpoint updates intentionally do not notify it.
+final class _StartupRouterRefresh {
+  static bool requiresRefresh(StartupState? previous, StartupState next) {
+    if (previous == null || previous.runtimeType != next.runtimeType) {
+      return true;
+    }
+    if (previous is StartupReady && next is StartupReady) {
+      return previous.profile.id != next.profile.id;
+    }
+    return false;
+  }
+}
 
 /// M7 section 8 — resolve the typed follow-up provenance carried by the
 /// Contact Detail chooser.

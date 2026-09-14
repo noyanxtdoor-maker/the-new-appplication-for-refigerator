@@ -288,7 +288,9 @@ void main() {
       expect(rendered.body, 'You have a new notification.');
     });
 
-    test('D19 Privacy Lock forces exact Generic copy regardless of toggles', () {
+    test('D19 M2 CORRECTION: Privacy Lock no longer forces Generic copy', () {
+      // M2 owner correction Issue 1: Privacy Lock does not participate in
+      // notification content selection.  Detailed preference -> Detailed.
       final rendered = ReminderNotificationRenderer.eventDetailed(
         eventTitle: "🎂 Willow's Birthday",
         startDisplay: start,
@@ -296,16 +298,11 @@ void main() {
         notes: 'Bring a gift',
         followUpName: 'Cara Gomez',
         locationText: 'Union Square Cafe',
-        privacyLockForcesGeneric: true,
       );
-      expect(rendered.title, '🔔 Next Transfer');
-      expect(rendered.body, 'You have a new notification.');
-      // No Detailed field may leak.
-      expect(rendered.title.contains('Willow'), isFalse);
-      expect(rendered.body.contains('Willow'), isFalse);
-      expect(rendered.body.contains('Cara'), isFalse);
-      expect(rendered.body.contains('Union Square'), isFalse);
-      expect(rendered.body.contains('9:00'), isFalse);
+      expect(rendered.title, "🎂 Willow's Birthday");
+      expect(rendered.body, contains('Bring a gift'));
+      expect(rendered.body, contains('Cara Gomez'));
+      expect(rendered.body, contains('Union Square Cafe'));
     });
 
     test('D22 the renderer is the same object for both transports', () {

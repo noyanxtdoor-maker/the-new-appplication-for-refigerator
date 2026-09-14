@@ -153,7 +153,11 @@ final class _ProfileDraftViewState extends ConsumerState<_ProfileDraftView> {
                       final controller = ref.read(
                         startupControllerProvider.notifier,
                       );
-                      await controller.saveDraft(_controller.text);
+                      final saved = await controller.saveDraft(_controller.text);
+                      if (!saved) {
+                        if (mounted) setState(() => _finishing = false);
+                        return;
+                      }
                       await controller.completeOnboarding();
                       if (mounted) {
                         setState(() => _finishing = false);

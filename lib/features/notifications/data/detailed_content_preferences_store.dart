@@ -28,10 +28,11 @@ import 'package:rmplanner/features/notifications/application/reminder_notificati
 /// `notification_preferences` row reads as the all-TRUE default WITHOUT
 /// creating a row — reading must never write.
 ///
-/// PRIVACY LAW: privacy lock is authoritative and forces Generic at render
-/// time. This store deliberately does NOT clear the saved toggles when the lock
-/// is on: the owner's Detailed preferences must survive a locked period and
-/// come back unchanged when the lock is released.
+/// PRIVACY LAW (M2 OWNER CORRECTION Issue 1): Privacy Lock does NOT force
+/// Generic notification content.  Content follows ONLY the saved preview
+/// preference and these per-field toggles.  Privacy Lock stays authoritative
+/// for app-entry authentication, pending-OPEN handling and relock.  This store
+/// never clears the saved toggles under any lock state.
 
 /// The five stored booleans as an immutable value object.
 ///

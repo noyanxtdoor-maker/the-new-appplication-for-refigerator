@@ -200,25 +200,37 @@ void main() {
     );
   });
 
-  test('Privacy Lock forces Generic without overwriting saved Detailed', () {
+  test('M2 CORRECTION: content follows saved mode; lock is irrelevant', () {
+    // M2 owner correction Issue 1: Privacy Lock no longer forces Generic.
     const saved = PrivacySettings(
       lockEnabled: true,
       notificationPreviewMode: NotificationPreviewMode.showContent,
     );
     expect(
-      resolveNotificationPreviewMode(
-        settings: saved,
-        privacyProtectionRequired: true,
-      ),
-      EffectiveNotificationPreviewMode.generic,
+      resolveNotificationPreviewMode(settings: saved),
+      EffectiveNotificationPreviewMode.detailed,
     );
     expect(saved.notificationPreviewMode, NotificationPreviewMode.showContent);
+    const lockedHidden = PrivacySettings(
+      lockEnabled: true,
+      notificationPreviewMode: NotificationPreviewMode.hidden,
+    );
     expect(
-      resolveNotificationPreviewMode(
-        settings: saved,
-        privacyProtectionRequired: false,
-      ),
+      resolveNotificationPreviewMode(settings: lockedHidden),
+      EffectiveNotificationPreviewMode.generic,
+    );
+    const unlockedDetailed = PrivacySettings(
+      lockEnabled: false,
+      notificationPreviewMode: NotificationPreviewMode.showContent,
+    );
+    expect(
+      resolveNotificationPreviewMode(settings: unlockedDetailed),
       EffectiveNotificationPreviewMode.detailed,
+    );
+    const unlockedHidden = PrivacySettings.defaults();
+    expect(
+      resolveNotificationPreviewMode(settings: unlockedHidden),
+      EffectiveNotificationPreviewMode.generic,
     );
   });
 

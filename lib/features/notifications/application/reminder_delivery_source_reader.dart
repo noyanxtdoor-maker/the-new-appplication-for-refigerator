@@ -101,9 +101,10 @@ final class DriftReminderDeliverySourceReader
     };
   }
 
-  /// Detailed is only permitted when the CURRENT privacy settings allow it.
-  /// A privacy read failure is never permission for Detailed: it degrades to
-  /// the neutral Generic copy, which exposes no private text.
+  /// M2 OWNER CORRECTION (Issue 1): the delivery content mode follows ONLY
+  /// the saved notification preview preference.  Privacy Lock is not an
+  /// input to notification content selection.  A settings read failure is
+  /// never permission for Detailed: it degrades to the neutral Generic copy.
   Future<NotificationDeliveryPrivacy> _privacyMode() async {
     try {
       return await privacy();

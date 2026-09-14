@@ -136,14 +136,13 @@ Future<ReminderDeliveryOutcome> runCanonicalReminderDelivery(
         detailedContent: (profileId) =>
             repository.readDetailedContent(profileId: profileId),
         privacy: () async {
-          // Re-read the CURRENT privacy settings; the worker must honour the
-          // Privacy Lock without ever requesting authentication in the
-          // background (contract section 16).
+          // M2 OWNER CORRECTION (Issue 1): re-read the CURRENT notification
+          // preview preference only.  Privacy Lock is no longer an input to
+          // notification content selection, so the worker never forces
+          // Generic from the lock.  The worker still never requests
+          // authentication in the background (contract section 16).
           final settings = await privacyRepository.readSettings();
-          return resolveNotificationPreviewMode(
-                    settings: settings,
-                    privacyProtectionRequired: settings.lockEnabled,
-                  ) ==
+          return resolveNotificationPreviewMode(settings: settings) ==
                   EffectiveNotificationPreviewMode.detailed
               ? NotificationDeliveryPrivacy.detailed
               : NotificationDeliveryPrivacy.generic;

@@ -135,13 +135,13 @@ void main() {
     });
   });
 
-  group('G3/G4 — privacy law unchanged for notification content', () {
-    test('Privacy Lock forces effective Generic without touching saved mode', () {
+  group('G3/G4 — M2 CORRECTION: content law is lock-independent', () {
+    test('Privacy Lock no longer forces effective Generic; saved mode intact', () {
       const saved = PrivacySettings(
         lockEnabled: true,
         notificationPreviewMode: NotificationPreviewMode.showContent,
       );
-      // resolveNotificationPreviewMode(lock) == generic; saved mode intact.
+      // M2 owner correction Issue 1: the lock no longer drives content.
       expect(saved.lockEnabled, isTrue);
       expect(saved.notificationPreviewMode, NotificationPreviewMode.showContent);
     });

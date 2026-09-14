@@ -632,12 +632,11 @@ final class PlannerController extends Notifier<PlannerState> {
     final permission = await ref
         .read(permissionGatewayProvider)
         .status(OptionalPermission.notifications);
+    // M2 OWNER CORRECTION (Issue 1): notification content follows ONLY the
+    // saved preview preference.  Privacy Lock is no longer an input.
     final privacy = await ref.read(privacyRepositoryProvider).readSettings();
     final showDetails =
-        resolveNotificationPreviewMode(
-          settings: privacy,
-          privacyProtectionRequired: privacy.lockEnabled,
-        ) ==
+        resolveNotificationPreviewMode(settings: privacy) ==
         EffectiveNotificationPreviewMode.detailed;
     final reconciler = ref.read(reminderReconcilerProvider);
     final expected = <String>{};
@@ -792,10 +791,7 @@ final class PlannerController extends Notifier<PlannerState> {
           .status(OptionalPermission.notifications);
       final privacy = await ref.read(privacyRepositoryProvider).readSettings();
       final showDetails =
-          resolveNotificationPreviewMode(
-            settings: privacy,
-            privacyProtectionRequired: privacy.lockEnabled,
-          ) ==
+          resolveNotificationPreviewMode(settings: privacy) ==
           EffectiveNotificationPreviewMode.detailed;
       final due = saved.dueDate;
       final minute = saved.dueMinute;
@@ -906,12 +902,11 @@ final class PlannerController extends Notifier<PlannerState> {
     final permission = await ref
         .read(permissionGatewayProvider)
         .status(OptionalPermission.notifications);
+    // M2 OWNER CORRECTION (Issue 1): notification content follows ONLY the
+    // saved preview preference.  Privacy Lock is no longer an input.
     final privacy = await ref.read(privacyRepositoryProvider).readSettings();
     final showDetails =
-        resolveNotificationPreviewMode(
-          settings: privacy,
-          privacyProtectionRequired: privacy.lockEnabled,
-        ) ==
+        resolveNotificationPreviewMode(settings: privacy) ==
         EffectiveNotificationPreviewMode.detailed;
     final due = saved.dueDate;
     final minute = saved.dueMinute;

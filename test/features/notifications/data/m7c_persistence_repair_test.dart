@@ -283,29 +283,30 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
-  // PERSIST-15 — Privacy Lock forces Generic WITHOUT rewriting the five values
+  // PERSIST-15 — M2 CORRECTION: Privacy Lock never affects content; the saved
+  // five values survive unchanged
   // ---------------------------------------------------------------------------
-  test('PERSIST-15 privacy lock forces Generic but keeps saved choices',
+  test('PERSIST-15 lock state is irrelevant to content; saved choices kept',
       () async {
     final database = await open();
     final profileId = await seedProfile(database);
     final store = storeFor(database);
     await store.write(profileId, mixed);
 
-    // The renderer's lock is authoritative: whatever the saved options say,
-    // the produced copy is the exact Generic pair.
-    final locked = ReminderNotificationRenderer.eventDetailed(
+    // M2 owner correction Issue 1: the renderer no longer has any lock
+    // input; the saved options render per-field exactly as saved.  The
+    // `mixed` fixture has showTitle OFF, so the title is the generic
+    // fallback while the enabled time field still renders.
+    final rendered = ReminderNotificationRenderer.eventDetailed(
       eventTitle: 'Private dental appointment',
       startDisplay: DateTime.utc(2026, 9, 12, 9),
       options: mixed.toOptions(),
-      privacyLockForcesGeneric: true,
     );
-    expect(locked.title, ReminderNotificationRenderer.genericTitle);
-    expect(locked.body, ReminderNotificationRenderer.genericBody);
-    expect(locked.body, 'You have a new notification.');
-    expect(locked.body, isNot(contains('dental')));
+    expect(rendered.title, ReminderNotificationRenderer.genericTitle);
+    expect(rendered.body, 'Upcoming event');
+    expect(rendered.body, isNot(ReminderNotificationRenderer.genericBody));
 
-    // The lock must NOT have cleared the owner's saved Detailed choices.
+    // The store must NOT have cleared the owner's saved Detailed choices.
     expect(await store.read(profileId), mixed);
   });
 
@@ -335,7 +336,6 @@ void main() {
       eventTitle: 'Should never surface',
       startDisplay: DateTime.utc(2026, 9, 12, 9),
       options: read.toOptions(),
-      privacyLockForcesGeneric: false,
     );
     expect(rendered.title, ReminderNotificationRenderer.genericTitle);
     expect(rendered.body, ReminderNotificationRenderer.genericBody);

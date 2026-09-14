@@ -83,12 +83,12 @@ final class DetailedContentController {
 /// Builds the canonical preview using the SAME renderer the notification path
 /// uses, so the Settings preview can never drift from the delivered copy.
 ///
-/// [privacyLockActive] is authoritative: when the lock is on the preview shows
-/// the exact Generic copy, which is what the device will actually post.
+/// M2 OWNER CORRECTION (Issue 1): the preview follows ONLY the saved content
+/// options.  Privacy Lock no longer forces Generic; it does not participate
+/// in notification content selection at all.
 RenderedReminder buildDetailedPreview({
   required bool isEvent,
   required DetailedContentPreferences options,
-  required bool privacyLockActive,
   String? sourceTitle,
   DateTime? startDisplay,
   DateTime? endDisplay,
@@ -107,7 +107,6 @@ RenderedReminder buildDetailedPreview({
       followUpName: followUpName,
       locationText: locationText,
       options: resolved,
-      privacyLockForcesGeneric: privacyLockActive,
     );
   }
   return ReminderNotificationRenderer.taskDetailed(
@@ -116,6 +115,5 @@ RenderedReminder buildDetailedPreview({
     notes: notes,
     followUpName: followUpName,
     options: resolved,
-    privacyLockForcesGeneric: privacyLockActive,
   );
 }
