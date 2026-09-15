@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -19,14 +17,40 @@ const String nextTransferSplashAsset =
 /// surface and there is no white or black flash at any hand-off.
 const Color nextTransferSplashBlue = Color(0xFF002161);
 
-/// M5: how long the approved emblem takes to fade in over the brand field.
-const Duration nextTransferSplashFadeIn = Duration(milliseconds: 160);
+/// The exact [ImageProvider] shared by predecode and rendering. Keeping this
+/// configuration in one place prevents a cache-key mismatch from releasing the
+/// first Flutter frame before its intended branded pixels are available.
+const AssetImage nextTransferSplashImage = AssetImage(nextTransferSplashAsset);
 
-/// M5: how long the finished splash holds before it starts to leave.
-const Duration nextTransferSplashHold = Duration(milliseconds: 600);
+/// Owns one balanced Flutter first-frame deferral. It is started before
+/// [runApp] and is released only after the app root has incorporated either the
+/// approved image or an explicit non-private image-load failure surface.
+final class SplashFirstFrameGate {
+  SplashFirstFrameGate({
+    void Function()? deferFirstFrame,
+    void Function()? allowFirstFrame,
+  }) : _deferFirstFrame =
+           deferFirstFrame ?? WidgetsBinding.instance.deferFirstFrame,
+       _allowFirstFrame =
+           allowFirstFrame ?? WidgetsBinding.instance.allowFirstFrame;
 
-/// M5: how long the splash takes to fade away and reveal the app.
-const Duration nextTransferSplashFadeOut = Duration(milliseconds: 240);
+  final void Function() _deferFirstFrame;
+  final void Function() _allowFirstFrame;
+  var _deferred = false;
+  var _released = false;
+
+  void defer() {
+    if (_deferred) return;
+    _deferred = true;
+    _deferFirstFrame();
+  }
+
+  void release() {
+    if (!_deferred || _released) return;
+    _released = true;
+    _allowFirstFrame();
+  }
+}
 
 /// M5: whether the app-owned startup splash is mounted.
 ///
@@ -40,74 +64,91 @@ final appSplashEnabledProvider = Provider<bool>((ref) => true);
 /// M5: the app-owned startup splash.
 ///
 /// Presentation only. It owns no route, no startup decision and no privacy
-/// state: the existing startup gate, recovery route and Privacy Lock all
-/// resolve underneath it exactly as before. It is painted above the router,
-/// is fully opaque for its whole lifetime, and blocks pointers while mounted,
-/// so no private app surface is ever visible or reachable behind it.
-class M5AppSplash extends StatefulWidget {
-  const M5AppSplash({super.key, required this.onFinished});
+/// state. It is fully opaque from its first submitted Flutter frame and blocks
+/// both pointer and underlying semantics while mounted.
+final class M5AppSplash extends StatelessWidget {
+  const M5AppSplash({
+    super.key,
+    this.imageReady = true,
+    this.imageFailed = false,
+    this.onFailureAcknowledged,
+  });
 
-  /// Called once the fade-out completes and the overlay may be removed.
-  final VoidCallback onFinished;
-
-  @override
-  State<M5AppSplash> createState() => _M5AppSplashState();
-}
-
-final class _M5AppSplashState extends State<M5AppSplash> {
-  bool _emblemVisible = false;
-  bool _fieldVisible = true;
-  Timer? _holdTimer;
-  Timer? _finishTimer;
-
-  @override
-  void initState() {
-    super.initState();
-    // The first frame is the plain brand field, which is exactly what the
-    // Android launch window showed a moment earlier. Starting opaque and
-    // fading only the emblem in (rather than fading the whole overlay in) is
-    // what keeps whatever is resolving behind the splash hidden.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) setState(() => _emblemVisible = true);
-    });
-    _holdTimer = Timer(nextTransferSplashFadeIn + nextTransferSplashHold, () {
-      if (!mounted) return;
-      setState(() => _fieldVisible = false);
-      _finishTimer = Timer(nextTransferSplashFadeOut, () {
-        if (mounted) widget.onFinished();
-      });
-    });
-  }
-
-  @override
-  void dispose() {
-    _holdTimer?.cancel();
-    _finishTimer?.cancel();
-    super.dispose();
-  }
+  final bool imageReady;
+  final bool imageFailed;
+  final VoidCallback? onFailureAcknowledged;
 
   @override
   Widget build(BuildContext context) {
-    return AbsorbPointer(
-      child: AnimatedOpacity(
-        opacity: _fieldVisible ? 1 : 0,
-        duration: nextTransferSplashFadeOut,
-        curve: Curves.easeOut,
-        child: ColoredBox(
-          color: nextTransferSplashBlue,
-          child: AnimatedOpacity(
-            opacity: _emblemVisible ? 1 : 0,
-            duration: nextTransferSplashFadeIn,
-            curve: Curves.easeOut,
-            child: Image.asset(
-              nextTransferSplashAsset,
-              fit: BoxFit.cover,
-              alignment: Alignment.center,
-              filterQuality: FilterQuality.medium,
-              gaplessPlayback: true,
-              excludeFromSemantics: true,
+    final content = imageFailed
+        ? _SplashImageFailure(onAcknowledged: onFailureAcknowledged)
+        : imageReady
+        ? Image(
+            image: nextTransferSplashImage,
+            fit: BoxFit.cover,
+            alignment: Alignment.center,
+            filterQuality: FilterQuality.medium,
+            gaplessPlayback: true,
+            excludeFromSemantics: true,
+          )
+        : const SizedBox.expand();
+    final overlay = ColoredBox(color: nextTransferSplashBlue, child: content);
+    return BlockSemantics(
+      child: Semantics(
+        container: true,
+        label: imageFailed
+            ? 'Next Transfer launch artwork unavailable'
+            : 'Opening Next Transfer',
+        // The failure surface covers the whole window but leaves its own
+        // explicit acknowledgement actionable. All normal splash states absorb
+        // every pointer while startup resolves behind the opaque overlay.
+        child: imageFailed
+            ? GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () {},
+                child: overlay,
+              )
+            : AbsorbPointer(child: overlay),
+      ),
+    );
+  }
+}
+
+final class _SplashImageFailure extends StatelessWidget {
+  const _SplashImageFailure({this.onAcknowledged});
+
+  final VoidCallback? onAcknowledged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            const Icon(
+              Icons.broken_image_outlined,
+              color: Colors.white,
+              size: 48,
             ),
-          ),
+            const SizedBox(height: 16),
+            const Text(
+              'Next Transfer could not load its approved launch artwork.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            if (onAcknowledged != null) ...<Widget>[
+              const SizedBox(height: 20),
+              FilledButton(
+                onPressed: onAcknowledged,
+                child: const Text('Continue safely'),
+              ),
+            ],
+          ],
         ),
       ),
     );

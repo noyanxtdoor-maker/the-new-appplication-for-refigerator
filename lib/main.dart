@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:rmplanner/app/m5_app_splash.dart';
 import 'package:rmplanner/app/next_transfer_app.dart';
 import 'package:rmplanner/app/startup_bootstrap.dart';
 import 'package:rmplanner/core/background/reminder_recovery_request.dart';
@@ -57,6 +58,11 @@ import 'package:rmplanner/features/weekly_planning/data/drift_weekly_planning_re
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // M5 P2: one deferral starts before the root can submit an unbranded Flutter
+  // frame. NextTransferApp releases this exact gate after it has incorporated
+  // the identical splash ImageProvider or an explicit failure surface.
+  final splashFirstFrameGate = SplashFirstFrameGate();
+  splashFirstFrameGate.defer();
   // Planner Polish Delta 2: the app is portrait-only on every route, sheet,
   // and dialog, regardless of the Android auto-rotate setting.  The manifest
   // `screenOrientation="portrait"` protects the native Activity before the
@@ -269,9 +275,7 @@ Future<void> main() async {
         startupRepositoryProvider.overrideWithValue(
           bootstrap.isReady
               ? startupRepository
-              : BootstrapFailureStartupRepository(
-                  delegate: startupRepository,
-                ),
+              : BootstrapFailureStartupRepository(delegate: startupRepository),
         ),
         privacyRepositoryProvider.overrideWithValue(privacyRepository),
         privacyGateProvider.overrideWithValue(privacyGate),
@@ -296,7 +300,9 @@ Future<void> main() async {
         // M8 section 28/30: the ONE repair-marker writer is shared with every
         // canonical mutation site, so the foreground recovery pass consumes the
         // exact rows those mutations committed.
-        reminderRecoveryRequestProvider.overrideWithValue(reminderRecoveryRequest),
+        reminderRecoveryRequestProvider.overrideWithValue(
+          reminderRecoveryRequest,
+        ),
         reminderWorkerTransportProvider.overrideWithValue(
           scheduleCanonicalReminderWork,
         ),
@@ -347,7 +353,7 @@ Future<void> main() async {
           taskEventLinkCoordinator,
         ),
       ],
-      child: const NextTransferApp(),
+      child: NextTransferApp(splashFirstFrameGate: splashFirstFrameGate),
     ),
   );
 }

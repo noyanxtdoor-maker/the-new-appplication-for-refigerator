@@ -35,7 +35,9 @@ final appEnvironmentProvider = Provider<AppEnvironment>((ref) {
 });
 
 final class NextTransferApp extends ConsumerStatefulWidget {
-  const NextTransferApp({super.key});
+  const NextTransferApp({super.key, this.splashFirstFrameGate});
+
+  final SplashFirstFrameGate? splashFirstFrameGate;
 
   @override
   ConsumerState<NextTransferApp> createState() => _NextTransferAppState();
@@ -51,6 +53,9 @@ final class _NextTransferAppState extends ConsumerState<NextTransferApp>
   NotificationResponseIntent? _pendingNotification;
   Timer? _reminderDateTimer;
   bool _splashVisible = true;
+  bool _splashImageReady = false;
+  bool _splashImageFailed = false;
+  bool _splashReadinessStarted = false;
 
   @override
   void initState() {
@@ -88,7 +93,15 @@ final class _NextTransferAppState extends ConsumerState<NextTransferApp>
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _startSplashImageReadiness();
+  }
+
+  @override
   void dispose() {
+    // A disposed root must never strand the Android system launch surface.
+    widget.splashFirstFrameGate?.release();
     _backgroundSession.dispose();
     _reminderDateTimer?.cancel();
     unawaited(_notificationResponses?.cancel() ?? Future<void>.value());
@@ -328,10 +341,47 @@ final class _NextTransferAppState extends ConsumerState<NextTransferApp>
     }
   }
 
-  /// M5: the app-owned splash removes itself once its fade-out completes.
+  /// M5 P2: remove the overlay only after a guarded destination has been
+  /// rendered, or after a user explicitly acknowledges artwork failure.
   void _finishSplash() {
     if (mounted) setState(() => _splashVisible = false);
   }
+
+  void _startSplashImageReadiness() {
+    if (_splashReadinessStarted) return;
+    _splashReadinessStarted = true;
+    if (widget.splashFirstFrameGate == null) {
+      _splashImageReady = true;
+      return;
+    }
+    unawaited(_prepareSplashImage());
+  }
+
+  Future<void> _prepareSplashImage() async {
+    var failed = false;
+    try {
+      await precacheImage(
+        nextTransferSplashImage,
+        context,
+        onError: (Object _, StackTrace? __) => failed = true,
+      );
+    } on Object {
+      failed = true;
+    }
+    if (mounted) {
+      setState(() {
+        _splashImageReady = !failed;
+        _splashImageFailed = failed;
+      });
+    }
+    // This callback runs after the image/result has been incorporated into a
+    // root frame. It does not wait for startup, auth, or onboarding completion.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      widget.splashFirstFrameGate?.release();
+    });
+  }
+
+  bool _hasGuardedDestination(StartupState state) => state is! StartupOpening;
 
   @override
   Widget build(BuildContext context) {
@@ -344,9 +394,24 @@ final class _NextTransferAppState extends ConsumerState<NextTransferApp>
     final themeColor = ref.watch(themeColorProvider);
     final router = ref.watch(appRouterProvider);
     final environment = ref.watch(appEnvironmentProvider);
+    final startupState = ref.watch(startupControllerProvider);
     // M5: the approved startup splash is mounted above the router. Nothing
     // about startup, recovery or Privacy Lock changes underneath it.
     final splashVisible = ref.watch(appSplashEnabledProvider) && _splashVisible;
+    if (splashVisible &&
+        _splashImageReady &&
+        !_splashImageFailed &&
+        _hasGuardedDestination(startupState)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        // Re-read rather than trusting a captured Ready state: a relock or
+        // recovery transition between frames must not uncover stale private UI.
+        if (!mounted || !_splashVisible) return;
+        final latest = ref.read(startupControllerProvider);
+        if (identical(latest, startupState) && _hasGuardedDestination(latest)) {
+          _finishSplash();
+        }
+      });
+    }
 
     return MaterialApp.router(
       title: 'Next Transfer',
@@ -407,7 +472,15 @@ final class _NextTransferAppState extends ConsumerState<NextTransferApp>
           textDirection: TextDirection.ltr,
           children: <Widget>[
             child!,
-            if (splashVisible) M5AppSplash(onFinished: _finishSplash),
+            if (splashVisible)
+              M5AppSplash(
+                imageReady: _splashImageReady,
+                imageFailed: _splashImageFailed,
+                onFailureAcknowledged:
+                    _splashImageFailed && _hasGuardedDestination(startupState)
+                    ? _finishSplash
+                    : null,
+              ),
           ],
         ),
       ),

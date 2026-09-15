@@ -1,14 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- M5: Android 12+ always renders a platform splash before the app can
-         draw its first frame.  It is given the same approved brand field and a
-         fully transparent icon, so the platform stage cannot look like a boxed
-         icon pasted on blue and cannot clash with the approved app-owned
-         splash that follows it.  NormalTheme keeps its values/styles.xml
-         definition, which already uses the same brand field. -->
+    <!-- M5 P1: Android 12+ always renders a platform splash before Flutter can
+         draw. Reuse the owner-approved launcher artwork on the frozen brand
+         field so the earliest visible launch surface is branded. -->
     <style name="LaunchTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
         <item name="android:windowSplashScreenBackground">@color/nt_brand_blue</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/nt_splash_blank</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
         <item name="android:windowBackground">@drawable/launch_background</item>
     </style>
 </resources>

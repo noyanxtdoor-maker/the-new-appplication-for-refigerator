@@ -1,13 +1,3 @@
-// M5 (clean restart) — the app-owned startup splash.
-//
-// The splash is presentation only: it owns no route, no startup decision and no
-// privacy state, so these tests pin only its own shipped contract:
-//   * it presents the single approved asset full-screen, so no phone aspect
-//     ratio can leave an empty band at the top or the bottom;
-//   * it starts as an opaque brand field and only then fades the approved
-//     emblem in, so no app surface behind it is ever visible;
-//   * it blocks pointers while it is mounted;
-//   * it removes itself exactly once, and only after the hold has elapsed.
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -16,79 +6,50 @@ import 'package:rmplanner/app/m5_app_splash.dart';
 void main() {
   Widget host(Widget child) => MaterialApp(home: Scaffold(body: child));
 
-  List<FadeTransition> splashesFades(WidgetTester tester) => tester
-      .widgetList<FadeTransition>(
+  testWidgets(
+    'first submitted branded frame is opaque and uses the approved asset',
+    (tester) async {
+      await tester.pumpWidget(host(const M5AppSplash()));
+      await tester.pump();
+
+      final image = tester.widget<Image>(
+        find.descendant(
+          of: find.byType(M5AppSplash),
+          matching: find.byType(Image),
+        ),
+      );
+      expect(image.image, same(nextTransferSplashImage));
+      expect(image.fit, BoxFit.cover, reason: 'cover removes top/bottom bands');
+      expect(image.alignment, Alignment.center);
+      expect(
+        find.descendant(
+          of: find.byType(M5AppSplash),
+          matching: find.byType(AnimatedOpacity),
+        ),
+        findsNothing,
+      );
+      expect(
         find.descendant(
           of: find.byType(M5AppSplash),
           matching: find.byType(FadeTransition),
         ),
-      )
-      .toList();
+        findsNothing,
+      );
 
-  testWidgets('presents the approved asset full-screen over the brand field', (
+      final field = tester.widget<ColoredBox>(
+        find.descendant(
+          of: find.byType(M5AppSplash),
+          matching: find.byType(ColoredBox),
+        ),
+      );
+      expect(field.color, nextTransferSplashBlue);
+      expect(find.bySemanticsLabel('Opening Next Transfer'), findsOneWidget);
+    },
+  );
+
+  testWidgets('blocks pointers and underlying semantics while it is mounted', (
     tester,
   ) async {
-    await tester.pumpWidget(host(M5AppSplash(onFinished: () {})));
-    await tester.pump();
-
-    final image = tester.widget<Image>(
-      find.descendant(
-        of: find.byType(M5AppSplash),
-        matching: find.byType(Image),
-      ),
-    );
-    expect(image.image, isA<AssetImage>());
-    expect((image.image as AssetImage).assetName, nextTransferSplashAsset);
-    expect(image.fit, BoxFit.cover, reason: 'cover removes top/bottom bands');
-    expect(image.alignment, Alignment.center);
-
-    // The overlay owns the whole window and blocks the app behind it. (The
-    // navigator contributes its own, non-absorbing AbsorbPointer, so the
-    // assertion is scoped to the splash.)
-    final absorbers = tester
-        .widgetList<AbsorbPointer>(
-          find.descendant(
-            of: find.byType(M5AppSplash),
-            matching: find.byType(AbsorbPointer),
-          ),
-        )
-        .toList();
-    expect(absorbers, hasLength(1));
-    expect(absorbers.single.absorbing, isTrue);
-
-    // The field behind the artwork is the approved brand colour, not a theme
-    // surface, so the hand-off from the Android launch window is invisible.
-    final field = tester
-        .widgetList<ColoredBox>(
-          find.descendant(
-            of: find.byType(M5AppSplash),
-            matching: find.byType(ColoredBox),
-          ),
-        )
-        .first;
-    expect(field.color, nextTransferSplashBlue);
-  });
-
-  testWidgets('starts as the opaque brand field before the emblem fades in', (
-    tester,
-  ) async {
-    await tester.pumpWidget(host(M5AppSplash(onFinished: () {})));
-
-    final fades = splashesFades(tester);
-    expect(fades, hasLength(2));
-    expect(
-      fades.first.opacity.value,
-      1.0,
-      reason: 'the brand field is opaque from the very first frame',
-    );
-    expect(
-      fades.last.opacity.value,
-      0.0,
-      reason: 'the approved emblem has not faded in yet',
-    );
-  });
-
-  testWidgets('blocks pointers while it is mounted', (tester) async {
     var backgroundTaps = 0;
     await tester.pumpWidget(
       MaterialApp(
@@ -98,10 +59,13 @@ void main() {
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onTap: () => backgroundTaps++,
-                child: const SizedBox.expand(),
+                child: Semantics(
+                  label: 'Private app content',
+                  child: const SizedBox.expand(),
+                ),
               ),
             ),
-            Positioned.fill(child: M5AppSplash(onFinished: () {})),
+            const Positioned.fill(child: M5AppSplash()),
           ],
         ),
       ),
@@ -111,33 +75,55 @@ void main() {
     await tester.tapAt(tester.getCenter(find.byType(M5AppSplash)));
     await tester.pump();
 
+    expect(backgroundTaps, 0);
+    expect(find.bySemanticsLabel('Private app content'), findsNothing);
     expect(
-      backgroundTaps,
-      0,
-      reason: 'the app behind the splash is neither visible nor reachable',
+      find.descendant(
+        of: find.byType(M5AppSplash),
+        matching: find.byType(AbsorbPointer),
+      ),
+      findsOneWidget,
     );
   });
 
-  testWidgets('removes itself exactly once, only after the hold elapses', (
-    tester,
-  ) async {
-    var finished = 0;
-    await tester.pumpWidget(host(M5AppSplash(onFinished: () => finished++)));
-    await tester.pump();
+  testWidgets(
+    'decode failure is explicit and cannot silently become blue-only',
+    (tester) async {
+      var acknowledgements = 0;
+      await tester.pumpWidget(
+        host(
+          M5AppSplash(
+            imageFailed: true,
+            onFailureAcknowledged: () => acknowledgements++,
+          ),
+        ),
+      );
+      await tester.pump();
 
-    await tester.pump(
-      nextTransferSplashFadeIn +
-          nextTransferSplashHold -
-          const Duration(milliseconds: 16),
+      expect(
+        find.text('Next Transfer could not load its approved launch artwork.'),
+        findsOneWidget,
+      );
+      await tester.tap(find.text('Continue safely'));
+      expect(acknowledgements, 1);
+    },
+  );
+
+  test('first-frame gate balances one deferral and is idempotent', () {
+    var deferrals = 0;
+    var releases = 0;
+    final gate = SplashFirstFrameGate(
+      deferFirstFrame: () => deferrals++,
+      allowFirstFrame: () => releases++,
     );
-    expect(finished, 0, reason: 'the finished splash still holds');
 
-    await tester.pump(const Duration(milliseconds: 16));
-    await tester.pump(nextTransferSplashFadeOut);
-    expect(finished, 1);
+    gate.defer();
+    gate.defer();
+    gate.release();
+    gate.release();
 
-    await tester.pumpAndSettle();
-    expect(finished, 1, reason: 'the overlay only ever reports once');
+    expect(deferrals, 1);
+    expect(releases, 1);
   });
 
   test('the app-owned splash ships enabled', () {
