@@ -87,7 +87,8 @@ void main() {
       );
       expect(container.read(startupControllerProvider), isA<StartupWelcome>());
       await tester.pumpAndSettle();
-      expect(find.text('Continue offline'), findsOneWidget);
+      // M6: the front door is the locked Welcome presentation.
+      expect(find.text('Get Started'), findsOneWidget);
       expect(find.text('Local data needs attention'), findsNothing);
     },
   );

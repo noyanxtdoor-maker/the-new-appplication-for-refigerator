@@ -358,6 +358,11 @@ final class TestPrivacyDependencies {
     /// NX pack: extra Riverpod overrides appended AFTER the defaults so they
     /// take precedence (used by deterministic pending-read contract tests).
     List<Override> extraOverrides = const <Override>[],
+
+    /// M6: opt-in real-splash coverage for front-door hand-off tests.
+    /// Defaults to the established disabled presentation so every existing
+    /// journey keeps its exact behavior.
+    bool enableAppSplash = false,
   }) {
     final resolvedContactRepository =
         contactRepository ??
@@ -499,10 +504,11 @@ final class TestPrivacyDependencies {
       plannerDateSourceProvider.overrideWithValue(plannerDateSource),
       // M5: the shared harness mounts the real app so journeys can assert on
       // the real startup and Privacy Lock surfaces. The branded startup
-      // overlay is a ~1 s presentation window in front of those, so it is
+      // overlay is a presentation window in front of those, so it is
       // switched off here rather than shifting every existing journey; the
-      // splash itself is covered by test/app/m5_app_splash_test.dart.
-      appSplashEnabledProvider.overrideWithValue(false),
+      // splash itself is covered by test/app/m5_app_splash_test.dart and,
+      // with [enableAppSplash], by the M6 front-door hand-off tests.
+      if (!enableAppSplash) appSplashEnabledProvider.overrideWithValue(false),
       if (plannerIdentifierSource != null)
         plannerIdentifierSourceProvider.overrideWithValue(
           plannerIdentifierSource,

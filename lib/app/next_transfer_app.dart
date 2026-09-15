@@ -381,7 +381,15 @@ final class _NextTransferAppState extends ConsumerState<NextTransferApp>
     });
   }
 
-  bool _hasGuardedDestination(StartupState state) => state is! StartupOpening;
+  bool _hasGuardedDestination(StartupState state) {
+    if (state is! StartupOpening) {
+      return true;
+    }
+    // M6 floor: onboarding is ALWAYS a guarded destination — its route guard
+    // owns the front door, so the splash must never linger over it.  Startup
+    // stays the splash's natural floor for the shared /startup surface.
+    return state is StartupWelcome || state is StartupOnboarding;
+  }
 
   @override
   Widget build(BuildContext context) {

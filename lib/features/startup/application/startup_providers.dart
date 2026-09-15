@@ -22,6 +22,7 @@ final class StartupController extends Notifier<StartupState> {
   int _attempt = 0;
   Future<bool>? _draftFlush;
   String? _pendingDraft;
+  Future<void>? _completion;
 
   StartupRepository get _repository => ref.read(startupRepositoryProvider);
   SanitizedDiagnostics get _diagnostics => ref.read(diagnosticsProvider);
@@ -124,24 +125,51 @@ final class StartupController extends Notifier<StartupState> {
     }
   }
 
-  Future<void> completeOnboarding() async {
+  /// M6: the only caller-observable completion path.  It is single-flight —
+  /// duplicate taps join the one running operation — and it NEVER publishes a
+  /// fabricated [StartupReady] itself.  After the repository's atomic
+  /// create/seed/complete transaction commits, the EXISTING startup
+  /// resolution re-runs so the destination must pass the canonical gate
+  /// (Privacy Lock, consistency checks, generation currency) exactly like a
+  /// relaunch.  The onboarding button can therefore never authorize private
+  /// access on its own, and a process death after the commit is recognized as
+  /// a returning user on the next start.
+  Future<void> completeOnboarding() {
+    final active = _completion;
+    if (active != null) {
+      return active;
+    }
+    final completion = _completeAndResolve();
+    _completion = completion;
+    return completion.whenComplete(() {
+      if (identical(_completion, completion)) {
+        _completion = null;
+      }
+    });
+  }
+
+  Future<void> _completeAndResolve() async {
     final attempt = _attempt;
     try {
-      final profile = await _repository.completeOnboarding();
-      if (!_isCurrent(attempt)) {
-        return;
-      }
-      state = StartupReady(
-        profile: profile,
-        accountSessionState: AccountSessionState.localOnly,
-        syncState: LocalSyncState.notConfigured,
-      );
+      await _repository.completeOnboarding();
     } on Object {
       if (!_isCurrent(attempt)) {
         return;
       }
+      _diagnostics.record(
+        'onboarding_completion_failed',
+        context: const <String, Object?>{'onboarding_stage': 'profileDraft'},
+      );
       state = const StartupRecovery(reasonCode: 'profile_creation_failed');
+      return;
     }
+    // Stale completion (a newer generation owns resolution, e.g. a relock
+    // raced the commit) deliberately publishes nothing: that generation's own
+    // resolution is authoritative.
+    if (!_isCurrent(attempt)) {
+      return;
+    }
+    await initialize();
   }
 
   Future<void> updateDisplayName(String? displayName) async {
@@ -165,17 +193,26 @@ final class StartupController extends Notifier<StartupState> {
     );
   }
 
+  /// M6 ordering law: completed-without-profile data stays fail-closed
+  /// Recovery, Privacy Lock outranks first-run presentation, and only a truly
+  /// unlocked, unlocked-gated snapshot reaches the Welcome/Onboarding front
+  /// door.  A no-profile snapshot with an enabled lock must never select
+  /// onboarding, so a restored or copied data set cannot expose the front
+  /// door ahead of authentication.
   StartupState _stateFromSnapshot(StartupSnapshot snapshot) {
     final profile = snapshot.profile;
     if (profile == null) {
       final checkpoint = snapshot.onboardingCheckpoint;
-      if (checkpoint == null) {
-        return const StartupWelcome();
-      }
-      if (checkpoint.stage == OnboardingStage.completed) {
+      if (checkpoint != null && checkpoint.stage == OnboardingStage.completed) {
         return const StartupRecovery(
           reasonCode: 'profile_checkpoint_inconsistent',
         );
+      }
+      if (snapshot.unlockRequired) {
+        return const StartupProtected();
+      }
+      if (checkpoint == null) {
+        return const StartupWelcome();
       }
       return StartupOnboarding(checkpoint);
     }
