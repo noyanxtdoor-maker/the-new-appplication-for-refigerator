@@ -4,6 +4,7 @@
     <style name="LaunchTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
         <!-- Show a splash screen on the activity. Automatically removed when
              the Flutter engine draws its first frame -->
+        <!-- M5: the launch window is the approved brand field, not white. -->
         <item name="android:windowBackground">@drawable/launch_background</item>
     </style>
     <!-- Theme applied to the Android Window as soon as the process has started.
@@ -13,6 +14,10 @@
 
          This Theme is only used starting with V2 of Flutter's Android embedding. -->
     <style name="NormalTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
-        <item name="android:windowBackground">?android:colorBackground</item>
+        <!-- M5: the window behind Flutter keeps the same brand field while the
+             engine warms up, so the hand-off from the launch window into the
+             app-owned splash is invisible rather than a flash of
+             ?android:colorBackground. -->
+        <item name="android:windowBackground">@color/nt_brand_blue</item>
     </style>
 </resources>

@@ -4,6 +4,8 @@
     <style name="LaunchTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
         <!-- Show a splash screen on the activity. Automatically removed when
              the Flutter engine draws its first frame -->
+        <!-- M5: the approved splash is the same brand field in both
+             appearances, so dark mode starts on it too. -->
         <item name="android:windowBackground">@drawable/launch_background</item>
     </style>
     <!-- Theme applied to the Android Window as soon as the process has started.
@@ -13,6 +15,8 @@
 
          This Theme is only used starting with V2 of Flutter's Android embedding. -->
     <style name="NormalTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
-        <item name="android:windowBackground">?android:colorBackground</item>
+        <!-- M5: same brand field as the light appearance; it is only ever
+             visible for the instant before the app-owned splash paints. -->
+        <item name="android:windowBackground">@color/nt_brand_blue</item>
     </style>
 </resources>

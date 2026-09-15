@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:rmplanner/app/m5_app_splash.dart';
 import 'package:rmplanner/app/notification_open_presentation.dart';
 import 'package:rmplanner/app/router/app_router.dart';
 import 'package:rmplanner/app/router/route_names.dart';
@@ -49,6 +50,7 @@ final class _NextTransferAppState extends ConsumerState<NextTransferApp>
   String? _badgedProfileId;
   NotificationResponseIntent? _pendingNotification;
   Timer? _reminderDateTimer;
+  bool _splashVisible = true;
 
   @override
   void initState() {
@@ -326,6 +328,11 @@ final class _NextTransferAppState extends ConsumerState<NextTransferApp>
     }
   }
 
+  /// M5: the app-owned splash removes itself once its fade-out completes.
+  void _finishSplash() {
+    if (mounted) setState(() => _splashVisible = false);
+  }
+
   @override
   Widget build(BuildContext context) {
     ref.watch(privacyControllerProvider);
@@ -337,6 +344,9 @@ final class _NextTransferAppState extends ConsumerState<NextTransferApp>
     final themeColor = ref.watch(themeColorProvider);
     final router = ref.watch(appRouterProvider);
     final environment = ref.watch(appEnvironmentProvider);
+    // M5: the approved startup splash is mounted above the router. Nothing
+    // about startup, recovery or Privacy Lock changes underneath it.
+    final splashVisible = ref.watch(appSplashEnabledProvider) && _splashVisible;
 
     return MaterialApp.router(
       title: 'Next Transfer',
@@ -361,7 +371,19 @@ final class _NextTransferAppState extends ConsumerState<NextTransferApp>
       // Dark keeps the dark appearance.  Status bar stays transparent with
       // brightness-correct icons.  The native splash stays system-following.
       builder: (context, child) => AnnotatedRegion<SystemUiOverlayStyle>(
-        value: Theme.of(context).brightness == Brightness.dark
+        // M5: while the approved splash is up, the system bars sit on the same
+        // brand field, so no white status or navigation surface appears beside
+        // the splash and the bar icons stay legible.
+        value: splashVisible
+            ? const SystemUiOverlayStyle(
+                statusBarColor: Colors.transparent,
+                statusBarIconBrightness: Brightness.light,
+                statusBarBrightness: Brightness.dark,
+                systemNavigationBarColor: nextTransferSplashBlue,
+                systemNavigationBarIconBrightness: Brightness.light,
+                systemNavigationBarContrastEnforced: false,
+              )
+            : Theme.of(context).brightness == Brightness.dark
             ? SystemUiOverlayStyle(
                 statusBarColor: Colors.transparent,
                 statusBarIconBrightness: Brightness.light,
@@ -380,7 +402,14 @@ final class _NextTransferAppState extends ConsumerState<NextTransferApp>
                 systemNavigationBarIconBrightness: Brightness.dark,
                 systemNavigationBarContrastEnforced: false,
               ),
-        child: child!,
+        child: Stack(
+          fit: StackFit.expand,
+          textDirection: TextDirection.ltr,
+          children: <Widget>[
+            child!,
+            if (splashVisible) M5AppSplash(onFinished: _finishSplash),
+          ],
+        ),
       ),
       routerConfig: router,
     );

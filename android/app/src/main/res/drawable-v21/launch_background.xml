@@ -1,12 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Modify this file to customize your launch splash screen -->
+<!-- M5: the API 21+ launch window is the approved brand field instead of
+     ?android:colorBackground, so dark mode and light mode both start on the
+     same surface as the app-owned splash and there is no light or dark flash
+     before the first Flutter frame. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="?android:colorBackground" />
-
-    <!-- You can insert your own image assets here -->
-    <!-- <item>
-        <bitmap
-            android:gravity="center"
-            android:src="@mipmap/launch_image" />
-    </item> -->
+    <item android:drawable="@color/nt_brand_blue" />
 </layer-list>

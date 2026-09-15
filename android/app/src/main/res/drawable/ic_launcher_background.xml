@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- M5: adaptive launcher icon background.  A vertical gradient taken from the
+     approved icon asset's own outer-margin colours, so any region a platform
+     mask exposes stays continuous with the foreground artwork instead of
+     showing a flat seam.  Icon-only resource; it is not used by the splash. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <gradient
+        android:angle="270"
+        android:startColor="#FF0250BF"
+        android:endColor="#FF013997" />
+</shape>

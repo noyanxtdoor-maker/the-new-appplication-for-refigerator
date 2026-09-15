@@ -1,12 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Modify this file to customize your launch splash screen -->
+<!-- M5: the Android launch window is now the approved brand field instead of
+     the template's white.  This is what removes the white flash between the
+     launcher tap and the first Flutter frame, and it matches the app-owned
+     splash exactly, so the two stages read as one continuous surface. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="@android:color/white" />
-
-    <!-- You can insert your own image assets here -->
-    <!-- <item>
-        <bitmap
-            android:gravity="center"
-            android:src="@mipmap/launch_image" />
-    </item> -->
+    <item android:drawable="@color/nt_brand_blue" />
 </layer-list>

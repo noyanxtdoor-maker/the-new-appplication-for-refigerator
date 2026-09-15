@@ -2,6 +2,7 @@ import 'package:drift/native.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
+import 'package:rmplanner/app/m5_app_splash.dart';
 import 'package:rmplanner/app/next_transfer_app.dart';
 import 'package:rmplanner/app/theme/theme_color_mode.dart';
 import 'package:rmplanner/core/background/background_work_gateway.dart';
@@ -496,6 +497,12 @@ final class TestPrivacyDependencies {
       initialAppearanceProvider.overrideWithValue(initialAppearance),
       initialThemeColorProvider.overrideWithValue(initialThemeColor),
       plannerDateSourceProvider.overrideWithValue(plannerDateSource),
+      // M5: the shared harness mounts the real app so journeys can assert on
+      // the real startup and Privacy Lock surfaces. The branded startup
+      // overlay is a ~1 s presentation window in front of those, so it is
+      // switched off here rather than shifting every existing journey; the
+      // splash itself is covered by test/app/m5_app_splash_test.dart.
+      appSplashEnabledProvider.overrideWithValue(false),
       if (plannerIdentifierSource != null)
         plannerIdentifierSourceProvider.overrideWithValue(
           plannerIdentifierSource,

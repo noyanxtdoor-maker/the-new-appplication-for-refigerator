@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- M5: the approved brand field, sampled from the edge of the approved
+         splash asset (rgb(0, 33, 97)).  The Android launch window, the
+         Android 12+ platform splash and the app-owned splash all use this one
+         colour, so the whole launch reads as a single continuous surface and
+         there is no white or black flash at any hand-off. -->
+    <color name="nt_brand_blue">#FF002161</color>
+
+    <!-- M5: adaptive launcher icon background, matching the outer colours of
+         the approved icon asset. -->
+    <color name="ic_launcher_background">#FF002161</color>
+</resources>
