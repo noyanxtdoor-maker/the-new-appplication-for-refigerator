@@ -184,6 +184,9 @@ void _registerHomeGolden({
     addTearDown(database.close);
     final startup = buildTestRepository(database: database);
     final profile = await startup.completeOnboarding();
+    // M6 zero-goal law: these goldens describe an EXISTING (pre-M6) user; the
+    // per-scenario `arrange` callback then adjusts goals from that baseline.
+    await seedLegacyCanonicalGoals(database, profile.id);
     // Establish the current period so the golden captures the established
     // Home (cards + Goal Planning pill), matching the pre-pack Home layout.
     await establishWeeklyPlan(

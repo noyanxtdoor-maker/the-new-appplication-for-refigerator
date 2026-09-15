@@ -23,6 +23,7 @@ import 'package:rmplanner/features/goals/presentation/goal_archive_screen.dart';
 import 'package:rmplanner/features/goals/presentation/goal_create_screen.dart';
 import 'package:rmplanner/features/goals/presentation/goal_edit_screen.dart';
 import 'package:rmplanner/features/goals/presentation/goal_icon_picker_screen.dart';
+import 'package:rmplanner/features/goals/presentation/starter_goals_screen.dart';
 import 'package:rmplanner/features/indicators/presentation/indicator_detail_screen.dart';
 import 'package:rmplanner/features/indicators/presentation/indicator_edit_screen.dart';
 import 'package:rmplanner/features/indicators/presentation/indicator_list_screen.dart';
@@ -284,6 +285,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             name: RouteNames.weeklyPlanningHistory,
             path: RoutePaths.weeklyPlanningHistory,
             builder: (context, state) => const WeeklyPlanHistoryScreen(),
+          ),
+          GoRoute(
+            name: RouteNames.starterGoals,
+            path: RoutePaths.starterGoals,
+            builder: (context, state) => const StarterGoalsScreen(),
           ),
           GoRoute(
             name: RouteNames.goalCreate,

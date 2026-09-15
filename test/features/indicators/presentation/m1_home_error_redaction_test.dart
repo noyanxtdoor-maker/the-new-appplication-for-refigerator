@@ -266,6 +266,9 @@ Future<({DriftGoalRepository canonical, Goal daily, String profileId})>
 _prepare(AppDatabase database) async {
   final startup = buildTestRepository(database: database);
   final profile = await startup.completeOnboarding();
+  // M6 zero-goal law: this test describes an EXISTING (pre-M6) user, so the canonical six Goals are
+  // seeded explicitly instead of being created implicitly at onboarding.
+  await seedLegacyCanonicalGoals(database, profile.id);
   await establishWeeklyPlan(
     database: database,
     profileId: profile.id,

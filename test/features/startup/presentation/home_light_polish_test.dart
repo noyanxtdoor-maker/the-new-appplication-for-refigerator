@@ -50,6 +50,9 @@ void main() {
     _lastDatabase = database;
     final startup = buildTestRepository(database: database);
     final profile = await startup.completeOnboarding();
+    // M6 zero-goal law: this test describes an EXISTING (pre-M6) user, so the canonical six Goals are
+    // seeded explicitly instead of being created implicitly at onboarding.
+    await seedLegacyCanonicalGoals(database, profile.id);
     _lastProfileId = profile.id;
     await establishWeeklyPlan(
       database: database,

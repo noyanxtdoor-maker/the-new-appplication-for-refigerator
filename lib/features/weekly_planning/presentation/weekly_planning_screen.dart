@@ -190,6 +190,67 @@ final class _WeeklyPlanningScreenState
   }
 }
 
+/// Starter Goals entry point on Goal Planning.
+///
+/// [prominent] is true ONLY while the user owns no active Goal — the zero-goal
+/// empty state the owner locked.  In that state the optional catalog is offered
+/// as a first-class action next to the existing Create Goal button; once any
+/// Goal exists it collapses to a compact secondary action so the existing
+/// Create Goal / Manage Goals hierarchy stays dominant.
+///
+/// A Starter Goal template is never an actual Goal: nothing is created until
+/// the user selects templates, sets their targets and confirms in the catalog.
+final class _StarterGoalsInvitation extends StatelessWidget {
+  const _StarterGoalsInvitation({
+    required this.prominent,
+    required this.onUseStarterGoals,
+  });
+
+  final bool prominent;
+  final VoidCallback onUseStarterGoals;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!prominent) {
+      return Align(
+        alignment: Alignment.centerLeft,
+        child: TextButton(
+          key: const Key('weekly-plan-starter-goals-secondary'),
+          onPressed: onUseStarterGoals,
+          child: const Text('Use Starter Goals'),
+        ),
+      );
+    }
+    return Card(
+      key: const Key('weekly-plan-starter-goals-invitation'),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Text('No goals yet', style: AppTypography.cardTitle),
+            const SizedBox(height: 4),
+            const Text(
+              'Create your own goal above, or choose optional Starter Goals '
+              'and set your own target for each.',
+              style: AppTypography.secondary,
+            ),
+            const SizedBox(height: 14),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                key: const Key('weekly-plan-use-starter-goals'),
+                onPressed: onUseStarterGoals,
+                child: const Text('Use Starter Goals'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 final class _GoalPlanBody extends ConsumerStatefulWidget {
   const _GoalPlanBody({
     required this.plan,
@@ -241,10 +302,29 @@ final class _GoalPlanBodyState extends ConsumerState<_GoalPlanBody>
     widget.onManagementModeChanged(false);
   }
 
+  /// Opens the optional Starter Goals catalog.  The catalog itself writes
+  /// nothing; only an explicit confirm there creates Goals.  The canonical
+  /// providers are refreshed on return so a successful import is reflected
+  /// here and on Home immediately.
+  Future<void> _openStarterGoals() async {
+    await context.push(RoutePaths.starterGoals);
+    if (!mounted) {
+      return;
+    }
+    ref.invalidate(activeGoalsProvider);
+    ref.invalidate(goalCapacityProvider);
+    ref.invalidate(goalPlanningProvider);
+  }
+
   @override
   Widget build(BuildContext context) {
     final plan = widget.plan;
     final capacity = ref.watch(goalCapacityProvider).asData?.value;
+    // The owner-locked zero-goal empty state: a user who owns no active Goal
+    // sees the Starter Goals invitation; once any Goal exists the invitation
+    // collapses to a compact secondary action.
+    final hasAnyGoal =
+        plan.daily != null || plan.weekly.isNotEmpty || plan.monthly != null;
     return Stack(
       children: <Widget>[
         ListView(
@@ -306,6 +386,13 @@ final class _GoalPlanBodyState extends ConsumerState<_GoalPlanBody>
                   ),
                 ],
               ),
+            if (!widget.managementMode) ...<Widget>[
+              const SizedBox(height: 12),
+              _StarterGoalsInvitation(
+                prominent: !hasAnyGoal,
+                onUseStarterGoals: () => unawaited(_openStarterGoals()),
+              ),
+            ],
             const SizedBox(height: 24),
             _GoalSection(
               title: 'Daily Progress Goal',

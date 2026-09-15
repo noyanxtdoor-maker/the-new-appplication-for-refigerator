@@ -28,6 +28,8 @@ void main() {
     profileId = (await buildTestRepository(
       database: database,
     ).completeOnboarding()).id;
+    // M6 zero-goal law: this test describes an EXISTING (pre-M6) user.
+    await seedLegacyCanonicalGoals(database, profileId);
     goals = DriftGoalRepository(
       database: database,
       clock: clock,

@@ -58,6 +58,7 @@ abstract final class RouteNames {
   static const String weeklyPlanningTargets = 'weekly-planning-targets';
   static const String weeklyPlanningHistory = 'weekly-planning-history';
   static const String goalCreate = 'goal-create';
+  static const String starterGoals = 'starter-goals';
   static const String goalCreateIconPicker = 'goal-create-icon-picker';
   static const String goalEdit = 'goal-edit';
   static const String goalEditIconPicker = 'goal-edit-icon-picker';
@@ -118,6 +119,7 @@ abstract final class RoutePaths {
   static const String weeklyPlanningHistory =
       '/planner/weekly-planning-history';
   static const String goalCreate = '/planner/weekly-planning/create';
+  static const String starterGoals = '/planner/weekly-planning/starter-goals';
   static const String goalCreateIconPicker =
       '/planner/weekly-planning/create/icon';
   static const String goalArchive = '/planner/weekly-planning/archive';

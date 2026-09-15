@@ -54,6 +54,9 @@ void main() {
       addTearDown(database.close);
       final startup = buildTestRepository(database: database);
       final profile = await startup.completeOnboarding();
+      // M6 zero-goal law: this test describes an EXISTING (pre-M6) user, so the canonical six Goals are
+      // seeded explicitly instead of being created implicitly at onboarding.
+      await seedLegacyCanonicalGoals(database, profile.id);
       await establishWeeklyPlan(
         database: database,
         profileId: profile.id,
@@ -161,7 +164,9 @@ void main() {
     final database = openMemoryDatabase();
     addTearDown(database.close);
     final startup = buildTestRepository(database: database);
-    await startup.completeOnboarding();
+    // M6 zero-goal law: this test describes an EXISTING (pre-M6) user.
+    final m6LegacySeedProfile = await startup.completeOnboarding();
+    await seedLegacyCanonicalGoals(database, m6LegacySeedProfile.id);
     final privacy = TestPrivacyDependencies(database: database);
 
     await tester.pumpWidget(
@@ -210,6 +215,9 @@ void main() {
       addTearDown(database.close);
       final startup = buildTestRepository(database: database);
       final profile = await startup.completeOnboarding();
+      // M6 zero-goal law: this test describes an EXISTING (pre-M6) user, so the canonical six Goals are
+      // seeded explicitly instead of being created implicitly at onboarding.
+      await seedLegacyCanonicalGoals(database, profile.id);
       await establishWeeklyPlan(
         database: database,
         profileId: profile.id,
@@ -405,6 +413,9 @@ void main() {
       });
       final startup = buildTestRepository(database: database);
       final profile = await startup.completeOnboarding();
+      // M6 zero-goal law: this test describes an EXISTING (pre-M6) user, so the canonical six Goals are
+      // seeded explicitly instead of being created implicitly at onboarding.
+      await seedLegacyCanonicalGoals(database, profile.id);
       final clock = FixedClock(DateTime.utc(2026, 7, 27, 12));
       final reporting = DriftOutcomeReportingRepository(
         database: database,
@@ -497,6 +508,9 @@ void main() {
       addTearDown(database.close);
       final startup = buildTestRepository(database: database);
       final profile = await startup.completeOnboarding();
+      // M6 zero-goal law: this test describes an EXISTING (pre-M6) user, so the canonical six Goals are
+      // seeded explicitly instead of being created implicitly at onboarding.
+      await seedLegacyCanonicalGoals(database, profile.id);
       await establishWeeklyPlan(
         database: database,
         profileId: profile.id,

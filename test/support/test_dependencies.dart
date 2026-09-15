@@ -1,3 +1,4 @@
+import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -21,6 +22,8 @@ import 'package:rmplanner/features/contacts/application/contact_repository.dart'
 import 'package:rmplanner/features/contacts/data/drift_contact_repository.dart';
 import 'package:rmplanner/features/goals/application/goal_providers.dart';
 import 'package:rmplanner/features/goals/data/drift_goal_repository.dart';
+import 'package:rmplanner/features/goals/domain/canonical_goal_slots.dart';
+import 'package:rmplanner/features/goals/domain/goal.dart';
 import 'package:rmplanner/features/indicators/application/indicator_providers.dart';
 import 'package:rmplanner/features/indicators/application/indicator_repository.dart';
 import 'package:rmplanner/features/indicators/data/drift_indicator_repository.dart';
@@ -560,6 +563,61 @@ final class FailingStartupRepository implements StartupRepository {
   Future<LocalProfile> updateDisplayName(String? displayName) async {
     throw StateError('Injected startup failure');
   }
+}
+
+/// Simulates a pre-M6 (legacy) install for tests that describe an EXISTING
+/// user rather than a brand-new one.
+///
+/// The M6 zero-goal law removed automatic Goal creation, so a profile that just
+/// completed onboarding now owns ZERO Goals.  Every profile created before that
+/// law, however, already owns the canonical six — exactly the state these tests
+/// were written against.  This helper writes the bootstrap's own canonical seed
+/// signature for the first slot and then lets the PRODUCTION bootstrap converge
+/// the remaining slots, the same way a real upgraded install does.  The fixture
+/// therefore cannot drift from production behaviour, and the convergence /
+/// repair path stays covered.
+///
+/// Tests that assert the new zero-goal law must NOT call this.
+Future<void> seedLegacyCanonicalGoals(
+  AppDatabase database,
+  String profileId, {
+  AppClock? clock,
+  bool convergeRemainingSlots = true,
+}) async {
+  final resolvedClock =
+      clock ?? FixedClock(DateTime.utc(2026, 7, 27, 12));
+  final now = resolvedClock.nowUtc();
+  final slot = CanonicalGoalSlot.all.first;
+  await database
+      .into(database.goals)
+      .insert(
+        GoalsCompanion.insert(
+          id: '$profileId:goal:${slot.slotIndex}',
+          profileId: profileId,
+          indicatorKey: Value<String?>(slot.indicatorKey),
+          assignedEventTypeStableKey: Value<String?>(
+            slot.eventTypeStableKey,
+          ),
+          role: slot.role.storageName,
+          activeSlotIndex: Value<int?>(slot.slotIndex),
+          title: slot.defaultTitle,
+          status: GoalStatus.active.name,
+          createdAtUtc: now,
+          updatedAtUtc: now,
+        ),
+        mode: InsertMode.insertOrIgnore,
+      );
+  if (!convergeRemainingSlots) {
+    // Only the slot-1 row (the bootstrap's own stable-ID seed signature) is
+    // written: passes that need a *partially seeded* legacy profile can then
+    // prove the production repair path converges the remaining slots.
+    return;
+  }
+  await DriftGoalRepository(
+    database: database,
+    clock: resolvedClock,
+    identifiers: const UuidIdentifierSource(),
+  ).ensureCanonicalGoals(profileId);
 }
 
 AppDatabase openMemoryDatabase() {

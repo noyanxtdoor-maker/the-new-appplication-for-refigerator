@@ -42,7 +42,9 @@ void main() {
       database: database,
       privacyGate: privacy.gate,
     );
-    await startup.completeOnboarding();
+    // M6 zero-goal law: this scenario describes an EXISTING (pre-M6) user.
+    final profile = await startup.completeOnboarding();
+    await seedLegacyCanonicalGoals(database, profile.id);
     await tester.pumpWidget(
       privacy.buildApp(
         environment: const AppEnvironment(

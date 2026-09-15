@@ -28,6 +28,9 @@ void main() {
     final database = openMemoryDatabase();
     final startup = buildTestRepository(database: database);
     final profile = await startup.completeOnboarding();
+    // M6 zero-goal law: this test describes an EXISTING (pre-M6) user, so the canonical six Goals are
+    // seeded explicitly instead of being created implicitly at onboarding.
+    await seedLegacyCanonicalGoals(database, profile.id);
     return (database, repositoryFor(database), profile.id);
   }
 
@@ -149,6 +152,9 @@ void main() {
       addTearDown(importedDatabase.close);
       final importedStartup = buildTestRepository(database: importedDatabase);
       final importedProfile = await importedStartup.completeOnboarding();
+      // M6 zero-goal law: this test describes an EXISTING (pre-M6) user, so the canonical six Goals are
+      // seeded explicitly instead of being created implicitly at onboarding.
+      await seedLegacyCanonicalGoals(importedDatabase, importedProfile.id);
       expect(importedProfile.id, profileId);
       final importedRepository = repositoryFor(importedDatabase);
       await importedRepository.importGoalBackup(
@@ -225,6 +231,9 @@ void main() {
         addTearDown(importedDatabase.close);
         final importedStartup = buildTestRepository(database: importedDatabase);
         final importedProfile = await importedStartup.completeOnboarding();
+        // M6 zero-goal law: this test describes an EXISTING (pre-M6) user, so the canonical six Goals are
+        // seeded explicitly instead of being created implicitly at onboarding.
+        await seedLegacyCanonicalGoals(importedDatabase, importedProfile.id);
         final importedRepository = repositoryFor(importedDatabase);
         await importedRepository.importGoalBackup(
           profileId: importedProfile.id,
@@ -323,6 +332,9 @@ void main() {
       addTearDown(importedDatabase.close);
       final importedStartup = buildTestRepository(database: importedDatabase);
       final importedProfile = await importedStartup.completeOnboarding();
+      // M6 zero-goal law: this test describes an EXISTING (pre-M6) user, so the canonical six Goals are
+      // seeded explicitly instead of being created implicitly at onboarding.
+      await seedLegacyCanonicalGoals(importedDatabase, importedProfile.id);
       final importedRepository = repositoryFor(importedDatabase);
       await importedRepository.importGoalBackup(
         profileId: importedProfile.id,

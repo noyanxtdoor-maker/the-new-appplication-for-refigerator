@@ -5,7 +5,6 @@ import 'package:rmplanner/core/diagnostics/sanitized_diagnostics.dart';
 import 'package:rmplanner/core/ids/identifier_source.dart';
 import 'package:rmplanner/core/security/privacy_gate.dart';
 import 'package:rmplanner/core/time/app_clock.dart';
-import 'package:rmplanner/features/goals/data/drift_goal_repository.dart';
 import 'package:rmplanner/features/startup/application/startup_repository.dart';
 import 'package:rmplanner/features/startup/domain/life_indicator_seed.dart';
 import 'package:rmplanner/features/startup/domain/local_profile.dart';
@@ -254,9 +253,12 @@ final class DriftStartupRepository implements StartupRepository {
             mode: InsertMode.insertOrIgnore,
           );
     }
-    if (database.schemaVersion >= 17) {
-      await GoalBootstrap.ensure(database, profileId, nowUtc: clock.nowUtc());
-    }
+    // M6 zero-goal law (owner-locked): completing onboarding no longer creates
+    // any user Goal.  Life Indicator *definitions* above are configuration and
+    // remain seeded; Goals are user data and are created only by the user's
+    // explicit Create Goal / Starter Goal actions.  Identity repair for
+    // profiles that already own Goals continues through the canonical read
+    // paths (goal reads and the Home indicator read).
   }
 
   LocalProfile _mapProfile(LocalProfileRow row) {

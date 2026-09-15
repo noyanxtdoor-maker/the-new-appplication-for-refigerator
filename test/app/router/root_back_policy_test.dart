@@ -37,7 +37,10 @@ void main() {
     final database = openMemoryDatabase();
     addTearDown(database.close);
     final startup = buildTestRepository(database: database);
+    // M6 zero-goal law: these scenarios describe an EXISTING (pre-M6) user
+    // whose canonical Goals the app used to create implicitly at onboarding.
     final profile = await startup.completeOnboarding();
+    await seedLegacyCanonicalGoals(database, profile.id);
     if (seedPriorWeekPlan) {
       await database
           .into(database.weeklyPlans)

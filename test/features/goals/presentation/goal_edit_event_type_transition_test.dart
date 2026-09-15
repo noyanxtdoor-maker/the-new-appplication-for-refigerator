@@ -38,6 +38,9 @@ void main() {
       addTearDown(database.close);
       final startup = buildTestRepository(database: database);
       final profile = await startup.completeOnboarding();
+      // M6 zero-goal law: this test describes an EXISTING (pre-M6) user, so the canonical six Goals are
+      // seeded explicitly instead of being created implicitly at onboarding.
+      await seedLegacyCanonicalGoals(database, profile.id);
       final goalRepository = DriftGoalRepository(
         database: database,
         clock: FixedClock(DateTime.utc(2026, 7, 27, 12)),
@@ -202,6 +205,9 @@ void main() {
       addTearDown(database.close);
       final startup = buildTestRepository(database: database);
       final profile = await startup.completeOnboarding();
+      // M6 zero-goal law: this test describes an EXISTING (pre-M6) user, so the canonical six Goals are
+      // seeded explicitly instead of being created implicitly at onboarding.
+      await seedLegacyCanonicalGoals(database, profile.id);
       final repository = DriftEventTypeRepository(
         database: database,
         clock: FixedClock(DateTime.utc(2026, 7, 27, 12)),

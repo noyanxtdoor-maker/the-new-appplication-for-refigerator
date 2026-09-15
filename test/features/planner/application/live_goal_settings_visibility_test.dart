@@ -39,6 +39,8 @@ void main() {
     database = openMemoryDatabase();
     startupRepository = buildTestRepository(database: database);
     profileId = (await startupRepository.completeOnboarding()).id;
+    // M6 zero-goal law: this test describes an EXISTING (pre-M6) user.
+    await seedLegacyCanonicalGoals(database, profileId);
     goals = DriftGoalRepository(
       database: database,
       clock: clock,

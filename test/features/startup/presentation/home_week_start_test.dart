@@ -184,7 +184,9 @@ void main() {
       database: database,
       privacyGate: privacy.gate,
     );
-    await startup.completeOnboarding();
+    // M6 zero-goal law: this test describes an EXISTING (pre-M6) user.
+    final m6LegacySeedProfile = await startup.completeOnboarding();
+    await seedLegacyCanonicalGoals(database, m6LegacySeedProfile.id);
     await tester.pumpWidget(
       privacy.buildApp(
         environment: const AppEnvironment(
@@ -286,6 +288,8 @@ void main() {
     final profile = await buildTestRepository(
       database: database,
     ).completeOnboarding();
+    // M6 zero-goal law: this test describes an EXISTING (pre-M6) user.
+    await seedLegacyCanonicalGoals(database, profile.id);
     await establishWeeklyPlan(
       database: database,
       profileId: profile.id,
@@ -360,6 +364,8 @@ void main() {
       final profile = await buildTestRepository(
         database: database,
       ).completeOnboarding();
+      // M6 zero-goal law: this test describes an EXISTING (pre-M6) user.
+      await seedLegacyCanonicalGoals(database, profile.id);
       await establishWeeklyPlan(
         database: database,
         profileId: profile.id,
@@ -407,6 +413,8 @@ void main() {
       final profile = await buildTestRepository(
         database: database,
       ).completeOnboarding();
+      // M6 zero-goal law: this test describes an EXISTING (pre-M6) user.
+      await seedLegacyCanonicalGoals(database, profile.id);
       await establishWeeklyPlan(
         database: database,
         profileId: profile.id,
@@ -464,6 +472,8 @@ void main() {
       final profile = await buildTestRepository(
         database: database,
       ).completeOnboarding();
+      // M6 zero-goal law: this test describes an EXISTING (pre-M6) user.
+      await seedLegacyCanonicalGoals(database, profile.id);
       // The stored preference is Sunday and the Sunday week is established.
       await establishWeeklyPlan(
         database: database,
@@ -530,6 +540,8 @@ void main() {
       final profile = await buildTestRepository(
         database: database,
       ).completeOnboarding();
+      // M6 zero-goal law: this test describes an EXISTING (pre-M6) user.
+      await seedLegacyCanonicalGoals(database, profile.id);
       // Sunday preference; Thursday 2026-08-13 -> Sunday week Aug 9-15.
       final startOfWeek = _ControlledStartOfWeekRepository(DateTime.sunday);
       addTearDown(startOfWeek.releasePendingRead);
@@ -587,6 +599,8 @@ void main() {
     final profile = await buildTestRepository(
       database: database,
     ).completeOnboarding();
+    // M6 zero-goal law: this test describes an EXISTING (pre-M6) user.
+    await seedLegacyCanonicalGoals(database, profile.id);
     final startOfWeek = DriftStartOfWeekRepository(
       database: database,
       clock: FixedClock(DateTime.utc(2026, 8, 13, 12)),

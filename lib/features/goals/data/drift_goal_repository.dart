@@ -101,6 +101,44 @@ final class GoalBootstrap {
               .get())
         row.operationId,
     };
+    // M6 zero-goal law (owner-locked): the bootstrap is a REPAIRER of existing
+    // Goal identity, never a CREATOR for a profile that was never seeded.
+    //
+    // The discriminator is the bootstrap's OWN canonical seed signature — the
+    // stable Goal IDs it writes (`profileId:goal:slot`) and the canonical
+    // creation activity/outbox operation IDs.  A profile that carries that
+    // signature is a pre-M6 profile whose canonical six were seeded at
+    // onboarding, so the loop below keeps converging a missing slot exactly as
+    // before (and never rewrites, resurrects or removes a historical row).
+    //
+    // A profile with NO such signature has never been seeded — every Goal it
+    // owns was created explicitly by the user (Create Goal / Starter Goal, whose
+    // IDs are generated UUIDs).  For that profile the bootstrap creates
+    // nothing, so a new user starts at ZERO Goals and STAYS at exactly the
+    // goals they asked for; importing one starter goal can never cause the
+    // other five to appear.
+    final canonicalSeededGoalIds = <String>{
+      for (final slot in CanonicalGoalSlot.all)
+        stableId(profileId, slot.slotIndex),
+    };
+    final hasCanonicalSeedEvidence =
+        existingGoals.any(
+          (row) => canonicalSeededGoalIds.contains(row.id),
+        ) ||
+        existingActivityOperationIds.isNotEmpty ||
+        existingOutboxOperationIds.isNotEmpty;
+    // Nothing to repair for a profile the bootstrap never seeded.  The slot
+    // loop below does more than insert missing slots: it also backfills the
+    // slot's canonical `:created` activity/outbox evidence for ANY goal that
+    // matches the slot.  Running it for a never-seeded profile would let a
+    // single user-created Goal in a free canonical slot fabricate that
+    // evidence, and the NEXT read would then seed the remaining five — exactly
+    // the silent auto-population this law forbids.  Returning here also keeps
+    // legacy title migration and definition-label repair where they belong:
+    // on profiles that actually carry the pre-M6 seed.
+    if (!hasCanonicalSeedEvidence) {
+      return;
+    }
     for (final slot in CanonicalGoalSlot.all) {
       final goalId = stableId(profileId, slot.slotIndex);
       final definition = definitionsByIndicator[slot.indicatorKey];
@@ -115,7 +153,7 @@ final class GoalBootstrap {
       goal ??= existingGoals
           .where((row) => row.indicatorKey == slot.indicatorKey)
           .firstOrNull;
-      if (goal == null && definition != null) {
+      if (goal == null && definition != null && hasCanonicalSeedEvidence) {
         final title = definition.label == 'Meaningful Connections'
             ? slot.defaultTitle
             : definition.label;

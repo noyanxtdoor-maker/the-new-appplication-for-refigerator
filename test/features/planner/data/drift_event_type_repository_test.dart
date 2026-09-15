@@ -20,6 +20,9 @@ void main() {
     profileId = (await buildTestRepository(
       database: database,
     ).completeOnboarding()).id;
+    // M6 zero-goal law: this suite describes an EXISTING (pre-M6) user, whose
+    // canonical Goals the app used to create implicitly at onboarding.
+    await seedLegacyCanonicalGoals(database, profileId);
     repository = DriftEventTypeRepository(
       database: database,
       clock: FixedClock(DateTime.utc(2026, 7, 29, 12)),

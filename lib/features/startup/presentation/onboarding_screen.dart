@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -122,29 +123,142 @@ final class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
 // Shared front-door chrome
 // ---------------------------------------------------------------------------
 
-/// One brand surface for the whole front door, sampled from the edge of the
-/// approved splash artwork (the same value the native launch surface uses).
+/// The approved brand field for the DARK front door (the same value the native
+/// launch surface uses).  Light resolves the canonical light surface instead.
 const Color _frontDoorField = nextTransferSplashBlue;
 
-/// The approved front-door action blue (CTA, selected rings, success check).
-const Color _frontDoorActionBlue = Color(0xFF2F80ED);
+/// The approved brand blue, kept ONLY as the Blue candidate swatch inside the
+/// Accent colour chooser (the applied accent itself resolves through the
+/// canonical theme, so the chooser can still show two distinct candidates).
+const Color _frontDoorBlueSwatch = Color(0xFF2F80ED);
 
-/// Approved M6 front-door visual language: premium deep-blue field, white
-/// artwork and headline, light-blue supporting copy, brand-blue filled CTA.
-/// Applied as an explicit local presentation only — no global theme change.
-Widget _frontDoorScaffold({required Widget body}) {
+/// Bottom clearance for a front-door CTA.
+///
+/// The surrounding `SafeArea` already consumes the system insets, so this is a
+/// comfortable visual floor; it additionally honours any inset still reported
+/// (e.g. when this screen is mounted without that SafeArea in a test), and it
+/// never hardcodes one device's navigation bar.
+double _frontDoorBottomClearance(BuildContext context) {
+  final inset = MediaQuery.viewPaddingOf(context).bottom;
+  return math.max(20, inset + 12);
+}
+
+/// M6 front-door presentation, resolved from the CANONICAL appearance state.
+///
+/// The canonical chain is unbroken: Setup taps call the real
+/// `appearanceProvider.setMode` / `themeColorProvider.setColor`, those persist,
+/// the root `MaterialApp` watches them and rebuilds `theme`/`darkTheme`/
+/// `themeMode`, and this screen simply reads the RESOLVED theme instead of
+/// painting hardcoded brand constants over it.  Tapping Light / Dark / System /
+/// Blue / Rose therefore changes the onboarding pixels on the same frame, with
+/// no second theme store and no fake preview state.
+///
+/// Dark keeps the owner-approved deep-blue composition; Light uses the
+/// canonical light surface so the change is unmistakable.  Accent-aware
+/// elements (CTA, selected rings, Ready check) resolve the canonical
+/// `colorScheme.primary`, so Blue and Rose are both genuinely canonical.
+final class _FrontDoorPalette {
+  const _FrontDoorPalette({
+    required this.dark,
+    required this.field,
+    required this.onField,
+    required this.muted,
+    required this.accent,
+    required this.onAccent,
+    required this.rail,
+    required this.cardFill,
+    required this.cardFillSelected,
+    required this.cardBorder,
+    required this.idleRing,
+    required this.divider,
+    required this.checkCircle,
+    required this.checkCircleBorder,
+  });
+
+  final bool dark;
+  final Color field;
+  final Color onField;
+  final Color muted;
+  final Color accent;
+  final Color onAccent;
+  final Color rail;
+  final Color cardFill;
+  final Color cardFillSelected;
+  final Color cardBorder;
+  final Color idleRing;
+  final Color divider;
+  final Color checkCircle;
+  final Color checkCircleBorder;
+
+  static _FrontDoorPalette of(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    if (Theme.of(context).brightness == Brightness.dark) {
+      return _FrontDoorPalette(
+        dark: true,
+        field: _frontDoorField,
+        onField: Colors.white,
+        muted: const Color(0xFFC4D6F1),
+        accent: scheme.primary,
+        onAccent: scheme.onPrimary,
+        rail: const Color(0xFF2C63B5),
+        cardFill: Colors.white.withValues(alpha: 0.04),
+        cardFillSelected: Colors.white.withValues(alpha: 0.10),
+        cardBorder: Colors.white24,
+        idleRing: Colors.white38,
+        divider: Colors.white24,
+        checkCircle: Colors.white,
+        checkCircleBorder: Colors.white24,
+      );
+    }
+    return _FrontDoorPalette(
+      dark: false,
+      field: scheme.surface,
+      onField: scheme.onSurface,
+      muted: scheme.onSurfaceVariant,
+      accent: scheme.primary,
+      onAccent: scheme.onPrimary,
+      rail: scheme.outlineVariant,
+      cardFill: scheme.surfaceContainerHighest,
+      cardFillSelected: scheme.primaryContainer,
+      cardBorder: scheme.outlineVariant,
+      idleRing: scheme.outline,
+      divider: scheme.outlineVariant,
+      checkCircle: scheme.surfaceContainerLowest,
+      checkCircleBorder: scheme.outlineVariant,
+    );
+  }
+}
+
+/// One brand surface for the whole front door, painted from the resolved
+/// palette so the canonical appearance change is visible immediately.
+Widget _frontDoorScaffold({
+  required _FrontDoorPalette palette,
+  required Widget body,
+}) {
   return AnnotatedRegion<SystemUiOverlayStyle>(
-    value: const SystemUiOverlayStyle(
+    value: SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
-      statusBarIconBrightness: Brightness.light,
-      statusBarBrightness: Brightness.dark,
-      systemNavigationBarColor: _frontDoorField,
-      systemNavigationBarIconBrightness: Brightness.light,
+      statusBarIconBrightness: palette.dark
+          ? Brightness.light
+          : Brightness.dark,
+      statusBarBrightness: palette.dark
+          ? Brightness.dark
+          : Brightness.light,
+      systemNavigationBarColor: palette.field,
+      systemNavigationBarIconBrightness: palette.dark
+          ? Brightness.light
+          : Brightness.dark,
       systemNavigationBarContrastEnforced: false,
     ),
     child: ColoredBox(
-      color: _frontDoorField,
+      key: const Key('m6-front-door-field'),
+      color: palette.field,
+      // bottom: false — each stage owns its own bottom clearance through
+      // [_frontDoorBottomClearance], which already includes the system inset.
+      // Letting SafeArea also consume the inset would double-count it and
+      // float the CTA twice as high as the owner-approved composition.
       child: SafeArea(
+        bottom: false,
         child: Material(type: MaterialType.transparency, child: body),
       ),
     ),
@@ -152,8 +266,13 @@ Widget _frontDoorScaffold({required Widget body}) {
 }
 
 final class _FrontDoorTitleBar extends StatelessWidget {
-  const _FrontDoorTitleBar({required this.title, this.onBack});
+  const _FrontDoorTitleBar({
+    required this.palette,
+    required this.title,
+    this.onBack,
+  });
 
+  final _FrontDoorPalette palette;
   final String title;
   final VoidCallback? onBack;
 
@@ -167,13 +286,16 @@ final class _FrontDoorTitleBar extends StatelessWidget {
           if (onBack != null)
             Align(
               alignment: Alignment.centerLeft,
-              child: _FrontDoorBackButton(onPressed: onBack!),
+              child: _FrontDoorBackButton(
+                palette: palette,
+                onPressed: onBack!,
+              ),
             ),
           Center(
             child: Text(
               title,
-              style: const TextStyle(
-                color: Colors.white,
+              style: TextStyle(
+                color: palette.onField,
                 fontSize: 18,
                 fontWeight: FontWeight.w700,
                 decoration: TextDecoration.none,
@@ -187,8 +309,9 @@ final class _FrontDoorTitleBar extends StatelessWidget {
 }
 
 final class _FrontDoorBackButton extends StatelessWidget {
-  const _FrontDoorBackButton({required this.onPressed});
+  const _FrontDoorBackButton({required this.palette, required this.onPressed});
 
+  final _FrontDoorPalette palette;
   final VoidCallback onPressed;
 
   @override
@@ -198,7 +321,7 @@ final class _FrontDoorBackButton extends StatelessWidget {
       label: 'Back',
       child: IconButton(
         onPressed: onPressed,
-        icon: const Icon(Icons.arrow_back, color: Colors.white, size: 26),
+        icon: Icon(Icons.arrow_back, color: palette.onField, size: 26),
       ),
     );
   }
@@ -206,8 +329,9 @@ final class _FrontDoorBackButton extends StatelessWidget {
 
 /// The approved three-node progress rail (done / current / pending).
 final class _FrontDoorProgress extends StatelessWidget {
-  const _FrontDoorProgress({required this.current});
+  const _FrontDoorProgress({required this.palette, required this.current});
 
+  final _FrontDoorPalette palette;
   final int current;
 
   @override
@@ -218,13 +342,17 @@ final class _FrontDoorProgress extends StatelessWidget {
         children: <Widget>[
           for (var index = 0; index < 3; index += 1) ...<Widget>[
             if (index > 0)
-              const Expanded(
+              Expanded(
                 child: SizedBox(
                   height: 2,
-                  child: ColoredBox(color: Color(0xFF2C63B5)),
+                  child: ColoredBox(color: palette.rail),
                 ),
               ),
-            _ProgressNode(index: index, current: current),
+            _ProgressNode(
+              palette: palette,
+              index: index,
+              current: current,
+            ),
           ],
         ],
       ),
@@ -233,8 +361,13 @@ final class _FrontDoorProgress extends StatelessWidget {
 }
 
 final class _ProgressNode extends StatelessWidget {
-  const _ProgressNode({required this.index, required this.current});
+  const _ProgressNode({
+    required this.palette,
+    required this.index,
+    required this.current,
+  });
 
+  final _FrontDoorPalette palette;
   final int index;
   final int current;
 
@@ -248,25 +381,25 @@ final class _ProgressNode extends StatelessWidget {
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         color: done
-            ? _frontDoorActionBlue
+            ? palette.accent
             : active
-            ? Colors.white
+            ? palette.onField
             : Colors.transparent,
         border: Border.all(
-          color: done || active ? Colors.transparent : Colors.white38,
+          color: done || active ? Colors.transparent : palette.idleRing,
           width: 2,
         ),
       ),
       child: done
-          ? const Icon(Icons.check, size: 18, color: Colors.white)
+          ? Icon(Icons.check, size: 18, color: palette.onAccent)
           : active
           ? Center(
               child: Container(
                 width: 16,
                 height: 16,
-                decoration: const BoxDecoration(
+                decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: _frontDoorActionBlue,
+                  color: palette.accent,
                 ),
               ),
             )
@@ -275,12 +408,19 @@ final class _ProgressNode extends StatelessWidget {
   }
 }
 
-/// Filled pill CTA in the approved brand blue.
+/// Filled pill CTA carrying the canonical accent.
 final class _FrontDoorPrimaryButton extends StatelessWidget {
-  const _FrontDoorPrimaryButton({required this.label, required this.onPressed});
+  const _FrontDoorPrimaryButton({
+    required this.palette,
+    required this.label,
+    required this.onPressed,
+    this.buttonKey,
+  });
 
+  final _FrontDoorPalette palette;
   final String label;
   final VoidCallback? onPressed;
+  final Key? buttonKey;
 
   @override
   Widget build(BuildContext context) {
@@ -289,18 +429,24 @@ final class _FrontDoorPrimaryButton extends StatelessWidget {
     return SizedBox(
       height: 56,
       child: FilledButton(
+        key: buttonKey,
         style: FilledButton.styleFrom(
-          backgroundColor: _frontDoorActionBlue,
-          foregroundColor: Colors.white,
+          backgroundColor: palette.accent,
+          foregroundColor: palette.onAccent,
           shape: const StadiumBorder(),
           textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
         ),
         onPressed: onPressed,
+        // The label is Flexible so a long label (or 200% text scale on a
+        // narrow screen) shrinks with an ellipsis instead of overflowing the
+        // two-button row it usually shares.
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            Text(label),
+            Flexible(
+              child: Text(label, overflow: TextOverflow.ellipsis),
+            ),
             const SizedBox(width: 8),
             const Icon(Icons.arrow_forward, size: 20),
           ],
@@ -312,10 +458,12 @@ final class _FrontDoorPrimaryButton extends StatelessWidget {
 
 final class _FrontDoorOutlinedButton extends StatelessWidget {
   const _FrontDoorOutlinedButton({
+    required this.palette,
     required this.label,
     required this.onPressed,
   });
 
+  final _FrontDoorPalette palette;
   final String label;
   final VoidCallback? onPressed;
 
@@ -326,13 +474,13 @@ final class _FrontDoorOutlinedButton extends StatelessWidget {
       height: 56,
       child: OutlinedButton(
         style: OutlinedButton.styleFrom(
-          foregroundColor: Colors.white,
-          side: const BorderSide(color: Colors.white38, width: 1.5),
+          foregroundColor: palette.onField,
+          side: BorderSide(color: palette.cardBorder, width: 1.5),
           shape: const StadiumBorder(),
           textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
         ),
         onPressed: onPressed,
-        child: Text(label),
+        child: Text(label, overflow: TextOverflow.ellipsis),
       ),
     );
   }
@@ -366,8 +514,9 @@ final class _FrontDoorLogo extends StatelessWidget {
 }
 
 final class _FrontDoorDots extends StatelessWidget {
-  const _FrontDoorDots({required this.activeIndex});
+  const _FrontDoorDots({required this.palette, required this.activeIndex});
 
+  final _FrontDoorPalette palette;
   final int activeIndex;
 
   @override
@@ -382,9 +531,7 @@ final class _FrontDoorDots extends StatelessWidget {
             height: 10,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: index == activeIndex
-                  ? Colors.white
-                  : const Color(0xFF2C63B5),
+              color: index == activeIndex ? palette.onField : palette.rail,
             ),
           ),
         ],
@@ -408,63 +555,96 @@ final class _WelcomeStage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = _FrontDoorPalette.of(context);
     return _frontDoorScaffold(
-      body: LayoutBuilder(
-        builder: (context, constraints) => ListView(
-          padding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
-          children: <Widget>[
-            SizedBox(height: constraints.maxHeight * 0.06),
-            const Center(child: _FrontDoorLogo(size: 132)),
-            const SizedBox(height: 44),
-            const Text(
-              'Your next transfer\nstarts here.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 36,
-                height: 1.2,
-                fontWeight: FontWeight.w700,
-                decoration: TextDecoration.none,
+      palette: palette,
+      // The approved composition keeps its proportional rhythm, but the CTA is
+      // anchored to the bottom safe area instead of floating mid-screen: the
+      // scrollable content takes the remaining space and the CTA block sits
+      // directly above the bottom clearance.  On short screens or at large text
+      // scales the content still scrolls, so the CTA stays reachable.
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Expanded(
+            child: LayoutBuilder(
+              builder: (context, constraints) => ListView(
+                padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+                children: <Widget>[
+                  SizedBox(height: constraints.maxHeight * 0.06),
+                  const Center(child: _FrontDoorLogo(size: 132)),
+                  const SizedBox(height: 44),
+                  Text(
+                    'Your next transfer\nstarts here.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: palette.onField,
+                      fontSize: 36,
+                      height: 1.2,
+                      fontWeight: FontWeight.w700,
+                      decoration: TextDecoration.none,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Plan what matters, privately on this device.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: palette.muted,
+                      fontSize: 18,
+                      height: 1.35,
+                      decoration: TextDecoration.none,
+                    ),
+                  ),
+                  SizedBox(height: constraints.maxHeight * 0.08),
+                  SizedBox(
+                    height: 12,
+                    child: Center(
+                      child: _FrontDoorDots(
+                        palette: palette,
+                        activeIndex: 0,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 16),
-            const Text(
-              'Plan what matters, privately on this device.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Color(0xFFC4D6F1),
-                fontSize: 18,
-                height: 1.35,
-                decoration: TextDecoration.none,
-              ),
+          ),
+          Padding(
+            padding: EdgeInsets.fromLTRB(
+              24,
+              12,
+              24,
+              _frontDoorBottomClearance(context),
             ),
-            SizedBox(height: constraints.maxHeight * 0.08),
-            const SizedBox(
-              height: 12,
-              child: Center(child: _FrontDoorDots(activeIndex: 0)),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                _FrontDoorPrimaryButton(
+                  palette: palette,
+                  buttonKey: const Key('m6-welcome-cta'),
+                  label: 'Get Started',
+                  // Blocked while the one-shot checkpoint transaction settles.
+                  onPressed: getStartedPending ? null : onGetStarted,
+                ),
+                SizedBox(
+                  height: 36,
+                  child: Center(
+                    child: getStartedPending
+                        ? SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: palette.muted,
+                            ),
+                          )
+                        : const SizedBox.shrink(),
+                  ),
+                ),
+              ],
             ),
-            SizedBox(height: constraints.maxHeight * 0.06),
-            _FrontDoorPrimaryButton(
-              label: 'Get Started',
-              // Blocked while the one-shot checkpoint transaction settles.
-              onPressed: getStartedPending ? null : onGetStarted,
-            ),
-            SizedBox(
-              height: 36,
-              child: Center(
-                child: getStartedPending
-                    ? const SizedBox.square(
-                        dimension: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white70,
-                        ),
-                      )
-                    : const SizedBox.shrink(),
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -531,7 +711,11 @@ final class _SetupStageState extends ConsumerState<_SetupStage> {
   Widget build(BuildContext context) {
     final mode = ref.watch(appearanceProvider);
     final color = ref.watch(themeColorProvider);
+    // Resolved from the canonical theme the root MaterialApp just rebuilt, so
+    // every selection below is visible on the same frame.
+    final palette = _FrontDoorPalette.of(context);
     return _frontDoorScaffold(
+      palette: palette,
       // The approved composition pins the title bar and progress rail above
       // the scrolling body, so Back and the step indicator stay mounted.
       body: Column(
@@ -539,18 +723,27 @@ final class _SetupStageState extends ConsumerState<_SetupStage> {
         children: <Widget>[
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
-            child: _FrontDoorTitleBar(title: 'Setup', onBack: widget.onBack),
+            child: _FrontDoorTitleBar(
+              palette: palette,
+              title: 'Setup',
+              onBack: widget.onBack,
+            ),
           ),
           const SizedBox(height: 8),
-          const _FrontDoorProgress(current: 1),
+          _FrontDoorProgress(palette: palette, current: 1),
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.fromLTRB(20, 28, 20, 16),
+              padding: EdgeInsets.fromLTRB(
+                20,
+                28,
+                20,
+                _frontDoorBottomClearance(context),
+              ),
               children: <Widget>[
-                const Text(
+                Text(
                   'Choose your\nappearance',
                   style: TextStyle(
-                    color: Colors.white,
+                    color: palette.onField,
                     fontSize: 32,
                     height: 1.2,
                     fontWeight: FontWeight.w700,
@@ -558,20 +751,20 @@ final class _SetupStageState extends ConsumerState<_SetupStage> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                const Text(
+                Text(
                   'Make Next Transfer look the way you like.',
                   style: TextStyle(
-                    color: Color(0xFFC4D6F1),
+                    color: palette.muted,
                     fontSize: 16,
                     height: 1.35,
                     decoration: TextDecoration.none,
                   ),
                 ),
                 const SizedBox(height: 24),
-                const Text(
+                Text(
                   'Theme',
                   style: TextStyle(
-                    color: Colors.white,
+                    color: palette.onField,
                     fontSize: 15,
                     fontWeight: FontWeight.w600,
                     decoration: TextDecoration.none,
@@ -585,6 +778,8 @@ final class _SetupStageState extends ConsumerState<_SetupStage> {
                         const SizedBox(width: 10),
                       Expanded(
                         child: _AppearanceChoiceCard(
+                          key: Key('m6-theme-option-${option.mode.name}'),
+                          palette: palette,
                           selected: option.mode == mode,
                           label: option.label,
                           icon: option.icon,
@@ -597,10 +792,10 @@ final class _SetupStageState extends ConsumerState<_SetupStage> {
                   ],
                 ),
                 const SizedBox(height: 20),
-                const Text(
+                Text(
                   'Accent colour',
                   style: TextStyle(
-                    color: Colors.white,
+                    color: palette.onField,
                     fontSize: 15,
                     fontWeight: FontWeight.w600,
                     decoration: TextDecoration.none,
@@ -614,6 +809,10 @@ final class _SetupStageState extends ConsumerState<_SetupStage> {
                         const SizedBox(width: 10),
                       Expanded(
                         child: _AppearanceChoiceCard(
+                          key: Key(
+                            'm6-accent-option-${accent.mode.storageName}',
+                          ),
+                          palette: palette,
                           selected: accent.mode == color,
                           label: accent.label,
                           swatch: accent.swatch,
@@ -626,19 +825,22 @@ final class _SetupStageState extends ConsumerState<_SetupStage> {
                   ],
                 ),
                 const SizedBox(height: 28),
-                const _FrontDoorDivider(),
+                _FrontDoorDivider(palette: palette),
                 const SizedBox(height: 4),
-                const _DeferredSetupRow(
+                _DeferredSetupRow(
+                  palette: palette,
                   icon: Icons.notifications_none,
                   title: 'Notifications',
                   detail: 'You can set this up later.',
                 ),
-                const _DeferredSetupRow(
+                _DeferredSetupRow(
+                  palette: palette,
                   icon: Icons.calendar_month_outlined,
                   title: 'Planner preferences',
                   detail: 'You can set this up later.',
                 ),
-                const _DeferredSetupRow(
+                _DeferredSetupRow(
+                  palette: palette,
                   icon: Icons.people_alt_outlined,
                   title: 'Contacts',
                   detail: 'You can add contacts later.',
@@ -648,6 +850,7 @@ final class _SetupStageState extends ConsumerState<_SetupStage> {
                   children: <Widget>[
                     Expanded(
                       child: _FrontDoorOutlinedButton(
+                        palette: palette,
                         label: 'Skip for now',
                         // Continue and Skip both advance to You're Ready without
                         // completing onboarding.  Neither resets the appearance.
@@ -657,6 +860,8 @@ final class _SetupStageState extends ConsumerState<_SetupStage> {
                     const SizedBox(width: 12),
                     Expanded(
                       child: _FrontDoorPrimaryButton(
+                        palette: palette,
+                        buttonKey: const Key('m6-setup-continue'),
                         label: 'Continue',
                         onPressed: _saving ? null : widget.onContinue,
                       ),
@@ -668,25 +873,25 @@ final class _SetupStageState extends ConsumerState<_SetupStage> {
                   duration: const Duration(milliseconds: 150),
                   alignment: Alignment.topCenter,
                   child: _saving
-                      ? const Padding(
-                          padding: EdgeInsets.only(top: 12),
+                      ? Padding(
+                          padding: const EdgeInsets.only(top: 12),
                           child: SizedBox.square(
                             dimension: 18,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
-                              color: Colors.white70,
+                              color: palette.muted,
                             ),
                           ),
                         )
                       : _saveFailed
-                      ? const Padding(
-                          padding: EdgeInsets.only(top: 12),
+                      ? Padding(
+                          padding: const EdgeInsets.only(top: 12),
                           child: Text(
                             'Appearance could not be saved. Your choice was not '
                             'changed.',
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                              color: Colors.white70,
+                              color: palette.muted,
                               fontSize: 13,
                             ),
                           ),
@@ -725,20 +930,23 @@ final class _AccentOption {
 }
 
 const List<_AccentOption> _accentOptions = <_AccentOption>[
-  _AccentOption(ThemeColorMode.blue, 'Blue', _frontDoorActionBlue),
+  _AccentOption(ThemeColorMode.blue, 'Blue', _frontDoorBlueSwatch),
   _AccentOption(ThemeColorMode.rose, 'Rose', AppTheme.roseLightProgress),
 ];
 
 /// A rounded selectable card with the approved selected ring.
 final class _AppearanceChoiceCard extends StatelessWidget {
   const _AppearanceChoiceCard({
+    required this.palette,
     required this.selected,
     required this.label,
     required this.onTap,
     this.icon,
     this.swatch,
+    super.key,
   });
 
+  final _FrontDoorPalette palette;
   final bool selected;
   final String label;
   final VoidCallback? onTap;
@@ -754,11 +962,13 @@ final class _AppearanceChoiceCard extends StatelessWidget {
       button: true,
       selected: selected,
       child: Material(
-        color: Colors.white.withValues(alpha: selected ? 0.10 : 0.04),
+        color: selected ? palette.cardFillSelected : palette.cardFill,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(14),
           side: BorderSide(
-            color: selected ? _frontDoorActionBlue : Colors.white24,
+            // The selected ring carries the canonical accent, so choosing Rose
+            // or Blue is visible on the card itself.
+            color: selected ? palette.accent : palette.cardBorder,
             width: selected ? 2 : 1,
           ),
         ),
@@ -771,7 +981,7 @@ final class _AppearanceChoiceCard extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
                 if (icon != null)
-                  Icon(icon, size: 26, color: Colors.white)
+                  Icon(icon, size: 26, color: palette.onField)
                 else if (swatch != null)
                   Container(
                     width: 26,
@@ -784,8 +994,8 @@ final class _AppearanceChoiceCard extends StatelessWidget {
                 const SizedBox(height: 8),
                 Text(
                   label,
-                  style: const TextStyle(
-                    color: Colors.white,
+                  style: TextStyle(
+                    color: palette.onField,
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
                     decoration: TextDecoration.none,
@@ -801,11 +1011,13 @@ final class _AppearanceChoiceCard extends StatelessWidget {
 }
 
 final class _FrontDoorDivider extends StatelessWidget {
-  const _FrontDoorDivider();
+  const _FrontDoorDivider({required this.palette});
+
+  final _FrontDoorPalette palette;
 
   @override
   Widget build(BuildContext context) {
-    return const SizedBox(height: 1, child: ColoredBox(color: Colors.white24));
+    return SizedBox(height: 1, child: ColoredBox(color: palette.divider));
   }
 }
 
@@ -814,11 +1026,13 @@ final class _FrontDoorDivider extends StatelessWidget {
 /// for them, and never labels them "Coming soon".
 final class _DeferredSetupRow extends StatelessWidget {
   const _DeferredSetupRow({
+    required this.palette,
     required this.icon,
     required this.title,
     required this.detail,
   });
 
+  final _FrontDoorPalette palette;
   final IconData icon;
   final String title;
   final String detail;
@@ -829,7 +1043,7 @@ final class _DeferredSetupRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 14),
       child: Row(
         children: <Widget>[
-          Icon(icon, size: 26, color: Colors.white),
+          Icon(icon, size: 26, color: palette.onField),
           const SizedBox(width: 16),
           Expanded(
             child: Column(
@@ -837,8 +1051,8 @@ final class _DeferredSetupRow extends StatelessWidget {
               children: <Widget>[
                 Text(
                   title,
-                  style: const TextStyle(
-                    color: Colors.white,
+                  style: TextStyle(
+                    color: palette.onField,
                     fontSize: 16,
                     fontWeight: FontWeight.w700,
                     decoration: TextDecoration.none,
@@ -847,8 +1061,8 @@ final class _DeferredSetupRow extends StatelessWidget {
                 const SizedBox(height: 3),
                 Text(
                   detail,
-                  style: const TextStyle(
-                    color: Color(0xFFC4D6F1),
+                  style: TextStyle(
+                    color: palette.muted,
                     fontSize: 14,
                     decoration: TextDecoration.none,
                   ),
@@ -880,74 +1094,107 @@ final class _ReadyStage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final pending = goHomePending;
+    final palette = _FrontDoorPalette.of(context);
     return _frontDoorScaffold(
+      palette: palette,
       // The approved composition pins the title bar and progress rail above
-      // the scrolling body, matching the Setup screen.
+      // the scrolling body, matching the Setup screen, and anchors the CTA to
+      // the bottom safe area instead of floating it mid-screen.
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
           Padding(
             padding: const EdgeInsets.fromLTRB(24, 0, 24, 0),
             child: _FrontDoorTitleBar(
+              palette: palette,
               title: "You're Ready",
               // Back is blocked while completion + re-resolution is running.
               onBack: pending ? null : onBack,
             ),
           ),
           const SizedBox(height: 8),
-          const _FrontDoorProgress(current: 2),
+          _FrontDoorProgress(palette: palette, current: 2),
           Expanded(
-            child: LayoutBuilder(
-              builder: (context, constraints) => ListView(
-                padding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
-                children: <Widget>[
-                  SizedBox(height: constraints.maxHeight * 0.08),
-                  const Center(child: _ReadyArtwork()),
-                  const SizedBox(height: 36),
-                  const Text(
-                    "You're ready.",
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 36,
-                      fontWeight: FontWeight.w700,
-                      decoration: TextDecoration.none,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                Expanded(
+                  child: LayoutBuilder(
+                    // A non-lazy scroll view: the approved composition is short,
+                    // but a fixed-height lazy list would leave the lower copy
+                    // outside the build window on small surfaces, so the
+                    // subtitle must always be mounted.  It still scrolls when
+                    // short height or large text needs it.
+                    builder: (context, constraints) => SingleChildScrollView(
+                      padding: const EdgeInsets.fromLTRB(24, 8, 24, 8),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: <Widget>[
+                          SizedBox(height: constraints.maxHeight * 0.05),
+                          Center(child: _ReadyArtwork(palette: palette)),
+                          const SizedBox(height: 30),
+                          Text(
+                            "You're ready.",
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: palette.onField,
+                              fontSize: 36,
+                              fontWeight: FontWeight.w700,
+                              decoration: TextDecoration.none,
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          Text(
+                            'Your next transfer starts with one step.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: palette.muted,
+                              fontSize: 18,
+                              height: 1.35,
+                              decoration: TextDecoration.none,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 14),
-                  const Text(
-                    'Your next transfer starts with one step.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Color(0xFFC4D6F1),
-                      fontSize: 18,
-                      height: 1.35,
-                      decoration: TextDecoration.none,
-                    ),
+                ),
+                Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    24,
+                    12,
+                    24,
+                    _frontDoorBottomClearance(context),
                   ),
-                  SizedBox(height: constraints.maxHeight * 0.06),
-                  _FrontDoorPrimaryButton(
-                    label: 'Go to Home',
-                    // Single-flight completion: Back and duplicate taps are blocked
-                    // until completion + re-resolution settles.
-                    onPressed: pending ? null : onGoHome,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      _FrontDoorPrimaryButton(
+                        palette: palette,
+                        buttonKey: const Key('m6-ready-cta'),
+                        label: 'Go to Home',
+                        // Single-flight completion: Back and duplicate taps are
+                        // blocked until completion + re-resolution settles.
+                        onPressed: pending ? null : onGoHome,
+                      ),
+                      SizedBox(
+                        height: 36,
+                        child: Center(
+                          child: pending
+                              ? SizedBox.square(
+                                  dimension: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: palette.muted,
+                                  ),
+                                )
+                              : const SizedBox.shrink(),
+                        ),
+                      ),
+                    ],
                   ),
-                  SizedBox(
-                    height: 36,
-                    child: Center(
-                      child: pending
-                          ? const SizedBox.square(
-                              dimension: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white70,
-                              ),
-                            )
-                          : const SizedBox.shrink(),
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ],
@@ -956,54 +1203,120 @@ final class _ReadyStage extends StatelessWidget {
   }
 }
 
-/// Success mark over the approved landscape artwork, matching the accepted
-/// composition: a white circle with the brand-blue check floating above the
-/// cropped splash landscape.  No asset change is involved.
-final class _ReadyArtwork extends StatelessWidget {
-  const _ReadyArtwork();
+/// The exact source rectangle of the frozen splash artwork used for the Ready
+/// illustration, in the asset's own 941x1672 pixel space.
+///
+/// Measured from the locked asset (`assets/branding/next_transfer_splash.png`):
+/// the drawn landscape artwork occupies roughly x 291..659 / y 665..1011 inside
+/// a rounded tile spanning x 225..716 / y 362..1160.  This window frames that
+/// artwork and stays well inside the tile, so the owner-rejected rounded
+/// "app-icon tile" is excluded and NO new asset generation is required.
+@visibleForTesting
+const Rect m6ReadyIllustrationSource = Rect.fromLTRB(283, 658, 667, 1018);
+
+/// Measured bounding box of the splash asset's rounded tile (the app mark), in
+/// the same pixel space.
+@visibleForTesting
+const Rect m6SplashTileBounds = Rect.fromLTRB(225, 362, 716, 1160);
+
+/// Minimum margin (in asset pixels) the Ready crop keeps from the tile frame,
+/// so the rounded tile edge can never appear inside the illustration.
+@visibleForTesting
+const double m6ReadyIllustrationMinTileMargin = 40;
+
+/// Renders an EXACT source rectangle of the frozen splash artwork, filling
+/// [width] x [height] with cover semantics.
+///
+/// Presentation only: the asset, its bytes, its registered path and the
+/// pubspec are untouched.  This exists because `Image` alone cannot restrict
+/// its source window to a sub-rectangle, which is what excluding the splash
+/// tile frame requires.
+final class _SplashCrop extends StatelessWidget {
+  const _SplashCrop({
+    required this.width,
+    required this.height,
+    required this.source,
+  });
+
+  final double width;
+  final double height;
+  final Rect source;
+
+  /// The locked asset's intrinsic size.
+  static const Size _assetSize = Size(941, 1672);
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: 260,
-      height: 240,
-      child: Stack(
-        alignment: Alignment.center,
-        children: <Widget>[
-          Positioned(
-            bottom: 0,
-            child: ClipRect(
-              child: SizedBox(
-                width: 260,
-                height: 180,
-                child: Image(
-                  image: nextTransferSplashImage,
-                  fit: BoxFit.cover,
-                  alignment: const Alignment(0, 0.55),
-                  filterQuality: FilterQuality.medium,
-                  excludeFromSemantics: true,
-                ),
+    final scale = math.max(width / source.width, height / source.height);
+    final renderWidth = _assetSize.width * scale;
+    final renderHeight = _assetSize.height * scale;
+    final left = (width - source.width * scale) / 2 - source.left * scale;
+    final top = (height - source.height * scale) / 2 - source.top * scale;
+    return ClipRect(
+      child: SizedBox(
+        width: width,
+        height: height,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: <Widget>[
+            Positioned(
+              left: left,
+              top: top,
+              width: renderWidth,
+              height: renderHeight,
+              child: Image(
+                image: nextTransferSplashImage,
+                fit: BoxFit.fill,
+                filterQuality: FilterQuality.medium,
+                excludeFromSemantics: true,
               ),
             ),
-          ),
-          Positioned(
-            top: 0,
-            child: Container(
-              width: 110,
-              height: 110,
-              decoration: const BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.white,
-              ),
-              child: const Icon(
-                Icons.check,
-                size: 64,
-                color: _frontDoorActionBlue,
-              ),
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
+    );
+  }
+}
+
+/// Restrained success mark above the approved landscape artwork.
+///
+/// Owner-approved target: a small check circle, clean vertical separation from
+/// the illustration, the mountain/winding-path artwork WITHOUT the rounded
+/// app-icon tile, and no overlap between mark and artwork.  The check and its
+/// circle are appearance-aware through [palette], so You're Ready inherits the
+/// Light/Dark/System and Blue/Rose choice made in Setup.
+final class _ReadyArtwork extends StatelessWidget {
+  const _ReadyArtwork({required this.palette});
+
+  final _FrontDoorPalette palette;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        Container(
+          key: const Key('m6-ready-check'),
+          width: 76,
+          height: 76,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: palette.checkCircle,
+            border: Border.all(color: palette.checkCircleBorder, width: 1.5),
+          ),
+          child: Icon(Icons.check, size: 40, color: palette.accent),
+        ),
+        const SizedBox(height: 22),
+        ClipRRect(
+          key: const Key('m6-ready-illustration'),
+          borderRadius: BorderRadius.circular(18),
+          child: const _SplashCrop(
+            width: 224,
+            height: 210,
+            source: m6ReadyIllustrationSource,
+          ),
+        ),
+      ],
     );
   }
 }

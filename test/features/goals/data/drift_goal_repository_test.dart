@@ -37,6 +37,10 @@ void main() {
     final database = openMemoryDatabase();
     final startup = buildTestRepository(database: database);
     final profile = await startup.completeOnboarding();
+    // These tests describe an EXISTING user: a pre-M6 install already owns the
+    // canonical six Goals.  M6 no longer creates Goals at onboarding, so the
+    // legacy seed is applied explicitly (see the zero-goal law tests).
+    await seedLegacyCanonicalGoals(database, profile.id, clock: clock);
     return (database, createRepository(database), profile.id);
   }
 
@@ -1017,6 +1021,7 @@ void main() {
     addTearDown(database.close);
     final startup = buildTestRepository(database: database);
     final profile = await startup.completeOnboarding();
+    await seedLegacyCanonicalGoals(database, profile.id, clock: clock);
     final repository = DriftGoalRepository(
       database: database,
       clock: clock,
@@ -2364,6 +2369,9 @@ Future<(AppDatabase, DriftGoalRepository, String)> _crossedFixture({
   final database = openMemoryDatabase();
   final startup = buildTestRepository(database: database);
   final profile = await startup.completeOnboarding();
+  // The MP-16 fixture needs the pre-M6 seeded canonical six to rewrite the
+  // G4/G5 pair, so the legacy seed is applied explicitly.
+  await seedLegacyCanonicalGoals(database, profile.id, clock: _mp16Clock);
   final profileId = profile.id;
   final repository = DriftGoalRepository(
     database: database,

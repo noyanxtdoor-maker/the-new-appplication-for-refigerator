@@ -33,6 +33,8 @@ void main() {
           final profile = (await buildTestRepository(
             database: v26,
           ).completeOnboarding()).id;
+          // M6 zero-goal law: this test describes an EXISTING (pre-M6) user.
+          await seedLegacyCanonicalGoals(v26, profile);
           final now = DateTime.utc(2026, 8, 3, 12);
 
           // Legacy Task with free-text people + no direct Goal.
@@ -189,6 +191,8 @@ void main() {
       profileId = (await buildTestRepository(
         database: database,
       ).completeOnboarding()).id;
+      // M6 zero-goal law: this test describes an EXISTING (pre-M6) user.
+      await seedLegacyCanonicalGoals(database, profileId);
       goals = DriftGoalRepository(
         database: database,
         clock: clock,
@@ -538,6 +542,8 @@ void main() {
       profileId = (await buildTestRepository(
         database: database,
       ).completeOnboarding()).id;
+      // M6 zero-goal law: this test describes an EXISTING (pre-M6) user.
+      await seedLegacyCanonicalGoals(database, profileId);
       contacts = DriftContactRepository(
         database: database,
         clock: clock,
