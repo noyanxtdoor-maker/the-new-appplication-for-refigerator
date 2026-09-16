@@ -401,6 +401,12 @@ void main() {
         find.byKey(const Key('home-canonical-plan-loading')),
         findsNothing,
       );
+
+      // The accepted resume path queues reminder reconciliation behind a
+      // yield (a zero-duration timer). The same-day assertions above are
+      // already captured; drain the queued work so no timer outlives the
+      // disposed tree.
+      await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
     },
   );

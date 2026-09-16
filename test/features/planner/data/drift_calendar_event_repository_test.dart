@@ -1,6 +1,8 @@
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:rmplanner/core/database/app_database.dart';
+import 'package:rmplanner/features/goals/domain/canonical_goal_slots.dart';
+import 'package:rmplanner/features/goals/domain/goal.dart';
 import 'package:rmplanner/features/planner/application/calendar_event_repository.dart';
 import 'package:rmplanner/features/planner/data/calendar_event_time_zones.dart';
 import 'package:rmplanner/features/planner/data/drift_calendar_event_repository.dart';
@@ -621,6 +623,38 @@ void main() {
         (type) => type.stableKey == SystemEventTypeKeys.exercise,
       );
       final repository = buildRepository();
+
+      // Accepted Contract E/F law: a NEW or type-changed Event may select a
+      // canonical slot Event Type only while that slot has exactly one live
+      // raw-active Goal occupant. M6's zero-goal law means a fresh profile
+      // carries no Goals, so seed the two slot occupants this scenario uses
+      // before exercising history preservation.
+      Future<void> seedSlotOccupant(int slotIndex) async {
+        final slot = CanonicalGoalSlot.bySlot(slotIndex);
+        await database
+            .into(database.goals)
+            .insert(
+              GoalsCompanion.insert(
+                id: 'snapshot-goal-$slotIndex',
+                profileId: profileId,
+                role: slot.role.storageName,
+                title: slot.defaultTitle,
+                status: 'active',
+                activeSlotIndex: Value<int?>(slot.slotIndex),
+                indicatorKey: Value<String?>(slot.indicatorKey),
+                assignedEventTypeStableKey: Value<String?>(
+                  slot.eventTypeStableKey,
+                ),
+                iconId: const Value<String?>(null),
+                createdAtUtc: DateTime.utc(2026, 2, 2, 12),
+                updatedAtUtc: DateTime.utc(2026, 2, 2, 12),
+                archivedAtUtc: const Value<DateTime?>(null),
+              ),
+            );
+      }
+
+      await seedSlotOccupant(2); // Scripture Study: the Event's first type.
+      await seedSlotOccupant(3); // Exercise: the deliberate type change.
 
       await repository.saveEvent(
         profileId: profileId,

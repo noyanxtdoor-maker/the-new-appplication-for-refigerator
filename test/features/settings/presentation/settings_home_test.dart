@@ -352,14 +352,27 @@ void main() {
       find.byKey(const Key('notifications-task-reminders')),
       findsOneWidget,
     );
+    // The screen legitimately grew past one viewport: the PLANNING, DETAILED
+    // CONTENT and PRIVACY sections shipped after this M1 foundation test was
+    // written, so the PRIVACY row must be scrolled into view before the finder
+    // is a real assertion instead of an off-screen trivially-empty one.
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('notifications-preview')),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
     expect(find.byKey(const Key('notifications-preview')), findsOneWidget);
     expect(
       find.textContaining('delivery begins in later milestones'),
       findsNothing,
     );
+    // Absence law reconciled to the current shipped product: the PLANNING
+    // family (Weekly Review reminders / Awaiting Report reminders) is a live
+    // accepted surface, so it legitimately appears and is no longer claimed
+    // absent. Only the genuinely unshipped families stay absent.
     expect(find.text('Goal completed notifications'), findsNothing);
     expect(find.text('Follow-up reminders'), findsNothing);
-    expect(find.text('Weekly Review reminders'), findsNothing);
     expect(tester.takeException(), isNull);
   });
   testWidgets(

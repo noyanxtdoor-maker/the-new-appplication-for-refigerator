@@ -679,6 +679,19 @@ void main() {
           calendarRepository: calendarRepo,
           selected: selected,
         );
+        // The accepted Planner auto-scrolls the timeline to the current time,
+        // so the time grid's own top can sit above the scroll viewport. Reset
+        // the day scroll first so this tap really lands on the visible time
+        // gutter (its stated target) instead of above the timeline.
+        final plannerScroll = tester.state<ScrollableState>(
+          find.descendant(
+            of: find.byKey(const Key('planner-day-scroll')),
+            matching: find.byType(Scrollable),
+          ),
+        );
+        plannerScroll.position.jumpTo(0);
+        await tester.pumpAndSettle();
+
         final timelineRect = tester.getRect(
           find.byKey(const Key('planner-time-grid')),
         );

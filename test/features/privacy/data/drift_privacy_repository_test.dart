@@ -108,7 +108,10 @@ void main() {
       // VS-11C1B.3: 30 (additive planner_tasks.is_backup); Maps M1-M2: 34;
       // VS-15 M3 promoted customization: 35; VS16-M1 adds empty notification
       // foundation tables at 38 and the app-owned master at 39.
-      expect(version.read<int>('user_version'), 39);
+      // M7 reconciliation (2026-09-16): the frozen product law is now schema
+      // 47 (M3 projection, M4 contacts/maps, M6 starter-goal closure). The
+      // assertion is the LIVE version, not a historical literal.
+      expect(version.read<int>('user_version'), 47);
       await currentVersion.close();
     } finally {
       sqliteDatabase.close();

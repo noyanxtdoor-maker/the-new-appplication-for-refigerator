@@ -180,6 +180,11 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
   PlannerDate? _lastObservedSelectedDate;
   PlannerDay? _lastObservedDay;
   int? _lastObservedEventDeletionRevision;
+  // Canonical day-cache revision last observed by this screen. The retained
+  // [_previewDayCache] and [_previewSignature] belong to that canonical
+  // generation, so they are invalidated whenever the controller invalidates
+  // its own day cache — even when the selected day is semantically unchanged.
+  int _lastObservedDayCacheRevision = -1;
   bool _selectionActive = false;
   bool _datePickerOpen = false;
   // Owns the day-swipe candidate lifetime across the Listener
@@ -1100,6 +1105,25 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
     final provisionalDraft = ref.watch(plannerEventCreationDraftProvider);
     final taskDraft = ref.watch(plannerTaskCreationDraftProvider);
     final tapMarker = ref.watch(plannerTapMarkerProvider);
+    final canonicalDayCacheRevision = ref
+        .read(plannerControllerProvider.notifier)
+        .dayCacheRevision;
+    if (_lastObservedDayCacheRevision != canonicalDayCacheRevision) {
+      // The controller just invalidated its canonical day cache (refresh,
+      // same-date reload, or confirmed pending deletion). The retained preview
+      // signature belongs to that older canonical generation, so force the next
+      // build to start a fresh preview window. The per-date snapshots are
+      // deliberately NOT cleared: they keep the columns painted (no blank
+      // pop-in, S1B-06) while the new window resolves and replaces each date
+      // with its post-invalidation snapshot. Without this, a change confined to
+      // an ADJACENT day is invisible to the pager — S1B-04 preserves the
+      // selected day's object identity when its content is semantically
+      // identical, so neither `_dataRevision` nor `_dayContentSignature(day)`
+      // would move and the preview future is never re-created.
+      _lastObservedDayCacheRevision = canonicalDayCacheRevision;
+      _previewSignature = null;
+      _dataRevision += 1;
+    }
     if (_lastObservedEventDeletionRevision != state.eventDeletionRevision) {
       // R6-08: the screen owns an additional retained preview cache beyond the
       // PlannerController's bounded canonical cache. Drop it on every pending-
@@ -2053,7 +2077,8 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
     }
     final hourHeight =
         _liveTimelineHourHeight.value ?? settings.timelineHourHeight;
-    final signature = '${draft.id}:${draft.date.iso8601}:${draft.minute}:'
+    final signature =
+        '${draft.id}:${draft.date.iso8601}:${draft.minute}:'
         '$hourHeight';
     if (_taskDraftRevealPending || _taskDraftRevealSignature == signature) {
       return;
@@ -5117,10 +5142,78 @@ final class _TimedEventTimelineState extends State<_TimedEventTimeline> {
             height: placement.height,
             child: Opacity(
               opacity: isSavedDragOrigin ? 0.45 : 1,
-            child: isTaskDraft
-                ? KeyedSubtree(
-                    key: const Key('planner-task-draft-block'),
-                    child: _TimelineEventBlock(
+              child: isTaskDraft
+                  ? KeyedSubtree(
+                      key: const Key('planner-task-draft-block'),
+                      child: _TimelineEventBlock(
+                        event: event,
+                        provisional: provisional,
+                        eventColorsByTypeId: widget.eventColorsByTypeId,
+                        use24HourTime: widget.settings.use24HourTime,
+                        displayStartMinute: startMinute,
+                        displayEndMinute: endMinute,
+                        awaitingReport: event.isAwaitingReport(DateTime.now()),
+                        selectionMode: widget.selectionMode,
+                        selected: widget.selectedItems.contains(
+                          PlannerSelectionId(
+                            kind: PlannerSelectionKind.event,
+                            id: event.id,
+                          ),
+                        ),
+                        selectedForDirectManipulation: _isDirectlySelected(
+                          event,
+                        ),
+                        onToggleSelection: () =>
+                            widget.onToggleSelection(event),
+                        interactive: interactive,
+                        onTap: () => _handleEventTap(event),
+                        onDirectPointerDown: (pointer) {
+                          _movePointerIds[event.id] = pointer.pointer;
+                          if (_isDirectlySelected(event)) {
+                            widget.daySwipeCoordinator.preclaimPointerDown();
+                          }
+                        },
+                        onMoveStart: (globalPosition) => _beginMove(
+                          event,
+                          globalPosition,
+                          eventLocalLeft:
+                              horizontal.left + horizontalDragOffset,
+                          eventLocalTop: placement.top,
+                          ghostSize: Size(horizontal.width, placement.height),
+                        ),
+                        onMoveUpdate: (globalPosition) => _updateMoveFromGlobal(
+                          event,
+                          originalStartMinute,
+                          originalEndMinute,
+                          globalPosition,
+                        ),
+                        onLongPressMoveUpdate: (globalPosition) =>
+                            _updateMoveFromGlobal(
+                              event,
+                              originalStartMinute,
+                              originalEndMinute,
+                              globalPosition,
+                            ),
+                        onMoveEnd: () {
+                          if (_suppressOneFingerInteractions) {
+                            _clearPreview(event.id);
+                            widget.onMoveSessionCancel();
+                            return;
+                          }
+                          if (provisional) {
+                            unawaited(_finishMove(event, originalStartMinute));
+                          }
+                        },
+                        onMoveCancel: () {
+                          if (provisional) {
+                            _clearPreview(event.id);
+                          }
+                        },
+                        squareTop: placement.squareTop,
+                        squareBottom: placement.squareBottom,
+                      ),
+                    )
+                  : _TimelineEventBlock(
                       event: event,
                       provisional: provisional,
                       eventColorsByTypeId: widget.eventColorsByTypeId,
@@ -5183,70 +5276,6 @@ final class _TimedEventTimelineState extends State<_TimedEventTimeline> {
                       squareTop: placement.squareTop,
                       squareBottom: placement.squareBottom,
                     ),
-                  )
-                : _TimelineEventBlock(
-                event: event,
-                provisional: provisional,
-                eventColorsByTypeId: widget.eventColorsByTypeId,
-                use24HourTime: widget.settings.use24HourTime,
-                displayStartMinute: startMinute,
-                displayEndMinute: endMinute,
-                awaitingReport: event.isAwaitingReport(DateTime.now()),
-                selectionMode: widget.selectionMode,
-                selected: widget.selectedItems.contains(
-                  PlannerSelectionId(
-                    kind: PlannerSelectionKind.event,
-                    id: event.id,
-                  ),
-                ),
-                selectedForDirectManipulation: _isDirectlySelected(event),
-                onToggleSelection: () => widget.onToggleSelection(event),
-                interactive: interactive,
-                onTap: () => _handleEventTap(event),
-                onDirectPointerDown: (pointer) {
-                  _movePointerIds[event.id] = pointer.pointer;
-                  if (_isDirectlySelected(event)) {
-                    widget.daySwipeCoordinator.preclaimPointerDown();
-                  }
-                },
-                onMoveStart: (globalPosition) => _beginMove(
-                  event,
-                  globalPosition,
-                  eventLocalLeft: horizontal.left + horizontalDragOffset,
-                  eventLocalTop: placement.top,
-                  ghostSize: Size(horizontal.width, placement.height),
-                ),
-                onMoveUpdate: (globalPosition) => _updateMoveFromGlobal(
-                  event,
-                  originalStartMinute,
-                  originalEndMinute,
-                  globalPosition,
-                ),
-                onLongPressMoveUpdate: (globalPosition) =>
-                    _updateMoveFromGlobal(
-                      event,
-                      originalStartMinute,
-                      originalEndMinute,
-                      globalPosition,
-                    ),
-                onMoveEnd: () {
-                  if (_suppressOneFingerInteractions) {
-                    _clearPreview(event.id);
-                    widget.onMoveSessionCancel();
-                    return;
-                  }
-                  if (provisional) {
-                    unawaited(_finishMove(event, originalStartMinute));
-                  }
-                },
-                onMoveCancel: () {
-                  if (provisional) {
-                    _clearPreview(event.id);
-                  }
-                },
-                squareTop: placement.squareTop,
-                squareBottom: placement.squareBottom,
-              ),
             ),
           ),
         ],

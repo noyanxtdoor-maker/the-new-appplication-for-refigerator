@@ -100,10 +100,7 @@ void main() {
         200,
         scrollable: find.byType(Scrollable).first,
       );
-      expect(
-        find.byKey(const Key('home-pathway-employment')),
-        findsNothing,
-      );
+      expect(find.byKey(const Key('home-pathway-employment')), findsNothing);
       await tester.tap(find.byKey(const Key('weekly-targets-button')));
       await tester.pumpAndSettle();
       expect(find.text('Goal Planning'), findsOneWidget);
@@ -118,7 +115,18 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Edit Goal'), findsOneWidget);
       expect(find.text('Daily Progress Goal'), findsOneWidget);
-      expect(find.byTooltip('Save'), findsOneWidget);
+      // The accepted Edit Goal app bar exposes the canonical keyed Save control
+      // (`goal-edit-save` TextButton with the visible label 'Save'); it is not a
+      // tooltip-only icon action, so the old `find.byTooltip('Save')` could never
+      // match the shipped surface.
+      expect(find.byKey(const Key('goal-edit-save')), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('goal-edit-save')),
+          matching: find.text('Save'),
+        ),
+        findsOneWidget,
+      );
 
       await tester.scrollUntilVisible(
         find.byKey(const Key('goal-period-daily')),
@@ -612,10 +620,7 @@ void main() {
       // Return the Home list to the top so the daily quick controls are
       // fully hittable again (ensureVisible stops short of the app-bar
       // edge).
-      await tester.drag(
-        find.byType(Scrollable).first,
-        const Offset(0, 800),
-      );
+      await tester.drag(find.byType(Scrollable).first, const Offset(0, 800));
       await tester.pumpAndSettle();
 
       expect(

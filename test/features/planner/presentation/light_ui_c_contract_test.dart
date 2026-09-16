@@ -111,35 +111,49 @@ void main() {
     );
     expect(fallbackIcon, findsOneWidget);
     final icon = tester.widget<Icon>(fallbackIcon);
-    final context = tester.element(fallbackIcon);
+    // M7 reconciliation (2026-09-16): the accepted placeholder law is the
+    // artwork-family blue (AppTheme.goalIconFallbackBlue, #5CAEC9) so the
+    // placeholder matches Planning/Home/choice-row. The retired expectation was
+    // scheme.primary; the POLISH-05 intent stands: the active BLUE family, never
+    // the Rose default.
     expect(
       icon.color,
-      Theme.of(context).colorScheme.primary,
-      reason: 'POLISH-05: placeholder must use the active Theme Color, '
+      AppTheme.goalIconFallbackBlue,
+      reason:
+          'POLISH-05: placeholder must use the active BLUE family, '
           'never the Rose default',
     );
     expect(icon.color, isNot(AppTheme.rose));
   });
 
-  testWidgets('C2: same placeholder resolves ROSE primary in Rose Light '
-      '(symmetry)', (tester) async {
-    await pumpApp(tester, themeColor: ThemeColorMode.rose);
-    await openEventForm(tester);
-    await revealLifeGoalSection(tester);
+  // M7 reconciliation (2026-09-16): Step 8 (R01) fixed the Goal-icon fallback
+  // to the artwork-family blue (AppTheme.goalIconFallbackBlue) at every call
+  // site, INCLUDING Rose mode. The retired VS-15 expectation was the Rose
+  // primary; POLISH-05's real intent stands: the placeholder must never leak
+  // the Rose surface color as its icon tint.
+  testWidgets(
+    'C2: same placeholder keeps the artwork-family blue in Rose Light '
+    '(symmetry)',
+    (tester) async {
+      await pumpApp(tester, themeColor: ThemeColorMode.rose);
+      await openEventForm(tester);
+      await revealLifeGoalSection(tester);
 
-    final fallbackIcon = find.descendant(
-      of: lifeGoalCard(tester),
-      matching: find.byIcon(Icons.track_changes_outlined),
-    );
-    final icon = tester.widget<Icon>(fallbackIcon);
-    final context = tester.element(fallbackIcon);
-    expect(
-      icon.color,
-      Theme.of(context).colorScheme.primary,
-      reason: 'POLISH-05: Rose mode must resolve the placeholder through '
-          'Rose primary',
-    );
-  });
+      final fallbackIcon = find.descendant(
+        of: lifeGoalCard(tester),
+        matching: find.byIcon(Icons.track_changes_outlined),
+      );
+      final icon = tester.widget<Icon>(fallbackIcon);
+      expect(
+        icon.color,
+        AppTheme.goalIconFallbackBlue,
+        reason:
+            'POLISH-05/R01: Rose mode keeps the artwork-family blue '
+            'placeholder',
+      );
+      expect(icon.color, isNot(AppTheme.rose));
+    },
+  );
 
   testWidgets('C3: Event Life Goal card uses the semantic near-white surface '
       'in Light, never a gray slab', (tester) async {
@@ -155,7 +169,8 @@ void main() {
     expect(
       decoration.color,
       Theme.of(tester.element(section)).colorScheme.surface,
-      reason: 'POLISH-04: Light Life Goal card must sit on the semantic '
+      reason:
+          'POLISH-04: Light Life Goal card must sit on the semantic '
           'surface with its outline',
     );
     expect(decoration.color, isNot(Colors.transparent));
@@ -207,7 +222,8 @@ void main() {
     expect(
       decoration.color,
       Theme.of(tester.element(field)).colorScheme.surface,
-      reason: 'POLISH-04: Light Task Life Goal card must use the semantic '
+      reason:
+          'POLISH-04: Light Task Life Goal card must use the semantic '
           'surface, never a gray slab',
     );
   });

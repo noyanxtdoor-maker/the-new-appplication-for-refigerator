@@ -20,7 +20,16 @@ import 'package:rmplanner/features/startup/domain/startup_state.dart';
 /// M3 badge refresh — one active full-universe refresh plus at most one
 /// dirty-generation trailing refresh; stale completion can never publish.
 void main() {
-  final now = DateTime.utc(2026, 9, 14, 10);
+  // The production badge provider reads the REAL wall clock for `nowUtc`
+  // (only `today` comes from the injectable date source), and
+  // `LauncherBadgeCoordinator._isActionableEvent` excludes a timed Event whose
+  // end is already in the past. Anchoring this fixture to a hard-coded instant
+  // therefore made the assertion a time bomb: once that instant passed, the
+  // coordinator CORRECTLY stopped counting the fixture Event and the expected
+  // badge count flipped from 1 to 0. Anchor the fixture to the same real clock
+  // production uses so the harness and the product agree at any run date.
+  final now = DateTime.now().toUtc();
+  final today = PlannerDate.fromDateTime(now);
 
   Future<ProviderContainer> boot() async {
     final events = _Events();
@@ -32,10 +41,8 @@ void main() {
         calendarEventRepositoryProvider.overrideWithValue(events),
         plannerRepositoryProvider.overrideWithValue(tasks),
         diagnosticsProvider.overrideWithValue(SanitizedDiagnostics()),
-        startupRepositoryProvider.overrideWithValue(
-          _FixedStartupRepository(),
-        ),
-        plannerDateSourceProvider.overrideWithValue(_FixedDateSource()),
+        startupRepositoryProvider.overrideWithValue(_FixedStartupRepository()),
+        plannerDateSourceProvider.overrideWithValue(_FixedDateSource(today)),
       ],
     );
     container.read(startupControllerProvider);
@@ -67,39 +74,41 @@ void main() {
     expect(gateway.counts, <int>[1, 0]);
   });
 
-  test('concurrent burst coalesces: one active + at most one trailing read',
-      () async {
-    final container = await boot();
-    addTearDown(container.dispose);
-    final events = container.read(calendarEventRepositoryProvider) as _Events;
-    final tasks = container.read(plannerRepositoryProvider) as _Tasks;
-    final gateway = container.read(launcherBadgeGatewayProvider) as _Badge;
-    var inFlight = 0;
-    var maxConcurrent = 0;
+  test(
+    'concurrent burst coalesces: one active + at most one trailing read',
+    () async {
+      final container = await boot();
+      addTearDown(container.dispose);
+      final events = container.read(calendarEventRepositoryProvider) as _Events;
+      final tasks = container.read(plannerRepositoryProvider) as _Tasks;
+      final gateway = container.read(launcherBadgeGatewayProvider) as _Badge;
+      var inFlight = 0;
+      var maxConcurrent = 0;
 
-    events.onRead = () async {
-      inFlight += 1;
-      if (inFlight > maxConcurrent) maxConcurrent = inFlight;
-      await Future<void>.delayed(const Duration(milliseconds: 30));
-      inFlight -= 1;
-    };
+      events.onRead = () async {
+        inFlight += 1;
+        if (inFlight > maxConcurrent) maxConcurrent = inFlight;
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        inFlight -= 1;
+      };
 
-    // A save burst: five overlapping badge refresh requests.
-    final futures = <Future<void>>[
-      for (var index = 0; index < 5; index += 1)
-        container.read(launcherBadgeRefreshProvider)(),
-    ];
-    // Latest durable truth changed mid-read: the single trailing pass must
-    // pick it up.
-    tasks.ids = <String>{'task-trailing'};
-    await Future.wait(futures);
+      // A save burst: five overlapping badge refresh requests.
+      final futures = <Future<void>>[
+        for (var index = 0; index < 5; index += 1)
+          container.read(launcherBadgeRefreshProvider)(),
+      ];
+      // Latest durable truth changed mid-read: the single trailing pass must
+      // pick it up.
+      tasks.ids = <String>{'task-trailing'};
+      await Future.wait(futures);
 
-    expect(maxConcurrent, 1, reason: 'no concurrent overlapping range reads');
-    // Exactly ONE active + ONE trailing full-universe read (not five).
-    expect(gateway.reads, 2, reason: 'measured reads: ${gateway.reads}');
-    // The trailing pass published the latest durable truth.
-    expect(gateway.counts.last, 1);
-  });
+      expect(maxConcurrent, 1, reason: 'no concurrent overlapping range reads');
+      // Exactly ONE active + ONE trailing full-universe read (not five).
+      expect(gateway.reads, 2, reason: 'measured reads: ${gateway.reads}');
+      // The trailing pass published the latest durable truth.
+      expect(gateway.counts.last, 1);
+    },
+  );
 
   test('stale completion cannot publish over newer truth', () async {
     final container = await boot();
@@ -118,15 +127,17 @@ void main() {
     expect(gateway.counts.last, 0, reason: 'trailing pass publishes latest');
   });
 
-  test('platform failure never throws and never rolls back persistence',
-      () async {
-    final container = await boot();
-    addTearDown(container.dispose);
-    final gateway = container.read(launcherBadgeGatewayProvider) as _Badge;
-    gateway.throwOnSet = true;
-    await container.read(launcherBadgeRefreshProvider)();
-    expect(gateway.counts, isEmpty);
-  });
+  test(
+    'platform failure never throws and never rolls back persistence',
+    () async {
+      final container = await boot();
+      addTearDown(container.dispose);
+      final gateway = container.read(launcherBadgeGatewayProvider) as _Badge;
+      gateway.throwOnSet = true;
+      await container.read(launcherBadgeRefreshProvider)();
+      expect(gateway.counts, isEmpty);
+    },
+  );
 }
 
 final class _FixedStartupRepository implements StartupRepository {
@@ -165,11 +176,16 @@ final class _FixedStartupRepository implements StartupRepository {
 }
 
 final class _FixedDateSource implements PlannerDateSource {
+  const _FixedDateSource(this.date);
+
+  final PlannerDate date;
+
   @override
-  PlannerDate today() => const PlannerDate(year: 2026, month: 9, day: 14);
+  PlannerDate today() => date;
 }
 
-final class _Events implements CalendarEventRepository, CalendarEventRangeSource {
+final class _Events
+    implements CalendarEventRepository, CalendarEventRangeSource {
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 

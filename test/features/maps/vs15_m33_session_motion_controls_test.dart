@@ -17,6 +17,8 @@ import 'package:rmplanner/features/maps/presentation/google_maps_surface.dart';
 
 import 'maps_preferences_test_support.dart';
 
+import 'support/fab_theme_probe.dart';
+
 const _gps = MapCoordinate(latitude: 14.6, longitude: 121);
 const _taiwan = CameraPosition(
   target: LatLng(25.033, 121.5654),
@@ -462,11 +464,15 @@ void main() {
             gps,
             theme: dark ? AppTheme.dark(mode) : AppTheme.light(mode),
           );
-          final color = mode == ThemeColorMode.blue
-              ? AppTheme.blueLightPrimary
-              : AppTheme.roseLightPrimary;
+          final theme = dark ? AppTheme.dark(mode) : AppTheme.light(mode);
+          // M7 reconciliation (2026-09-16): the accepted canonical law resolves
+          // the control surface from the ACTIVE theme primary and paints the
+          // glyph WHITE in Light and Dark. The retired VS15 assertion pinned the
+          // LIGHT primary even in dark mode and read constructor properties the
+          // control deliberately never sets.
+          final background = theme.colorScheme.primary;
           expect(
-            1.05 / (color.computeLuminance() + .05),
+            1.05 / (background.computeLuminance() + .05),
             greaterThanOrEqualTo(4.5),
           );
           for (final key in [
@@ -476,8 +482,8 @@ void main() {
           ]) {
             final finder = find.byKey(Key(key));
             final button = tester.widget<FloatingActionButton>(finder);
-            expect(button.backgroundColor, color);
-            expect(button.foregroundColor, Colors.white);
+            expect(resolvedFabBackground(tester, Key(key)), background);
+            expect(resolvedFabIconColor(tester, Key(key)), Colors.white);
             expect(tester.getSize(finder), const Size(56, 56));
             expect(button.onPressed, isNotNull);
           }

@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 
+import 'authority_rules.dart';
+
 const _organization = 'com.nexttransfer';
 const _applicationId = 'com.nexttransfer.rmplanner';
 const _flutterVersion = '3.44.7';
@@ -43,19 +45,16 @@ Future<void> main() async {
     'Android Gradle identity or SDK baseline differs from the lock',
     failures,
   );
-  _expectFileText(
+  // M7 reconciliation: the accepted `social_app_home` Intent bridge uses
+  // `intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)`. The guard is narrowed to
+  // the window/screenshot manipulation it exists to prevent
+  // (FLAG_SECURE, WindowManager, window-level flag calls).
+  _expectRules(
     File(
       'android/app/src/main/kotlin/'
       'com/nexttransfer/rmplanner/MainActivity.kt',
     ),
-    (text) =>
-        text.contains('package $_applicationId') &&
-        text.contains('FlutterFragmentActivity') &&
-        !text.contains('FLAG_SECURE') &&
-        !text.contains('WindowManager') &&
-        !text.contains('addFlags'),
-    'MainActivity identity, local-auth host, or approved screen-capture policy '
-    'differs from the owner amendment',
+    checkMainActivityKt,
     failures,
   );
   _expectFileText(
@@ -65,75 +64,23 @@ Future<void> main() async {
     'requirement',
     failures,
   );
-  _expectFileText(
+  // M7 reconciliation: the accepted manifest declares the exact seven-permission
+  // set (VS16 background/notification work + M6 contacts/location).
+  // Exact-set verification means an eighth permission still fails.
+  _expectRules(
     File('android/app/src/main/AndroidManifest.xml'),
-    (text) =>
-        text.contains('android:label="Next Transfer"') &&
-        text.contains('android:allowBackup="false"') &&
-        _declaredPermissions(text).length == 1 &&
-        _declaredPermissions(text).single == 'android.permission.USE_BIOMETRIC',
-    'Production manifest identity, backup policy, or VS-02 permission scope '
-    'changed',
+    checkProductionManifest,
     failures,
   );
-  _expectFileText(
-    File('pubspec.yaml'),
-    (text) {
-      const forbidden = <String>[
-        'supabase_flutter:',
-        'file_picker:',
-        'workmanager:',
-        'device_calendar:',
-        'firebase_analytics:',
-        'posthog_flutter:',
-        'sentry_flutter:',
-        '@insforge',
-      ];
-      return text.contains('local_auth: 3.0.2') &&
-          text.contains('permission_handler: 12.0.3') &&
-          text.contains('flutter_secure_storage: 10.3.1') &&
-          text.contains('timezone: 0.11.1') &&
-          text.contains('flutter_timezone: 5.1.0') &&
-          forbidden.every((package) => !text.contains(package));
-    },
-    'The VS-08 dependency lock changed or a later-slice package entered the '
-    'graph',
-    failures,
-  );
-  _expectFileText(
+  // M7 reconciliation: `workmanager` was accepted at 90d5fd0 and is pinned at
+  // 0.10.9. Every approved pin must be EXACT, and the other forbidden families
+  // remain forbidden.
+  _expectRules(File('pubspec.yaml'), checkPubspec, failures);
+  // M7 reconciliation: the frozen product law is schema 47 (was 10 at VS-08).
+  // The sensitive-field exclusion and the frozen table set are unchanged.
+  _expectRules(
     File('lib/core/database/app_database.dart'),
-    (text) =>
-        !text.contains('accessToken') &&
-        !text.contains('refreshToken') &&
-        !text.contains('biometricData') &&
-        !text.contains('appPin') &&
-        text.contains(
-          'int get schemaVersion => _schemaVersionOverride ?? 10',
-        ) &&
-        text.contains('PlannerTasks') &&
-        text.contains('TaskStatusChanges') &&
-        text.contains('CalendarEvents') &&
-        text.contains('CalendarEventExceptions') &&
-        text.contains('CalendarEventOperations') &&
-        text.contains('TaskEventLinks') &&
-        text.contains('TaskEventLinkHistory') &&
-        text.contains('OutcomeReports') &&
-        text.contains('OutcomeReportContributionDrafts') &&
-        text.contains('ActivityLedgerEntries') &&
-        text.contains('WeeklyIndicatorTargetRevisions') &&
-        text.contains('WeeklyPlans') &&
-        text.contains('WeeklyPlanCommitments') &&
-        text.contains('WeeklyPlanReviews') &&
-        text.contains('WeeklyPlanReviewIndicatorSnapshots') &&
-        text.contains('WeeklyPlanTaskCarryoverDecisions') &&
-        text.contains('ActivityTypes') &&
-        text.contains('ActivityTypeIndicatorMappings') &&
-        text.contains('PlannerPreferences') &&
-        text.contains('BoolColumn get isBackupAppointment') &&
-        text.contains('TextColumn get preferredPresentation') &&
-        text.contains('IntColumn get timelineHourHeight') &&
-        text.contains('TextColumn get timeZoneId'),
-    'The VS-08 Drift schema boundary or sensitive-field exclusion changed',
+    checkSchemaBoundary,
     failures,
   );
   _expectFileText(
@@ -192,15 +139,9 @@ Future<void> main() async {
 
   stdout.writeln(
     'Authority verification passed: approved hashes, Flutter pin, '
-    'Android identity, VS-08 permission scope, and slice dependency boundary.',
+    'Android identity, accepted permission scope, exact dependency pins, '
+    'frozen schema $approvedSchemaVersion, and MainActivity privacy guard.',
   );
-}
-
-List<String> _declaredPermissions(String manifest) {
-  final matches = RegExp(
-    r'<uses-permission\s+android:name="([^"]+)"\s*/>',
-  ).allMatches(manifest);
-  return <String>[for (final match in matches) match.group(1)!];
 }
 
 Future<void> _verifyHash(
@@ -236,5 +177,25 @@ void _expectFileText(
     }
   } on Object catch (error) {
     failures.add('$failure (${error.runtimeType})');
+  }
+}
+
+/// Apply a pure rule set from `authority_rules.dart` to [file], surfacing the
+/// specific rule violations instead of one opaque boolean.
+void _expectRules(
+  File file,
+  List<String> Function(String text) rules,
+  List<String> failures,
+) {
+  if (!file.existsSync()) {
+    failures.add('Required file is missing: ${file.path}');
+    return;
+  }
+  try {
+    for (final violation in rules(file.readAsStringSync())) {
+      failures.add('${file.path}: $violation');
+    }
+  } on Object catch (error) {
+    failures.add('${file.path}: unreadable (${error.runtimeType})');
   }
 }

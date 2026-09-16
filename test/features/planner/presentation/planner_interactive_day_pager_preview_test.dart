@@ -991,7 +991,12 @@ void main() {
         reason: 'planner must start parked on _today',
       );
       await _pumpFrames(tester);
-      await tester.pumpAndSettle();
+      // M7 reconciliation (2026-09-16): this was a bare `pumpAndSettle()`, which
+      // can never settle on the Planner route because the per-minute
+      // current-time Timer keeps scheduling — the exact hazard this file's own
+      // `_pumpFrames` helper was written to avoid. Use the bounded pump so the
+      // assertion below actually runs instead of hanging.
+      await _pumpFrames(tester);
 
       // Off-today previous preview: no indicator at all.
       expect(

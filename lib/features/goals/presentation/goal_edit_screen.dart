@@ -49,6 +49,9 @@ final class _GoalEditScreenState extends ConsumerState<GoalEditScreen> {
   /// load completes (override metadata + effective color); user edits mark
   /// it dirty; Save commits it atomically with the Goal row.
   AssignedEventTypeDraft? _assignedDraft;
+  // True once the build path has re-requested the one-shot assigned-Event-Type
+  // resolve because the Event Type catalog arrived after that resolve ran.
+  bool _assignedDraftLoadRequested = false;
 
   /// Guards late initial loads from overwriting user edits: the stored
   /// override/original color are only bound while the user has not touched
@@ -158,9 +161,11 @@ final class _GoalEditScreenState extends ConsumerState<GoalEditScreen> {
   Future<void> _loadAssignedDraft(Goal goal) async {
     try {
       final profileId = ref.read(goalProfileIdProvider);
-      final stableKey = goal.assignedEventTypeStableKey ??
-          CanonicalGoalSlot.tryByIndicatorKey(goal.indicatorKey)
-              ?.eventTypeStableKey;
+      final stableKey =
+          goal.assignedEventTypeStableKey ??
+          CanonicalGoalSlot.tryByIndicatorKey(
+            goal.indicatorKey,
+          )?.eventTypeStableKey;
       if (stableKey == null) {
         return;
       }
@@ -182,7 +187,8 @@ final class _GoalEditScreenState extends ConsumerState<GoalEditScreen> {
       final stored = overrides[goal.id];
       final storedMatchesKey =
           stored != null && stored.eventTypeStableKey == stableKey;
-      final originalColor = eventTypeState.eventColors[stableKey] ??
+      final originalColor =
+          eventTypeState.eventColors[stableKey] ??
           PlannerEventColorDefaults.forEventType(type);
       final resolvedType = type;
       setState(() {
@@ -380,6 +386,25 @@ final class _GoalEditScreenState extends ConsumerState<GoalEditScreen> {
       }
     }
     final type = assignedType;
+    if (draft == null &&
+        stableKey != null &&
+        type != null &&
+        !type.isArchived &&
+        !_assignedDraftLoadRequested) {
+      // [_loadAssignedDraft] is a one-shot resolve driven by the Goal read, and
+      // it reads the Event Type catalog with `ref.read` even though that catalog
+      // is loaded asynchronously by its own provider. On any open that beats the
+      // catalog (cold start, or a direct push such as a Home deep-link) the
+      // one-shot observed an empty catalog, returned early and nothing ever
+      // retried — so the section showed "Event Type unavailable" FOREVER even
+      // though the catalog arrived a frame later, and Save then silently skipped
+      // the presentation merge. This build path already watches the catalog, so
+      // re-request the resolve exactly once here, the moment the catalog can
+      // actually satisfy it. The dirty guard inside [_loadAssignedDraft] keeps a
+      // late resolve from overwriting user edits.
+      _assignedDraftLoadRequested = true;
+      unawaited(_loadAssignedDraft(goal));
+    }
     if (stableKey == null || type == null || type.isArchived || draft == null) {
       return const Card(
         key: Key('goal-assigned-event-type'),
@@ -439,13 +464,13 @@ final class _GoalEditScreenState extends ConsumerState<GoalEditScreen> {
   Future<void> _openDraftEditor(AssignedEventTypeDraft draft) async {
     final result = await Navigator.of(context)
         .push<AssignedEventTypeDraftResult>(
-      MaterialPageRoute<AssignedEventTypeDraftResult>(
-        builder: (_) => AssignedEventTypeDraftScreen(
-          initialDraft: draft,
-          goalTitle: _titleController.text.trim(),
-        ),
-      ),
-    );
+          MaterialPageRoute<AssignedEventTypeDraftResult>(
+            builder: (_) => AssignedEventTypeDraftScreen(
+              initialDraft: draft,
+              goalTitle: _titleController.text.trim(),
+            ),
+          ),
+        );
     if (!mounted || result == null) {
       return;
     }
@@ -493,7 +518,9 @@ final class _GoalEditScreenState extends ConsumerState<GoalEditScreen> {
             ),
             iconId: _iconId,
             startDay: ref.read(startOfWeekProvider),
-            assignedEventTypeDraft: _assignedDraftTouched ? _assignedDraft : null,
+            assignedEventTypeDraft: _assignedDraftTouched
+                ? _assignedDraft
+                : null,
           );
       ref.invalidate(activeGoalsProvider);
       ref.invalidate(goalCapacityProvider);
@@ -556,7 +583,8 @@ final class _GoalEditScreenState extends ConsumerState<GoalEditScreen> {
       return false;
     }
     final draft = _assignedDraft;
-    final draftChanged = _assignedDraftTouched &&
+    final draftChanged =
+        _assignedDraftTouched &&
         draft != null &&
         (draft.nameDirty || draft.colorDirty);
     return goal.title != _titleController.text.trim() ||

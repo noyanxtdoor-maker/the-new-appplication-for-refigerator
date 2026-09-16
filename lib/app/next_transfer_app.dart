@@ -363,7 +363,7 @@ final class _NextTransferAppState extends ConsumerState<NextTransferApp>
       await precacheImage(
         nextTransferSplashImage,
         context,
-        onError: (Object _, StackTrace? __) => failed = true,
+        onError: (Object _, StackTrace? _) => failed = true,
       );
     } on Object {
       failed = true;

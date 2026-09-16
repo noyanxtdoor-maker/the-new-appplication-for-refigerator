@@ -1,11 +1,15 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:rmplanner/core/diagnostics/sanitized_diagnostics.dart';
 import 'package:rmplanner/features/notifications/application/notification_privacy_refresh_provider.dart';
+import 'package:rmplanner/features/notifications/application/notification_providers.dart';
+import 'package:rmplanner/features/notifications/data/drift_notification_foundation_repository.dart';
 import 'package:rmplanner/features/planner/application/calendar_event_providers.dart';
 import 'package:rmplanner/features/planner/application/planner_providers.dart';
 import 'package:rmplanner/features/privacy/application/privacy_providers.dart';
 import 'package:rmplanner/features/privacy/domain/privacy_settings.dart';
+import 'package:rmplanner/features/startup/application/startup_providers.dart';
 
 import '../../../support/test_dependencies.dart';
 
@@ -15,8 +19,37 @@ void main() {
     () async {
       final eventRefreshes = <bool>[];
       final taskRefreshes = <bool>[];
+      // The pass composes the REAL reminder runtime (recovery coordinator,
+      // orphan sweeper, registration repair), so it needs the same canonical
+      // app-root overrides every other notification harness uses. A bare
+      // container that only stubbed the two horizon passes tripped the
+      // composition's own guard: 'NotificationFoundationRepository must be
+      // overridden at the app root'.
+      final database = openMemoryDatabase();
+      addTearDown(database.close);
+      final privacy = TestPrivacyDependencies(database: database);
       final container = ProviderContainer(
         overrides: <Override>[
+          diagnosticsProvider.overrideWithValue(SanitizedDiagnostics()),
+          startupRepositoryProvider.overrideWithValue(
+            buildTestRepository(database: database),
+          ),
+          privacyRepositoryProvider.overrideWithValue(privacy.repository),
+          permissionGatewayProvider.overrideWithValue(
+            privacy.permissionGateway,
+          ),
+          notificationFoundationRepositoryProvider.overrideWithValue(
+            DriftNotificationFoundationRepository(
+              database: database,
+              clock: FixedClock(DateTime.utc(2026, 9, 5)),
+            ),
+          ),
+          notificationGatewayProvider.overrideWithValue(
+            FakeNotificationGateway(),
+          ),
+          backgroundWorkGatewayProvider.overrideWithValue(
+            FakeBackgroundWorkGateway(),
+          ),
           eventReminderHorizonOverrideProvider.overrideWithValue((
             eventId,
             refreshContent,

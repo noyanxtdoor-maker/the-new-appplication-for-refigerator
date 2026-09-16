@@ -135,14 +135,24 @@ void main() {
     expect(markerPreview, contains('RoutePaths.calendarEventDetail('));
     // M6.2: grouping ON keeps the accepted cluster-manager pipeline; the
     // durable Group nearby markers OFF branch removes the active managers.
+    // M7 reconciliation (2026-09-16): this scrape hard-coded a bare `\n` while
+    // the source is checked out with CRLF on Windows (core.autocrlf=true), so it
+    // could only ever pass on an LF checkout. Assert the same cluster-manager
+    // pipeline with end-of-line agnostic patterns (all three scrapes below).
     expect(
-      surface,
-      contains(
-        'clusterManagers: _groupNearby\n                    ? _clusterManagers',
-      ),
+      RegExp(
+        r'clusterManagers: _groupNearby\r?\n\s*\? _clusterManagers',
+      ).hasMatch(surface),
+      isTrue,
     );
-    expect(surface, contains("ClusterManagerId(\n    'maps-people'"));
-    expect(surface, contains("ClusterManagerId(\n    'maps-events'"));
+    expect(
+      RegExp(r"ClusterManagerId\(\r?\n\s*'maps-people'").hasMatch(surface),
+      isTrue,
+    );
+    expect(
+      RegExp(r"ClusterManagerId\(\r?\n\s*'maps-events'").hasMatch(surface),
+      isTrue,
+    );
     expect(eventDetail, contains('.focusEventOccurrence('));
   });
 }

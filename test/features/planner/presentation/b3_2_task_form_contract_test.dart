@@ -23,7 +23,12 @@ void main() {
       database: database,
       privacyGate: privacy.gate,
     );
-    await startupRepository.completeOnboarding();
+    // M6 zero-goal law: completeOnboarding() seeds no Goals, and the Life Goal
+    // picker only opens (production fail-closed law) when an active Goal
+    // exists. This test describes an EXISTING (pre-M6) user, so seed the
+    // canonical Goals the picker contract needs.
+    final seededProfile = await startupRepository.completeOnboarding();
+    await seedLegacyCanonicalGoals(database, seededProfile.id);
 
     await tester.pumpWidget(
       privacy.buildApp(

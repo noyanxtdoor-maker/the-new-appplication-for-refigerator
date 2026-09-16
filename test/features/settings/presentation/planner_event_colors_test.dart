@@ -74,7 +74,12 @@ void main() {
       'Budget Review',
       'Temple Visit',
       'Meeting',
-      'Study or Plan',
+      // Accepted prospective-presentation law: the untouched canonical system
+      // Study row presents as "Study & Planning" on fresh prospective surfaces,
+      // and the colors settings list is exactly such a surface
+      // (`event_type_presentation.dart` via `planner_event_colors_screen`).
+      // Raw storage, stable keys and historical snapshots keep "Study or Plan".
+      'Study & Planning',
       'Service',
       'Shopping',
     ]) {

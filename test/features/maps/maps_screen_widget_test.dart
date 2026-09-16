@@ -214,8 +214,12 @@ void main() {
         ProviderScope(
           overrides: <Override>[
             mapProfileIdProvider.overrideWithValue(profileId),
-            mapMarkersProvider.overrideWith(
-              (ref) => Stream<List<MapMarker>>.error(
+            // M7 reconciliation (2026-09-16): MapsScreen watches
+            // mapProjectedMarkersProvider — the M4 refactor replaced the
+            // deprecated mapMarkersProvider union with it — so the failure must
+            // be injected into the provider the screen actually reads.
+            mapProjectedMarkersProvider.overrideWith(
+              (ref) => Future<List<MapMarker>>.error(
                 StateError('network unavailable'),
               ),
             ),

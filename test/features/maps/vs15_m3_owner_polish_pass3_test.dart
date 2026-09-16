@@ -15,6 +15,8 @@ import 'package:rmplanner/features/maps/domain/saved_place.dart';
 import 'package:rmplanner/features/maps/presentation/google_maps_surface.dart';
 import 'package:rmplanner/features/maps/presentation/maps_screen.dart';
 
+import 'support/fab_theme_probe.dart';
+
 const _coordinate = MapCoordinate(latitude: 14.6001, longitude: 121.0002);
 const _marker = MapMarker(
   owner: MapCoordinateOwner.savedPlace,
@@ -189,9 +191,13 @@ void main() {
       'maps-type-button',
       'maps-locate-button',
     ]) {
-      final button = tester.widget<FloatingActionButton>(find.byKey(Key(key)));
-      expect(button.backgroundColor, AppTheme.blueLightPrimary);
-      expect(button.foregroundColor, Colors.white);
+      // M7 reconciliation (2026-09-16): the control passes NO colours; the
+      // canonical FAB theme supplies the primary surface and the WHITE glyph.
+      expect(
+        resolvedFabBackground(tester, Key(key)),
+        AppTheme.light(ThemeColorMode.blue).colorScheme.primary,
+      );
+      expect(resolvedFabIconColor(tester, Key(key)), Colors.white);
     }
     expect(
       tester

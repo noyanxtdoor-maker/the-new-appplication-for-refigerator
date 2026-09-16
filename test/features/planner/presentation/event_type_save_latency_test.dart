@@ -246,7 +246,7 @@ _bootstrapController() async {
 }
 
 Future<(GatedEventTypeRepository, DriftEventTypeRepository, EventType, String)>
-_openFixedForm(WidgetTester tester) async {
+_openCustomTypeForm(WidgetTester tester) async {
   tester.view.physicalSize = const Size(393, 874);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
@@ -258,9 +258,26 @@ _openFixedForm(WidgetTester tester) async {
     database: database,
     clock: FixedClock(DateTime.utc(2026, 8, 14, 12)),
   );
-  final type = (await delegate.readEventTypes(
+  // Accepted M6 law: the raw Event Type form now only creates and edits CUSTOM
+  // types. Canonical/system rows are never edited here — the form pops itself
+  // and the live rows route to the draft-only presentation editor — so the
+  // live row-then-color Save path this file proves is the custom-type path.
+  await delegate.saveCustomType(
     profileId: profile.id,
-  )).singleWhere((candidate) => candidate.id == SystemEventTypeIds.exercise);
+    draft: const EventTypeDraft(
+      id: 'a5-custom-form-latency',
+      label: 'A5 Custom Form',
+      icon: EventTypeIcon.personal,
+      colorValue: 0xFF26A69A,
+      reportRequiredDefault: false,
+      defaultDurationMinutes: 45,
+      indicatorKeys: <String>{},
+    ),
+  );
+  final type = (await delegate.readEventType(
+    profileId: profile.id,
+    eventTypeId: 'a5-custom-form-latency',
+  ))!;
   final repository = GatedEventTypeRepository(delegate);
   addTearDown(() async {
     repository.releaseAll();
@@ -443,38 +460,38 @@ void main() {
   );
 
   testWidgets(
-    'A5: fixed form persists row then color and dismisses only after both',
+    'A5: custom form persists row then color and dismisses only after both',
     (tester) async {
-      final (repository, delegate, type, profileId) = await _openFixedForm(
+      final (repository, delegate, type, profileId) = await _openCustomTypeForm(
         tester,
       );
       repository
         ..blockGlobalReads = true
-        ..blockRename = true
+        ..blockCustomSave = true
         ..blockColorSave = true;
       final readsBefore = repository.globalReadCalls;
-      const renamedLabel = 'A5 Sequenced Exercise';
+      const savedLabel = 'A5 Sequenced Custom';
       await tester.enterText(
         find.byKey(const Key('custom-event-type-label')),
-        renamedLabel,
+        savedLabel,
       );
       await _showSaveButton(tester);
       final save = find.byKey(const Key('save-custom-event-type'));
       _invokeSave(tester);
       await tester.pump();
 
-      expect(repository.renameStarted.isCompleted, isTrue);
-      expect(repository.renameWriteCompleted.isCompleted, isFalse);
+      expect(repository.customSaveStarted.isCompleted, isTrue);
+      expect(repository.customWriteCompleted.isCompleted, isFalse);
       expect(repository.colorSaveStarted.isCompleted, isFalse);
       expect(find.byType(EventTypeFormScreen), findsOneWidget);
       expect(tester.widget<FilledButton>(save).onPressed, isNull);
 
-      repository.releaseRename();
+      repository.releaseCustomSave();
       await _pumpUntilWidget(
         tester,
         () => repository.colorSaveStarted.isCompleted,
       );
-      expect(repository.renameWriteCompleted.isCompleted, isTrue);
+      expect(repository.customWriteCompleted.isCompleted, isTrue);
       expect(repository.colorSaveStarted.isCompleted, isTrue);
       expect(repository.colorWriteCompleted.isCompleted, isFalse);
       expect(find.byType(EventTypeFormScreen), findsOneWidget);
@@ -483,7 +500,7 @@ void main() {
           profileId: profileId,
           eventTypeId: type.id,
         ))?.label,
-        renamedLabel,
+        savedLabel,
       );
 
       repository.releaseColorSave();
@@ -497,9 +514,9 @@ void main() {
   );
 
   testWidgets(
-    'A5: row and color failures keep the fixed Event Type draft on screen',
+    'A5: row and color failures keep the custom Event Type draft on screen',
     (tester) async {
-      final (repository, delegate, type, profileId) = await _openFixedForm(
+      final (repository, delegate, type, profileId) = await _openCustomTypeForm(
         tester,
       );
       final form = find.byType(EventTypeFormScreen);
@@ -513,7 +530,7 @@ void main() {
       await _showSaveButton(tester);
       final save = find.byKey(const Key('save-custom-event-type'));
 
-      repository.renameFailure = StateError('Injected rename failure');
+      repository.customSaveFailure = StateError('Injected row failure');
       _invokeSave(tester);
       await tester.pumpAndSettle();
       expect(form, findsOneWidget);
@@ -522,7 +539,7 @@ void main() {
       expect(repository.colorSaveStarted.isCompleted, isFalse);
       expect(
         container.read(eventTypeControllerProvider).message,
-        'Event Type name was not changed. Your input is still available.',
+        'Event Type was not changed. Your input is still available.',
       );
       expect(
         (await delegate.readEventType(
@@ -533,11 +550,11 @@ void main() {
       );
 
       repository
-        ..renameFailure = null
+        ..customSaveFailure = null
         ..colorSaveFailure = StateError('Injected color failure');
       _invokeSave(tester);
       await tester.pumpAndSettle();
-      expect(repository.renameWriteCompleted.isCompleted, isTrue);
+      expect(repository.customWriteCompleted.isCompleted, isTrue);
       expect(repository.colorSaveStarted.isCompleted, isTrue);
       expect(repository.colorWriteCompleted.isCompleted, isFalse);
       expect(form, findsOneWidget);

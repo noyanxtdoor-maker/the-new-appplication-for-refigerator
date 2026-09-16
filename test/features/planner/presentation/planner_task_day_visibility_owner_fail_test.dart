@@ -360,6 +360,20 @@ void main() {
       // Task. This is the only path that owns the transient generic Event
       // feedback block, so it proves Task selection clears that artifact while
       // retaining its canonical Planner-local draft.
+      // The accepted Planner auto-scrolls the timeline to the current time, so
+      // the create surface's own top-left can sit above the scroll viewport and
+      // a fixed offset from it would miss the tappable timeline entirely. Reset
+      // the day scroll first so the tap geometry is deterministic (the same
+      // canonical setup the Delta 4.2D creation-session contract uses).
+      final plannerScroll = tester.state<ScrollableState>(
+        find.descendant(
+          of: find.byKey(const Key('planner-day-scroll')),
+          matching: find.byType(Scrollable),
+        ),
+      );
+      plannerScroll.position.jumpTo(0);
+      await tester.pumpAndSettle();
+
       final surface = find.byKey(const Key('planner-timeline-create-surface'));
       await tester.tapAt(tester.getTopLeft(surface) + const Offset(20, 210));
       await tester.pump();

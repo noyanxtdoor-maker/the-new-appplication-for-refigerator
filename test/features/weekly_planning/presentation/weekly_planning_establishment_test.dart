@@ -169,8 +169,7 @@ final class _ControlledGoalRepository implements GoalRepository {
   Future<void> ensureCanonicalGoals(String profileId) async {}
 
   @override
-  Future<List<Goal>> readActiveGoals(String profileId) async =>
-      const <Goal>[];
+  Future<List<Goal>> readActiveGoals(String profileId) async => const <Goal>[];
 
   @override
   Future<Goal?> readGoal({
@@ -353,23 +352,11 @@ Goal _goal(String id, String title) => Goal(
 
 GoalProgress _progress(String id, String title) => GoalProgress(
   goal: _goal(id, title),
-  dailyActual: const IndicatorAmount(
-    scaledValue: 0,
-    scale: 0,
-    unit: 'count',
-  ),
+  dailyActual: const IndicatorAmount(scaledValue: 0, scale: 0, unit: 'count'),
   dailyTarget: const IndicatorTarget.notSet(),
-  weeklyActual: const IndicatorAmount(
-    scaledValue: 0,
-    scale: 0,
-    unit: 'count',
-  ),
+  weeklyActual: const IndicatorAmount(scaledValue: 0, scale: 0, unit: 'count'),
   weeklyTarget: const IndicatorTarget.notSet(),
-  monthlyActual: const IndicatorAmount(
-    scaledValue: 0,
-    scale: 0,
-    unit: 'count',
-  ),
+  monthlyActual: const IndicatorAmount(scaledValue: 0, scale: 0, unit: 'count'),
   monthlyTarget: const IndicatorTarget.notSet(),
 );
 
@@ -445,20 +432,17 @@ void main() {
     }
   }
 
-  testWidgets(
-    'A1.1: establishment never waits on the rich projection '
-    '(openOrCreate hangs forever, rows still render)',
-    (tester) async {
-      await pumpScreen(tester, periodStart: _monday);
+  testWidgets('A1.1: establishment never waits on the rich projection '
+      '(openOrCreate hangs forever, rows still render)', (tester) async {
+    await pumpScreen(tester, periodStart: _monday);
 
-      // The rich projection was never even attempted for establishment.
-      expect(weekly.openOrCreateCalls, 0);
-      expect(weekly.ensureCalls, 1);
-      expect(find.byKey(const Key('weekly-plan-list')), findsOneWidget);
-      expect(find.text('Job Applications'), findsOneWidget);
-      expect(tester.takeException(), isNull);
-    },
-  );
+    // The rich projection was never even attempted for establishment.
+    expect(weekly.openOrCreateCalls, 0);
+    expect(weekly.ensureCalls, 1);
+    expect(find.byKey(const Key('weekly-plan-list')), findsOneWidget);
+    expect(find.text('Job Applications'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets(
     'A1.2: durable establishment is honest (scoped loading, then rows; '
@@ -472,7 +456,8 @@ void main() {
       expect(
         find.byType(CircularProgressIndicator),
         findsOneWidget,
-        reason: 'Before durable establishment an honest scoped loading state '
+        reason:
+            'Before durable establishment an honest scoped loading state '
             'must be shown.',
       );
       expect(find.byKey(const Key('weekly-plan-list')), findsNothing);
@@ -489,11 +474,6 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pump();
       await pumpScreen(tester, periodStart: _monday, settle: false);
-      // TEMP DEBUG
-      debugPrint('PROBE-LOADING: ${find.byType(CircularProgressIndicator).evaluate().length}');
-      debugPrint('PROBE-ERROR: ${find.textContaining('could not be opened').evaluate().length}');
-      debugPrint('PROBE-ENSURE: ${weekly.ensureCalls}');
-      debugPrint('PROBE-EX: ${tester.takeException()}');
       expect(find.textContaining('could not be opened'), findsOneWidget);
       expect(find.byKey(const Key('weekly-plan-list')), findsNothing);
 
@@ -506,27 +486,26 @@ void main() {
     },
   );
 
-  testWidgets(
-    'A1.4: browsing a historical period never establishes a row',
-    (tester) async {
-      await pumpScreen(tester, periodStart: _monday);
-      expect(weekly.ensureCalls, 1);
-      expect(find.byKey(const Key('weekly-plan-list')), findsOneWidget);
+  testWidgets('A1.4: browsing a historical period never establishes a row', (
+    tester,
+  ) async {
+    await pumpScreen(tester, periodStart: _monday);
+    expect(weekly.ensureCalls, 1);
+    expect(find.byKey(const Key('weekly-plan-list')), findsOneWidget);
 
-      // Previous-week arrow browses the historical period.
-      await tester.tap(find.byTooltip('Previous week'));
-      await tester.pumpAndSettle();
+    // Previous-week arrow browses the historical period.
+    await tester.tap(find.byTooltip('Previous week'));
+    await tester.pumpAndSettle();
 
-      expect(weekly.ensureCalls, 1);
-      expect(weekly.openOrCreateCalls, 0);
-      expect(
-        find.byKey(const Key('weekly-plan-list')),
-        findsOneWidget,
-        reason: 'Historical periods stay read-only and keep rendering.',
-      );
-      expect(tester.takeException(), isNull);
-    },
-  );
+    expect(weekly.ensureCalls, 1);
+    expect(weekly.openOrCreateCalls, 0);
+    expect(
+      find.byKey(const Key('weekly-plan-list')),
+      findsOneWidget,
+      reason: 'Historical periods stay read-only and keep rendering.',
+    );
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets(
     'A1.5: edit-return reload keeps the last confirmed Goal rows while the '
@@ -563,7 +542,8 @@ void main() {
       expect(
         find.byType(CircularProgressIndicator),
         findsNothing,
-        reason: 'A dependency reload must not replace rows with a whole-body '
+        reason:
+            'A dependency reload must not replace rows with a whole-body '
             'spinner.',
       );
 
@@ -590,7 +570,8 @@ void main() {
       expect(
         find.byKey(const Key('weekly-plan-list')),
         findsOneWidget,
-        reason: 'The explicit route period must resolve the week without the '
+        reason:
+            'The explicit route period must resolve the week without the '
             'today/time-zone Future.',
       );
       // The route never blocks on the today Future.  At most the Goal Plan

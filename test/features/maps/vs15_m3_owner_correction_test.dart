@@ -1,6 +1,9 @@
 import 'dart:io';
 
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:rmplanner/app/theme/app_theme.dart';
+import 'package:rmplanner/app/theme/theme_color_mode.dart';
 
 void main() {
   final surface = File(
@@ -105,9 +108,19 @@ void main() {
   group('C/F/G — dedicated Drop Pin + shared chooser', () {
     test('dedicated Drop Pin control enters provisional placement mode', () {
       expect(surface, contains("key: const Key('maps-drop-pin-button')"));
-      expect(surface, contains('backgroundColor: controlSurface'));
-      // Pass 4: the icon foreground follows the active theme accent token.
-      expect(surface, contains('foregroundColor: Colors.white'));
+      // M7 reconciliation (2026-09-16): `controlSurface` and a literal
+      // `foregroundColor: Colors.white` were retired with the canonical theme
+      // law — the control passes NO colours and inherits primary/onPrimary from
+      // FloatingActionButtonThemeData. Lock the law that replaced them: no local
+      // colour override, and a WHITE glyph on the canonical blue primary.
+      expect(surface, isNot(contains('backgroundColor: controlSurface')));
+      expect(surface, isNot(contains('foregroundColor: Colors.white')));
+      final canonical = AppTheme.light(ThemeColorMode.blue);
+      expect(
+        canonical.floatingActionButtonTheme.backgroundColor,
+        AppTheme.blueLightPrimary,
+      );
+      expect(canonical.floatingActionButtonTheme.foregroundColor, Colors.white);
       expect(surface, isNot(contains("key: const Key('maps-drop-pin')")));
       expect(screen, contains('_beginDropPin'));
       expect(screen, contains('_dropPinMode = true'));

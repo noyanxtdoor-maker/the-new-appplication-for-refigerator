@@ -11,6 +11,8 @@ import 'package:rmplanner/features/maps/domain/map_coordinate.dart';
 import 'package:rmplanner/features/maps/presentation/google_maps_surface.dart';
 import 'package:rmplanner/features/maps/presentation/saved_place_form_sheet.dart';
 
+import 'support/fab_theme_probe.dart';
+
 const _coordinate = MapCoordinate(latitude: 14.6, longitude: 121);
 const _marker = MapMarker(
   owner: MapCoordinateOwner.contact,
@@ -118,7 +120,12 @@ void main() {
       final controlZone = _surfaceSource.substring(
         _surfaceSource.indexOf('maps-drop-pin-button'),
       );
-      expect(controlZone, contains('backgroundColor: controlSurface'));
+      // M7 reconciliation (2026-09-16): `controlSurface` was retired — the
+      // control passes NO colours and inherits primary/onPrimary from the
+      // canonical FAB theme. The guard that still matters is that no per-screen
+      // colour override is reintroduced beside the drop-pin control.
+      expect(controlZone, isNot(contains('backgroundColor:')));
+      expect(controlZone, isNot(contains('foregroundColor:')));
       final pinPainter = _surfaceSource.substring(
         _surfaceSource.indexOf('_paintSelectedLocationPinGlyph'),
         _surfaceSource.indexOf('static void _paintMaterialIconGlyph'),
@@ -179,11 +186,11 @@ void main() {
         'maps-type-button',
         'maps-locate-button',
       ]) {
-        final button = tester.widget<FloatingActionButton>(
-          find.byKey(Key(key)),
+        expect(
+          resolvedFabBackground(tester, Key(key)),
+          AppTheme.light(ThemeColorMode.blue).colorScheme.primary,
         );
-        expect(button.backgroundColor, AppTheme.blueLightPrimary);
-        expect(button.foregroundColor, Colors.white);
+        expect(resolvedFabIconColor(tester, Key(key)), Colors.white);
       }
     });
 
@@ -196,11 +203,11 @@ void main() {
         'maps-type-button',
         'maps-locate-button',
       ]) {
-        final button = tester.widget<FloatingActionButton>(
-          find.byKey(Key(key)),
+        expect(
+          resolvedFabBackground(tester, Key(key)),
+          AppTheme.light(ThemeColorMode.rose).colorScheme.primary,
         );
-        expect(button.backgroundColor, AppTheme.roseLightPrimary);
-        expect(button.foregroundColor, Colors.white);
+        expect(resolvedFabIconColor(tester, Key(key)), Colors.white);
       }
     });
 
@@ -222,12 +229,19 @@ void main() {
       final controlZone = _surfaceSource.substring(
         _surfaceSource.indexOf('maps-drop-pin-button'),
       );
-      expect(controlZone, contains('foregroundColor: Colors.white'));
+      // M7 reconciliation (2026-09-16): the canonical strong family now reaches
+      // the control through FloatingActionButtonThemeData (primary/onPrimary)
+      // instead of a per-screen `controlSurface` plus a literal white. Lock BOTH
+      // halves: no local colour override, and a WHITE glyph on the canonical
+      // blue primary surface.
+      expect(controlZone, isNot(contains('backgroundColor:')));
+      expect(controlZone, isNot(contains('foregroundColor:')));
+      final canonical = AppTheme.light(ThemeColorMode.blue);
       expect(
-        controlZone,
-        isNot(contains('foregroundColor: AppTheme.blueLightPrimary')),
+        canonical.floatingActionButtonTheme.backgroundColor,
+        AppTheme.blueLightPrimary,
       );
-      expect(controlZone, contains('backgroundColor: controlSurface'));
+      expect(canonical.floatingActionButtonTheme.foregroundColor, Colors.white);
     });
   });
 

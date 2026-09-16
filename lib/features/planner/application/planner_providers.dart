@@ -358,6 +358,18 @@ final class PlannerController extends Notifier<PlannerState> {
     return cached == null ? null : filterPendingEventDeletions(cached);
   }
 
+  /// Monotonic count of canonical day-cache invalidations.
+  ///
+  /// [refresh], a same-date [selectDate], and a confirmed pending deletion all
+  /// clear the canonical day cache and bump this value. Presentation-level
+  /// snapshot caches (the Planner screen's retained pager preview cache) must
+  /// drop their own entries whenever it changes: after an invalidation the
+  /// canonical cache is empty, so a retained adjacent-day snapshot is stale by
+  /// definition. The selected day's object identity alone cannot signal this —
+  /// [S1B-04] deliberately preserves the visible day when a reload is
+  /// semantically identical.
+  int get dayCacheRevision => _dayCacheRevision;
+
   /// Refresh the currently selected Planner day without changing
   /// [PlannerState.selectedDate]. The same repository read used by
   /// date navigation runs in place, so the screen receives a fresh
@@ -601,8 +613,7 @@ final class PlannerController extends Notifier<PlannerState> {
       final ownerId = work.ownerId;
       if (ownerId == null || occurrenceId == null) continue;
       if (projected.any(
-        (item) =>
-            item.task.id == ownerId && item.occurrenceId == occurrenceId,
+        (item) => item.task.id == ownerId && item.occurrenceId == occurrenceId,
       )) {
         continue;
       }
@@ -975,20 +986,14 @@ final class PlannerController extends Notifier<PlannerState> {
     PlannerTask task, {
     required bool use24HourTime,
   }) {
-    return _taskReminderPresentation(
-      task,
-      use24HourTime: use24HourTime,
-    ).body;
+    return _taskReminderPresentation(task, use24HourTime: use24HourTime).body;
   }
 
   static String _taskReminderTitle(
     PlannerTask task, {
     required bool use24HourTime,
   }) {
-    return _taskReminderPresentation(
-      task,
-      use24HourTime: use24HourTime,
-    ).title;
+    return _taskReminderPresentation(task, use24HourTime: use24HourTime).title;
   }
 
   Future<TaskStatusChangeOutcome> changeStatus({

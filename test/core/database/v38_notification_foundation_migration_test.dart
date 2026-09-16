@@ -37,7 +37,11 @@ void main() {
           (await v39.customSelect('PRAGMA user_version').getSingle()).read<int>(
             'user_version',
           ),
-          41,
+          // M7 reconciliation (2026-09-16): the LIVE frozen schema law is 47
+          // (M3 projection, M4 contacts/maps, M6 starter-goal closure). The
+          // assertion is "the migration lands on the CURRENT schema", so the
+          // historical literal 41 is superseded.
+          47,
         );
         final names =
             (await v39
@@ -125,7 +129,8 @@ void main() {
     () async {
       final database = openMemoryDatabase();
       addTearDown(database.close);
-      expect(database.schemaVersion, 41);
+      // M7 reconciliation (2026-09-16): frozen schema law is 47, not 41.
+      expect(database.schemaVersion, 47);
       expect(
         await database.select(database.notificationPreferences).get(),
         isEmpty,
@@ -179,7 +184,8 @@ void main() {
           (await v41.customSelect('PRAGMA user_version').getSingle()).read<int>(
             'user_version',
           ),
-          41,
+          // M7 reconciliation (2026-09-16): frozen schema law is 47, not 41.
+          47,
         );
         await v41.close();
       } finally {

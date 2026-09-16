@@ -57,12 +57,7 @@ void main() {
           final h = await _Harness.create(kind);
           await h.repository.savePreferences(
             profileId: h.profileId,
-            preferences: const NotificationPreferences.defaults().copyWith(
-              systemNotificationsEnabled: true,
-              eventRemindersEnabled: true,
-              taskRemindersEnabled: true,
-              snoozeDurationMinutes: minutes,
-            ),
+            preferences: _allFamiliesEnabled(snoozeDurationMinutes: minutes),
           );
           await h.reconcile();
           final original = (await h.work())!;
@@ -89,12 +84,7 @@ void main() {
           );
           await h.repository.savePreferences(
             profileId: h.profileId,
-            preferences: const NotificationPreferences.defaults().copyWith(
-              systemNotificationsEnabled: true,
-              eventRemindersEnabled: true,
-              taskRemindersEnabled: true,
-              snoozeDurationMinutes: 30,
-            ),
+            preferences: _allFamiliesEnabled(snoozeDurationMinutes: 30),
           );
           await h.reconcile(snoozeGeneration: 0);
           expect((await h.work())!.snoozedUntilUtc, snoozed.snoozedUntilUtc);
@@ -348,6 +338,30 @@ void main() {
   );
 }
 
+/// VS16 M4 harness preconditions.
+///
+/// The reconciler gates every reminder family on its OWN persisted category
+/// flag ([NotificationPreferences.weeklyReviewRemindersEnabled] and
+/// [NotificationPreferences.awaitingReportRemindersEnabled] for the two
+/// planning families). A harness that enables only the Event/Task flags makes
+/// the planning families permanently ineligible, so the reconciler correctly
+/// writes no durable row for them and every planning assertion observes an
+/// empty contract. Enable every family the enum defines so the family under
+/// test is eligible for the reason each test intends, and so a later
+/// suppression test still suppresses through its own explicit flag.
+NotificationPreferences _allFamiliesEnabled({
+  int snoozeDurationMinutes = 10,
+  QuietHoursSettings? quietHours,
+}) => NotificationPreferences.defaults().copyWith(
+  systemNotificationsEnabled: true,
+  eventRemindersEnabled: true,
+  taskRemindersEnabled: true,
+  weeklyReviewRemindersEnabled: true,
+  awaitingReportRemindersEnabled: true,
+  snoozeDurationMinutes: snoozeDurationMinutes,
+  quietHours: quietHours,
+);
+
 final class _Harness {
   _Harness(this.kind, this.database, this.repository, this.profileId);
   final ReminderSourceKind kind;
@@ -383,11 +397,7 @@ final class _Harness {
     );
     await harness.repository.savePreferences(
       profileId: profile.id,
-      preferences: const NotificationPreferences.defaults().copyWith(
-        systemNotificationsEnabled: true,
-        eventRemindersEnabled: true,
-        taskRemindersEnabled: true,
-      ),
+      preferences: _allFamiliesEnabled(),
     );
     return harness;
   }
@@ -408,9 +418,22 @@ final class _Harness {
     snoozeIntent: snoozeGeneration != null || openAction
         ? NotificationResponseIntent(
             profileId: profileId,
-            sourceKind: kind == ReminderSourceKind.task
-                ? NotificationSourceKind.task
-                : NotificationSourceKind.calendarEvent,
+            // The persisted intent must name the SAME source family the
+            // reconciler is reconciling: its Snooze/Open guard compares
+            // `action.sourceKind.name` with the reconciled `sourceKind.name`.
+            // Production derives this from the delivered payload and maps the
+            // two enums one-to-one (reminder_reconciler Section 6/64 transport
+            // mapping), so a collapsed two-way test mapping silently rejected
+            // every planning-family Snooze and the durable row never advanced.
+            sourceKind: switch (kind) {
+              ReminderSourceKind.calendarEvent =>
+                NotificationSourceKind.calendarEvent,
+              ReminderSourceKind.task => NotificationSourceKind.task,
+              ReminderSourceKind.weeklyReview =>
+                NotificationSourceKind.weeklyReview,
+              ReminderSourceKind.awaitingReport =>
+                NotificationSourceKind.awaitingReport,
+            },
             sourceId: 'source',
             occurrenceId: 'occurrence',
             generation: snoozeGeneration ?? 0,
@@ -459,10 +482,7 @@ final class _Harness {
 
   Future<void> quiet() => repository.savePreferences(
     profileId: profileId,
-    preferences: const NotificationPreferences.defaults().copyWith(
-      systemNotificationsEnabled: true,
-      eventRemindersEnabled: true,
-      taskRemindersEnabled: true,
+    preferences: _allFamiliesEnabled(
       quietHours: const QuietHoursSettings(
         enabled: true,
         startMinute: 1320,

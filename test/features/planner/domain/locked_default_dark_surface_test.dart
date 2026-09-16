@@ -266,7 +266,9 @@ void main() {
       final version = await database
           .customSelect('PRAGMA user_version')
           .getSingle();
-      expect(version.read<int>('user_version'), 39);
+      // M7 reconciliation (2026-09-16): the frozen schema law is 47 (M6), not
+      // the retired 39 literal this assertion still carried.
+      expect(version.read<int>('user_version'), 47);
     },
   );
 }

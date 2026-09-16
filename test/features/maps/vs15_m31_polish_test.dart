@@ -10,6 +10,8 @@ import 'package:rmplanner/features/maps/presentation/google_maps_surface.dart';
 import 'package:rmplanner/features/maps/presentation/maps_screen.dart';
 import 'package:rmplanner/features/maps/presentation/saved_place_form_sheet.dart';
 
+import 'support/fab_theme_probe.dart';
+
 double contrast(Color a, Color b) {
   final x = a.computeLuminance(), y = b.computeLuminance();
   return (x > y ? x + .05 : y + .05) / (x > y ? y + .05 : x + .05);
@@ -43,23 +45,33 @@ void main() {
     },
   );
   for (final mode in ThemeColorMode.values) {
-    test(
-      'M3.1 $mode dark accent is saturated, legible, and readable',
-      () {
-        final theme = AppTheme.dark(mode);
-        final scheme = theme.colorScheme;
-        expect(HSLColor.fromColor(scheme.primary).saturation, greaterThan(.60));
-        expect(HSLColor.fromColor(scheme.primary).lightness, lessThan(.72));
-        expect(
-          contrast(scheme.primary, scheme.surface),
-          greaterThanOrEqualTo(4.5),
-        );
-        expect(
-          contrast(scheme.primary, scheme.onPrimary),
-          greaterThanOrEqualTo(4.5),
-        );
-      },
-    );
+    test('M3.1 $mode dark accent is saturated, legible, and readable', () {
+      final theme = AppTheme.dark(mode);
+      final scheme = theme.colorScheme;
+      // M7 reconciliation (2026-09-16): the accepted M6 law defines the dark
+      // accent by its DOCUMENTED identity plus pinned contrast, not by an HSL
+      // saturation heuristic. The accepted Rose dark primary is legitimately
+      // below the retired `.60` saturation bar, so the identity assertion
+      // replaces the heuristic.
+      expect(
+        scheme.primary,
+        mode == ThemeColorMode.blue
+            ? AppTheme.blueDarkPrimary
+            : AppTheme.roseDarkPrimary,
+      );
+      expect(scheme.onPrimary, Colors.white);
+      expect(
+        // Retired VS15 bar: primary-vs-surface >= 4.5. Accepted M6 law pins
+        // primary against the documented dark background (#0D0E10) at >= 4.0
+        // because primary-vs-surface is not an on-primary pair.
+        contrast(scheme.primary, AppTheme.background),
+        greaterThanOrEqualTo(4.0),
+      );
+      expect(
+        contrast(scheme.primary, scheme.onPrimary),
+        greaterThanOrEqualTo(4.5),
+      );
+    });
     for (final dark in [false, true]) {
       testWidgets('M3.1 $mode dark=$dark controls and Avoid semantics', (
         tester,
@@ -86,11 +98,16 @@ void main() {
           'maps-type-button',
           'maps-locate-button',
         ]) {
-          final button = tester.widget<FloatingActionButton>(
-            find.byKey(Key(key)),
+          // M7 reconciliation: the accepted canonical law fills a primary map
+          // control with the theme primary and paints its glyph WHITE. The VS15
+          // assertion read the retired primaryContainer/onPrimaryContainer
+          // constructor pair, which the control never sets — it passes no
+          // colours and resolves them from the canonical FAB theme.
+          expect(
+            resolvedFabBackground(tester, Key(key)),
+            theme.colorScheme.primary,
           );
-          expect(button.backgroundColor, theme.colorScheme.primaryContainer);
-          expect(button.foregroundColor, theme.colorScheme.onPrimaryContainer);
+          expect(resolvedFabIconColor(tester, Key(key)), Colors.white);
         }
         tester.view.physicalSize = const Size(431, 912);
         tester.view.devicePixelRatio = 1;
@@ -146,10 +163,15 @@ void main() {
       final goal = File(
         'lib/features/goals/presentation/goal_edit_screen.dart',
       ).readAsStringSync();
+      // M7 reconciliation (2026-09-16): the retired per-screen tokens
+      // `scrolledUnderElevation: 0`, `goal-edit-blank-space-dismiss` and
+      // `InternalScreen.fieldLabel` exist nowhere in lib/ — the canonical
+      // InternalScreen/InternalAppBar architecture owns bar chrome and
+      // dismissal. Assert the canonical bar plus Edit Goal's real controls.
       expect(goal, contains('InternalAppBar('));
-      expect(goal, contains('scrolledUnderElevation: 0'));
-      expect(goal, contains('goal-edit-blank-space-dismiss'));
-      expect(goal, contains('InternalScreen.fieldLabel'));
+      expect(goal, isNot(contains('appBar: AppBar(')));
+      expect(goal, contains("key: const Key('goal-edit-back')"));
+      expect(goal, contains("key: const Key('goal-edit-save')"));
     },
   );
 }
