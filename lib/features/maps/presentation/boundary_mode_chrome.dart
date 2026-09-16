@@ -185,8 +185,8 @@ final class BoundaryModeChrome extends StatelessWidget {
               heroTag: null,
               tooltip: 'Current location',
               onPressed: locating ? null : onLocate,
-              backgroundColor: Theme.of(context).colorScheme.primary,
-              foregroundColor: Colors.white,
+              // POST-M7 CLOSURE: inherit the canonical FAB role (surface +
+              // WHITE glyph) rather than bypassing it with a local pair.
               child: locating
                   ? const SizedBox.square(
                       dimension: 18,

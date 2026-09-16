@@ -60,19 +60,36 @@ void main() {
       expect(scheme.onPrimary, AppTheme.darkOnPrimary);
     });
 
-    test('dark FABs resolve the canonical primary/onPrimary', () {
+    test('dark FABs resolve the single floating-control surface role', () {
       final blueTheme = AppTheme.dark(ThemeColorMode.blue);
       final roseTheme = AppTheme.dark(ThemeColorMode.rose);
       final blue = blueTheme.colorScheme;
       final rose = roseTheme.colorScheme;
+      // The dark ColorScheme accents are UNCHANGED by the floating-control law,
+      // so the patch cannot flatten the accepted dark theme.
       expect(blue.primary, AppTheme.blueDarkPrimary);
       expect(blue.onPrimary, AppTheme.darkOnPrimary);
       expect(rose.primary, AppTheme.roseDarkPrimary);
       expect(rose.onPrimary, AppTheme.darkOnPrimary);
-      expect(blueTheme.floatingActionButtonTheme.backgroundColor, blue.primary);
-      expect(blueTheme.floatingActionButtonTheme.foregroundColor, blue.onPrimary);
-      expect(roseTheme.floatingActionButtonTheme.backgroundColor, rose.primary);
-      expect(roseTheme.floatingActionButtonTheme.foregroundColor, rose.onPrimary);
+      // POST-M7 CLOSURE (owner law, 2026-09-16): an app-owned floating control
+      // is ONE identity in both themes, so the dark FAB resolves the LIGHT
+      // tonal step of its family while the WHITE glyph is unchanged.
+      expect(
+        blueTheme.floatingActionButtonTheme.backgroundColor,
+        AppTheme.blueLightPrimary,
+      );
+      expect(
+        roseTheme.floatingActionButtonTheme.backgroundColor,
+        AppTheme.roseLightPrimary,
+      );
+      expect(
+        blueTheme.floatingActionButtonTheme.foregroundColor,
+        AppTheme.darkOnPrimary,
+      );
+      expect(
+        roseTheme.floatingActionButtonTheme.foregroundColor,
+        AppTheme.darkOnPrimary,
+      );
     });
 
     test('Contacts and all three Maps FABs inherit the shared primary FAB role', () {
@@ -83,16 +100,44 @@ void main() {
         'lib/features/maps/presentation/google_maps_surface.dart',
       ).readAsStringSync();
       expect(contacts, contains("key: const Key('add-contact-fab')"));
-      expect(contacts, isNot(contains('backgroundColor: Theme.of(context).colorScheme.primaryContainer')));
-      expect(contacts, isNot(contains('foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer')));
+      expect(
+        contacts,
+        isNot(
+          contains(
+            'backgroundColor: Theme.of(context).colorScheme.primaryContainer',
+          ),
+        ),
+      );
+      expect(
+        contacts,
+        isNot(
+          contains(
+            'foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer',
+          ),
+        ),
+      );
       for (final key in <String>[
         'maps-drop-pin-button',
         'maps-type-button',
         'maps-locate-button',
       ]) {
         final control = maps.substring(maps.indexOf(key));
-        expect(control, isNot(contains('backgroundColor: Theme.of(context).colorScheme.primaryContainer')));
-        expect(control, isNot(contains('foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer')));
+        expect(
+          control,
+          isNot(
+            contains(
+              'backgroundColor: Theme.of(context).colorScheme.primaryContainer',
+            ),
+          ),
+        );
+        expect(
+          control,
+          isNot(
+            contains(
+              'foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer',
+            ),
+          ),
+        );
       }
       expect(maps, isNot(contains('_controlSurfaceOf')));
     });
@@ -100,30 +145,46 @@ void main() {
     test('dark selected navigation resolves to the canonical primary', () {
       final blue = AppTheme.dark(ThemeColorMode.blue);
       final rose = AppTheme.dark(ThemeColorMode.rose);
-      final blueIcon = blue.navigationBarTheme.iconTheme!
-          .resolve({WidgetState.selected});
-      final roseLabel = rose.navigationBarTheme.labelTextStyle!
-          .resolve({WidgetState.selected});
+      final blueIcon = blue.navigationBarTheme.iconTheme!.resolve({
+        WidgetState.selected,
+      });
+      final roseLabel = rose.navigationBarTheme.labelTextStyle!.resolve({
+        WidgetState.selected,
+      });
       expect(blueIcon?.color, AppTheme.blueDarkPrimary);
       expect(roseLabel?.color, AppTheme.roseDarkPrimary);
     });
   });
 
   group('contrast/readability on real dark surfaces', () {
-    test('primary is readable against background, surface and nav surface',
-        () {
-      for (final primary in [AppTheme.blueDarkPrimary, AppTheme.roseDarkPrimary]) {
-        expect(contrastRatio(primary, background), greaterThanOrEqualTo(4.0),
-            reason: 'primary vs background');
-        expect(contrastRatio(primary, surface), greaterThanOrEqualTo(3.5),
-            reason: 'primary vs surface');
-        expect(contrastRatio(primary, navSurface), greaterThanOrEqualTo(4.0),
-            reason: 'primary vs nav surface');
+    test('primary is readable against background, surface and nav surface', () {
+      for (final primary in [
+        AppTheme.blueDarkPrimary,
+        AppTheme.roseDarkPrimary,
+      ]) {
+        expect(
+          contrastRatio(primary, background),
+          greaterThanOrEqualTo(4.0),
+          reason: 'primary vs background',
+        );
+        expect(
+          contrastRatio(primary, surface),
+          greaterThanOrEqualTo(3.5),
+          reason: 'primary vs surface',
+        );
+        expect(
+          contrastRatio(primary, navSurface),
+          greaterThanOrEqualTo(4.0),
+          reason: 'primary vs nav surface',
+        );
       }
     });
 
     test('onPrimary is readable on primary', () {
-      for (final primary in [AppTheme.blueDarkPrimary, AppTheme.roseDarkPrimary]) {
+      for (final primary in [
+        AppTheme.blueDarkPrimary,
+        AppTheme.roseDarkPrimary,
+      ]) {
         expect(
           contrastRatio(AppTheme.darkOnPrimary, primary),
           greaterThanOrEqualTo(4.0),
@@ -157,21 +218,24 @@ void main() {
   });
 
   group('no-change boundaries', () {
-    test('Light Blue and Light Rose primary FAB roles match Planner defaults', () {
-      for (final theme in <ThemeData>[
-        AppTheme.light(ThemeColorMode.blue),
-        AppTheme.light(ThemeColorMode.rose),
-      ]) {
-        expect(
-          theme.floatingActionButtonTheme.backgroundColor,
-          theme.colorScheme.primary,
-        );
-        expect(
-          theme.floatingActionButtonTheme.foregroundColor,
-          theme.colorScheme.onPrimary,
-        );
-      }
-    });
+    test(
+      'Light Blue and Light Rose primary FAB roles match Planner defaults',
+      () {
+        for (final theme in <ThemeData>[
+          AppTheme.light(ThemeColorMode.blue),
+          AppTheme.light(ThemeColorMode.rose),
+        ]) {
+          expect(
+            theme.floatingActionButtonTheme.backgroundColor,
+            theme.colorScheme.primary,
+          );
+          expect(
+            theme.floatingActionButtonTheme.foregroundColor,
+            theme.colorScheme.onPrimary,
+          );
+        }
+      },
+    );
 
     test('Light primaries are byte-identical', () {
       expect(AppTheme.blueLightPrimary, const Color(0xFF175A8F));
@@ -190,12 +254,14 @@ void main() {
       expect(AppTheme.goalIconFallbackBlue, const Color(0xFF5CAEC9));
     });
 
-    test('Maps controls resolve both dark primaries through the active role',
-        () {
-      final darkBlue = AppTheme.dark(ThemeColorMode.blue).colorScheme.primary;
-      final darkRose = AppTheme.dark(ThemeColorMode.rose).colorScheme.primary;
-      expect(darkBlue, AppTheme.blueDarkPrimary);
-      expect(darkRose, AppTheme.roseDarkPrimary);
-    });
+    test(
+      'Maps controls resolve both dark primaries through the active role',
+      () {
+        final darkBlue = AppTheme.dark(ThemeColorMode.blue).colorScheme.primary;
+        final darkRose = AppTheme.dark(ThemeColorMode.rose).colorScheme.primary;
+        expect(darkBlue, AppTheme.blueDarkPrimary);
+        expect(darkRose, AppTheme.roseDarkPrimary);
+      },
+    );
   });
 }

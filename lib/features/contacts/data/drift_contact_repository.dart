@@ -527,9 +527,7 @@ final class DriftContactRepository
             (table) =>
                 table.profileId.equals(profileId) &
                 table.id.equals(contactId) &
-                table.lifecycleState.equals(
-                  ContactLifecycleState.active.name,
-                ),
+                table.lifecycleState.equals(ContactLifecycleState.active.name),
           ))
           .write(
             ContactsCompanion(
@@ -606,9 +604,7 @@ final class DriftContactRepository
             (table) =>
                 table.profileId.equals(profileId) &
                 table.id.isIn(ids) &
-                table.lifecycleState.equals(
-                  ContactLifecycleState.active.name,
-                ),
+                table.lifecycleState.equals(ContactLifecycleState.active.name),
           ))
           .write(
             ContactsCompanion(
@@ -4006,6 +4002,13 @@ final class DriftContactRepository
         skipped++;
         continue;
       }
+      // POST-M7 CLOSURE: one device contact can legitimately list the SAME
+      // number or email under two labels (a SIM row merging with a Google row).
+      // The write path rejects a repeated (type, normalizedValue) inside one
+      // contact, and that rejection used to escape this loop and abandon every
+      // remaining selected draft.  Consolidate here with the exact key the
+      // validator uses, so the draft still matches intent: one method per
+      // distinct value, first occurrence wins.
       final phones = draft.resolvedPhones
           .where((phone) => phone.value.trim().isNotEmpty)
           .toList(growable: false);
@@ -4013,12 +4016,29 @@ final class DriftContactRepository
           .map((value) => value.trim().toLowerCase())
           .where((value) => value.isNotEmpty)
           .toList();
-      final normalizedPhone = phones.isEmpty
+      final seenMethodKeys = <String>{};
+      final consolidatedPhones = <DeviceContactPhone>[];
+      for (final phone in phones) {
+        final normalized = normalizePhone(phone.value);
+        if (normalized.isEmpty) {
+          continue;
+        }
+        if (seenMethodKeys.add('phone\u0000$normalized')) {
+          consolidatedPhones.add(phone);
+        }
+      }
+      final consolidatedEmails = <String>[];
+      for (final email in emails) {
+        if (seenMethodKeys.add('email\u0000$email')) {
+          consolidatedEmails.add(email);
+        }
+      }
+      final normalizedPhone = consolidatedPhones.isEmpty
           ? null
-          : normalizePhone(phones.first.value);
-      final normalizedEmail = emails.isEmpty
+          : normalizePhone(consolidatedPhones.first.value);
+      final normalizedEmail = consolidatedEmails.isEmpty
           ? null
-          : emails.first.toLowerCase();
+          : consolidatedEmails.first;
       final phoneKey = normalizedPhone == null || normalizedPhone.isEmpty
           ? null
           : 'phone:$normalizedPhone';
@@ -4050,7 +4070,7 @@ final class DriftContactRepository
         isFavorite: false,
         source: ContactSource.deviceImport,
         methods: <ContactMethodDraft>[
-          for (final phone in phones)
+          for (final phone in consolidatedPhones)
             ContactMethodDraft(
               type: ContactMethodType.phone,
               value: phone.value,
@@ -4058,12 +4078,20 @@ final class DriftContactRepository
               receivesTexts: _importReceivesTexts(phone.sourceLabel),
               hasWhatsApp: null,
             ),
-          for (final email in emails)
+          for (final email in consolidatedEmails)
             ContactMethodDraft(type: ContactMethodType.email, value: email),
         ],
       );
-      await createContact(profileId: profileId, draft: contactDraft);
-      created++;
+      try {
+        await createContact(profileId: profileId, draft: contactDraft);
+        created++;
+      } on ContactValidationException {
+        // POST-M7 CLOSURE: contain a draft-level rejection so one unexpected
+        // record can never abandon the rest of the selected batch.  A systemic
+        // failure (anything other than a validation rejection) is deliberately
+        // NOT swallowed here — it must surface truthfully to the user.
+        skipped++;
+      }
     }
     return ContactImportResult(
       createdCount: created,

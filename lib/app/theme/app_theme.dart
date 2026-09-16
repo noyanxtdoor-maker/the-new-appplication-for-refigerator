@@ -632,11 +632,16 @@ abstract final class AppTheme {
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
       ),
-      // Keep the owner-accepted dark accents on the same canonical primary
-      // FAB role as Light mode. Contacts, Maps, and Planner inherit this
-      // treatment rather than independently selecting container roles.
+      // FAB surface law (owner, 2026-09-16): an app-owned floating control is
+      // ONE identity in both themes, so the FAB resolves the LIGHT tonal step of
+      // the active family even in Dark.  The dark `colorScheme.primary` accents
+      // (#277CB5 / #C34D6E) stay untouched for the selected navigation tint,
+      // progress accents, and the Planner current-time indicator.
+      // Recorded as a beta accessibility review item: the FAB reads 2.66:1
+      // (blue) / 2.83:1 (rose) against the dark canvas while its WHITE glyph
+      // improves to 7.25:1 (blue) / 6.82:1 (rose).
       floatingActionButtonTheme: FloatingActionButtonThemeData(
-        backgroundColor: primary,
+        backgroundColor: isBlue ? blueLightPrimary : roseLightPrimary,
         foregroundColor: darkOnPrimary,
       ),
       // Pack 2 accent restraint: the selected root uses the theme primary

@@ -465,12 +465,11 @@ void main() {
             theme: dark ? AppTheme.dark(mode) : AppTheme.light(mode),
           );
           final theme = dark ? AppTheme.dark(mode) : AppTheme.light(mode);
-          // M7 reconciliation (2026-09-16): the accepted canonical law resolves
-          // the control surface from the ACTIVE theme primary and paints the
-          // glyph WHITE in Light and Dark. The retired VS15 assertion pinned the
-          // LIGHT primary even in dark mode and read constructor properties the
-          // control deliberately never sets.
-          final background = theme.colorScheme.primary;
+          // POST-M7 CLOSURE (owner law, 2026-09-16): the floating-control
+          // surface is the FAB theme role — one identity in Light and Dark — and
+          // the glyph stays WHITE.  Reading the role (rather than the
+          // ColorScheme primary) keeps this honest in BOTH themes.
+          final background = theme.floatingActionButtonTheme.backgroundColor!;
           expect(
             1.05 / (background.computeLuminance() + .05),
             greaterThanOrEqualTo(4.5),

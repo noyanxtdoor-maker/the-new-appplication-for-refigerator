@@ -98,14 +98,12 @@ void main() {
           'maps-type-button',
           'maps-locate-button',
         ]) {
-          // M7 reconciliation: the accepted canonical law fills a primary map
-          // control with the theme primary and paints its glyph WHITE. The VS15
-          // assertion read the retired primaryContainer/onPrimaryContainer
-          // constructor pair, which the control never sets — it passes no
-          // colours and resolves them from the canonical FAB theme.
+          // POST-M7 CLOSURE (owner law, 2026-09-16): a map control passes no
+          // colours and resolves the canonical FAB role — the same surface in
+          // Light and Dark — with a WHITE glyph.
           expect(
             resolvedFabBackground(tester, Key(key)),
-            theme.colorScheme.primary,
+            theme.floatingActionButtonTheme.backgroundColor!,
           );
           expect(resolvedFabIconColor(tester, Key(key)), Colors.white);
         }

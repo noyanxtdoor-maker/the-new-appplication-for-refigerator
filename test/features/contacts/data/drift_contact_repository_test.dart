@@ -123,112 +123,111 @@ void main() {
     expect(restored.isFavorite, isTrue);
   });
 
-  test(
-    'historical Event Preview projection falls back to its own canonical '
-    'live link when no participant snapshot exists',
-    () async {
-      final (database, contacts, calendar, profileId) = await arrange();
-      addTearDown(database.close);
-      const eventA = '11111111-1111-4111-8111-111111111119';
-      const eventB = '22222222-2222-4222-8222-222222222229';
-      const date = PlannerDate(year: 2026, month: 7, day: 30);
-      await contacts.createContact(
-        profileId: profileId,
-        draft: draftFor(id: 'aa-gomez', first: 'Aa', last: 'Gomez'),
-      );
-      await contacts.createContact(
-        profileId: profileId,
-        draft: draftFor(id: 'other-event-person', first: 'Other', last: 'Event'),
-      );
-      for (final event in <(String, String)>[
-        (eventA, 'Temple Visit'),
-        (eventB, 'Contact'),
-      ]) {
-        await calendar.saveEvent(
-          profileId: profileId,
-          draft: CalendarEventDraft(
-            id: event.$1,
-            title: event.$2,
-            timing: CalendarEventTiming.allDay,
-            startDate: date,
-            requiresReport: false,
-          ),
-        );
-      }
-      await contacts.setEventPeople(
-        profileId: profileId,
-        eventId: eventA,
-        occurrenceId: DriftContactRepository.seriesOccurrenceId,
-        contactIds: const <String>['aa-gomez'],
-      );
-      await contacts.setEventPeople(
-        profileId: profileId,
-        eventId: eventB,
-        occurrenceId: DriftContactRepository.seriesOccurrenceId,
-        contactIds: const <String>['other-event-person'],
-      );
-
-      final people = await contacts.readEventParticipantPresentation(
-        profileId: profileId,
-        eventId: eventA,
-        occurrenceId: CalendarEventOccurrenceIdentity.forDate(
-          eventId: eventA,
-          originalDate: date,
-        ),
-        historical: true,
-      );
-      expect(people.map((person) => person.displayName), <String>['Aa Gomez']);
-      expect(
-        people.map((person) => person.displayName),
-        isNot(contains('Other Event')),
-      );
-
-      await contacts.setEventPeople(
-        profileId: profileId,
-        eventId: eventA,
-        occurrenceId: DriftContactRepository.seriesOccurrenceId,
-        contactIds: const <String>[],
-      );
-      final removed = await contacts.readEventParticipantPresentation(
-        profileId: profileId,
-        eventId: eventA,
-        occurrenceId: CalendarEventOccurrenceIdentity.forDate(
-          eventId: eventA,
-          originalDate: date,
-        ),
-        // Removal is a current relationship projection. Historical snapshot
-        // preservation remains a separately frozen Timeline law.
-        historical: false,
-      );
-      expect(removed, isEmpty);
-    },
-  );
-
-  test('duplicate candidates include exact and conservative contained names',
-      () async {
-    final (database, contacts, _, profileId) = await arrange();
+  test('historical Event Preview projection falls back to its own canonical '
+      'live link when no participant snapshot exists', () async {
+    final (database, contacts, calendar, profileId) = await arrange();
     addTearDown(database.close);
-    for (final entry in <(String, String)>[
-      ('exact-a', 'Aa Papa Gomez'),
-      ('exact-b', 'Aa, Papa   Gomez'),
-      ('contained', 'Papa Gomez'),
-      ('surname-only', 'Gomez'),
+    const eventA = '11111111-1111-4111-8111-111111111119';
+    const eventB = '22222222-2222-4222-8222-222222222229';
+    const date = PlannerDate(year: 2026, month: 7, day: 30);
+    await contacts.createContact(
+      profileId: profileId,
+      draft: draftFor(id: 'aa-gomez', first: 'Aa', last: 'Gomez'),
+    );
+    await contacts.createContact(
+      profileId: profileId,
+      draft: draftFor(id: 'other-event-person', first: 'Other', last: 'Event'),
+    );
+    for (final event in <(String, String)>[
+      (eventA, 'Temple Visit'),
+      (eventB, 'Contact'),
     ]) {
-      await contacts.createContact(
+      await calendar.saveEvent(
         profileId: profileId,
-        draft: draftFor(id: entry.$1, first: entry.$2, last: ''),
+        draft: CalendarEventDraft(
+          id: event.$1,
+          title: event.$2,
+          timing: CalendarEventTiming.allDay,
+          startDate: date,
+          requiresReport: false,
+        ),
       );
     }
-    final candidates = await contacts.readDuplicateCandidates(profileId);
-    bool hasPair(String first, String second) => candidates.any(
-      (group) => group.map((contact) => contact.id).toSet().containsAll(
-        <String>[first, second],
-      ),
+    await contacts.setEventPeople(
+      profileId: profileId,
+      eventId: eventA,
+      occurrenceId: DriftContactRepository.seriesOccurrenceId,
+      contactIds: const <String>['aa-gomez'],
     );
-    expect(hasPair('exact-a', 'exact-b'), isTrue);
-    expect(hasPair('exact-a', 'contained'), isTrue);
-    expect(hasPair('exact-a', 'surname-only'), isFalse);
+    await contacts.setEventPeople(
+      profileId: profileId,
+      eventId: eventB,
+      occurrenceId: DriftContactRepository.seriesOccurrenceId,
+      contactIds: const <String>['other-event-person'],
+    );
+
+    final people = await contacts.readEventParticipantPresentation(
+      profileId: profileId,
+      eventId: eventA,
+      occurrenceId: CalendarEventOccurrenceIdentity.forDate(
+        eventId: eventA,
+        originalDate: date,
+      ),
+      historical: true,
+    );
+    expect(people.map((person) => person.displayName), <String>['Aa Gomez']);
+    expect(
+      people.map((person) => person.displayName),
+      isNot(contains('Other Event')),
+    );
+
+    await contacts.setEventPeople(
+      profileId: profileId,
+      eventId: eventA,
+      occurrenceId: DriftContactRepository.seriesOccurrenceId,
+      contactIds: const <String>[],
+    );
+    final removed = await contacts.readEventParticipantPresentation(
+      profileId: profileId,
+      eventId: eventA,
+      occurrenceId: CalendarEventOccurrenceIdentity.forDate(
+        eventId: eventA,
+        originalDate: date,
+      ),
+      // Removal is a current relationship projection. Historical snapshot
+      // preservation remains a separately frozen Timeline law.
+      historical: false,
+    );
+    expect(removed, isEmpty);
   });
+
+  test(
+    'duplicate candidates include exact and conservative contained names',
+    () async {
+      final (database, contacts, _, profileId) = await arrange();
+      addTearDown(database.close);
+      for (final entry in <(String, String)>[
+        ('exact-a', 'Aa Papa Gomez'),
+        ('exact-b', 'Aa, Papa   Gomez'),
+        ('contained', 'Papa Gomez'),
+        ('surname-only', 'Gomez'),
+      ]) {
+        await contacts.createContact(
+          profileId: profileId,
+          draft: draftFor(id: entry.$1, first: entry.$2, last: ''),
+        );
+      }
+      final candidates = await contacts.readDuplicateCandidates(profileId);
+      bool hasPair(String first, String second) => candidates.any(
+        (group) => group.map((contact) => contact.id).toSet().containsAll(
+          <String>[first, second],
+        ),
+      );
+      expect(hasPair('exact-a', 'exact-b'), isTrue);
+      expect(hasPair('exact-a', 'contained'), isTrue);
+      expect(hasPair('exact-a', 'surname-only'), isFalse);
+    },
+  );
 
   test(
     'hard deleting a group removes every membership while retaining Contacts',
@@ -1768,4 +1767,215 @@ void main() {
       expect(await read(reopened.criteria), isEmpty);
     },
   );
+
+  // POST-M7 CLOSURE (2026-09-16) — device-import count contract.
+  //
+  // The bulk import used to be a fail-fast sequential batch: the first draft
+  // that repeated a normalized method WITHIN ONE device contact raised a
+  // validation error out of the loop, so every remaining draft was silently
+  // never attempted and only the prefix before the offender persisted
+  // (owner-observed ~10 of 974).  N valid selected drafts must always persist N.
+  group('device import count contract', () {
+    List<DeviceContactDraft> cleanDrafts(int count) => <DeviceContactDraft>[
+      for (var i = 0; i < count; i++)
+        DeviceContactDraft(
+          displayName: 'Person $i',
+          firstName: 'Person',
+          lastName: '$i',
+          phoneDetails: <DeviceContactPhone>[
+            DeviceContactPhone(
+              value: '+1 555 ${i.toString().padLeft(4, '0')}',
+              sourceLabel: 'mobile',
+            ),
+          ],
+        ),
+    ];
+
+    // One device contact carrying the SAME number under two labels — routine on
+    // Android when a SIM row and a Google row merge.  It must consolidate to a
+    // single method, never abort the batch.
+    const duplicateLabelDraft = DeviceContactDraft(
+      displayName: 'Person offender',
+      firstName: 'Person',
+      lastName: 'offender',
+      phoneDetails: <DeviceContactPhone>[
+        DeviceContactPhone(value: '+1 555 0999', sourceLabel: 'mobile'),
+        DeviceContactPhone(value: '(1) 555-0999', sourceLabel: 'work'),
+      ],
+    );
+
+    Future<List<ContactSummary>> readAll(
+      DriftContactRepository contacts,
+      String profileId,
+    ) {
+      return contacts.readContacts(
+        profileId: profileId,
+        criteria: const ContactFilterCriteria(),
+        sortBy: ContactSortBy.name,
+        today: today,
+      );
+    }
+
+    test('N unique valid drafts persist exactly N', () async {
+      for (final n in <int>[10, 11, 100, 500, 1000]) {
+        final (database, contacts, _, profileId) = await arrange();
+        final result = await contacts.importDeviceContacts(
+          profileId: profileId,
+          drafts: cleanDrafts(n),
+        );
+        expect(result.createdCount, n, reason: 'created for n=$n');
+        expect(
+          await readAll(contacts, profileId),
+          hasLength(n),
+          reason: 'visible for n=$n',
+        );
+        await database.close();
+      }
+    });
+
+    test(
+      '1000 drafts with a duplicate-label phone at index 500 persist 1000',
+      () async {
+        final (database, contacts, _, profileId) = await arrange();
+        addTearDown(database.close);
+        final drafts = cleanDrafts(1000);
+        drafts[500] = duplicateLabelDraft;
+
+        final result = await contacts.importDeviceContacts(
+          profileId: profileId,
+          drafts: drafts,
+        );
+
+        expect(result.createdCount, 1000);
+        final visible = await readAll(contacts, profileId);
+        expect(visible, hasLength(1000));
+
+        // The repeated method consolidated to ONE phone on that one Contact.
+        final target = visible.singleWhere(
+          (summary) => summary.contact.displayName == 'Person offender',
+        );
+        final detail = await contacts.readContactDetail(
+          profileId: profileId,
+          contactId: target.contact.id,
+        );
+        expect(
+          detail.methods.where(
+            (method) => method.type == ContactMethodType.phone,
+          ),
+          hasLength(1),
+        );
+      },
+    );
+
+    for (final index in <int>[0, 10, 999]) {
+      test('an offender at index $index still persists every draft', () async {
+        final (database, contacts, _, profileId) = await arrange();
+        addTearDown(database.close);
+        final drafts = cleanDrafts(1000);
+        drafts[index] = duplicateLabelDraft;
+
+        final result = await contacts.importDeviceContacts(
+          profileId: profileId,
+          drafts: drafts,
+        );
+
+        expect(result.createdCount, 1000, reason: 'offender at $index');
+        expect(await readAll(contacts, profileId), hasLength(1000));
+      });
+    }
+
+    test('repeated emails inside one draft consolidate too', () async {
+      final (database, contacts, _, profileId) = await arrange();
+      addTearDown(database.close);
+
+      final result = await contacts.importDeviceContacts(
+        profileId: profileId,
+        drafts: const <DeviceContactDraft>[
+          DeviceContactDraft(
+            displayName: 'Ada Lovelace',
+            firstName: 'Ada',
+            lastName: 'Lovelace',
+            emails: <String>['Ada@example.com', ' ada@example.com '],
+          ),
+        ],
+      );
+
+      expect(result.createdCount, 1);
+      final visible = await readAll(contacts, profileId);
+      expect(visible, hasLength(1));
+      final detail = await contacts.readContactDetail(
+        profileId: profileId,
+        contactId: visible.single.contact.id,
+      );
+      expect(
+        detail.methods.where(
+          (method) => method.type == ContactMethodType.email,
+        ),
+        hasLength(1),
+      );
+    });
+
+    test('every submitted draft is accounted for in a mixed batch', () async {
+      final (database, contacts, _, profileId) = await arrange();
+      addTearDown(database.close);
+
+      final drafts = <DeviceContactDraft>[
+        ...cleanDrafts(9),
+        const DeviceContactDraft(displayName: '   '),
+        duplicateLabelDraft,
+      ];
+
+      final result = await contacts.importDeviceContacts(
+        profileId: profileId,
+        drafts: drafts,
+      );
+
+      expect(result.createdCount, 10);
+      expect(result.skippedCount, 1);
+      expect(
+        result.createdCount + result.skippedCount,
+        drafts.length,
+        reason: 'created + skipped must equal submitted',
+      );
+    });
+
+    test('two different contacts sharing one phone are both created', () async {
+      final (database, contacts, _, profileId) = await arrange();
+      addTearDown(database.close);
+
+      final result = await contacts.importDeviceContacts(
+        profileId: profileId,
+        drafts: const <DeviceContactDraft>[
+          DeviceContactDraft(
+            displayName: 'Shared Landline One',
+            phones: <String>['+1 555 0404'],
+          ),
+          DeviceContactDraft(
+            displayName: 'Shared Landline Two',
+            phones: <String>['+1 555 0404'],
+          ),
+        ],
+      );
+
+      expect(result.createdCount, 2);
+      expect(result.duplicateContactIds, isEmpty);
+      expect(await readAll(contacts, profileId), hasLength(2));
+    });
+
+    test('drafts with no contact method at all are still created', () async {
+      final (database, contacts, _, profileId) = await arrange();
+      addTearDown(database.close);
+
+      final result = await contacts.importDeviceContacts(
+        profileId: profileId,
+        drafts: const <DeviceContactDraft>[
+          DeviceContactDraft(displayName: 'Name Only One'),
+          DeviceContactDraft(displayName: 'Name Only Two'),
+        ],
+      );
+
+      expect(result.createdCount, 2);
+      expect(await readAll(contacts, profileId), hasLength(2));
+    });
+  });
 }

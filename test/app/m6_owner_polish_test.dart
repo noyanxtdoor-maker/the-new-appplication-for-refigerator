@@ -58,7 +58,9 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('Get Started is anchored to the bottom safe area', (tester) async {
+  testWidgets('Get Started is anchored to the bottom safe area', (
+    tester,
+  ) async {
     final database = openMemoryDatabase();
     addTearDown(database.close);
     await pumpFrontDoor(tester, database);
@@ -94,34 +96,37 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('Setup previews Light and Dark immediately from canonical state',
-      (tester) async {
-    final database = openMemoryDatabase();
-    addTearDown(database.close);
-    await pumpFrontDoor(tester, database);
-    final darkField = fieldColor(tester);
+  testWidgets(
+    'Setup previews Light and Dark immediately from canonical state',
+    (tester) async {
+      final database = openMemoryDatabase();
+      addTearDown(database.close);
+      await pumpFrontDoor(tester, database);
+      final darkField = fieldColor(tester);
 
-    await tester.tap(find.text('Get Started'));
-    await tester.pumpAndSettle();
+      await tester.tap(find.text('Get Started'));
+      await tester.pumpAndSettle();
 
-    final container = ProviderScope.containerOf(
-      tester.element(find.text('Setup')),
-    );
+      final container = ProviderScope.containerOf(
+        tester.element(find.text('Setup')),
+      );
 
-    await tester.tap(find.byKey(const Key('m6-theme-option-light')));
-    await tester.pumpAndSettle();
-    final lightField = fieldColor(tester);
-    expect(container.read(appearanceProvider), AppearanceMode.light);
-    expect(lightField, isNot(darkField));
+      await tester.tap(find.byKey(const Key('m6-theme-option-light')));
+      await tester.pumpAndSettle();
+      final lightField = fieldColor(tester);
+      expect(container.read(appearanceProvider), AppearanceMode.light);
+      expect(lightField, isNot(darkField));
 
-    await tester.tap(find.byKey(const Key('m6-theme-option-dark')));
-    await tester.pumpAndSettle();
-    expect(container.read(appearanceProvider), AppearanceMode.dark);
-    expect(fieldColor(tester), darkField);
-  });
+      await tester.tap(find.byKey(const Key('m6-theme-option-dark')));
+      await tester.pumpAndSettle();
+      expect(container.read(appearanceProvider), AppearanceMode.dark);
+      expect(fieldColor(tester), darkField);
+    },
+  );
 
-  testWidgets('Setup System follows the platform brightness live',
-      (tester) async {
+  testWidgets('Setup System follows the platform brightness live', (
+    tester,
+  ) async {
     tester.platformDispatcher.platformBrightnessTestValue = Brightness.light;
     addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
     final database = openMemoryDatabase();
@@ -145,8 +150,9 @@ void main() {
     expect(systemField, isNot(fieldColor(tester)));
   });
 
-  testWidgets('Setup previews Blue and Rose immediately from canonical state',
-      (tester) async {
+  testWidgets('Setup previews Blue and Rose immediately from canonical state', (
+    tester,
+  ) async {
     final database = openMemoryDatabase();
     addTearDown(database.close);
     await pumpFrontDoor(tester, database);
@@ -280,7 +286,12 @@ void main() {
     // Go to Home stays present and reachable on the minimal screen.
     final cta = find.byKey(const Key('m6-ready-cta'));
     expect(cta, findsOneWidget);
-    expect(tester.getRect(cta).bottom, lessThanOrEqualTo(tester.view.physicalSize.height / tester.view.devicePixelRatio));
+    expect(
+      tester.getRect(cta).bottom,
+      lessThanOrEqualTo(
+        tester.view.physicalSize.height / tester.view.devicePixelRatio,
+      ),
+    );
   });
 
   testWidgets('Welcome carries the owner tagline and drops the old line', (
@@ -330,9 +341,20 @@ void main() {
     for (final mode in ThemeColorMode.values) {
       final dark = AppTheme.dark(mode);
       expect(dark.colorScheme.onPrimary, AppTheme.darkOnPrimary);
+      // POST-M7 CLOSURE (owner law, 2026-09-16): the floating-control surface is
+      // the LIGHT tonal step of the active family in BOTH themes, while the dark
+      // `colorScheme.primary` accent itself stays exactly as accepted.
       expect(
         dark.floatingActionButtonTheme.backgroundColor,
+        mode == ThemeColorMode.blue
+            ? AppTheme.blueLightPrimary
+            : AppTheme.roseLightPrimary,
+      );
+      expect(
         dark.colorScheme.primary,
+        mode == ThemeColorMode.blue
+            ? AppTheme.blueDarkPrimary
+            : AppTheme.roseDarkPrimary,
       );
       expect(dark.floatingActionButtonTheme.foregroundColor, Colors.white);
 

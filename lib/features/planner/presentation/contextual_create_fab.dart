@@ -19,6 +19,15 @@ extension ContextualCreateActionLabel on ContextualCreateAction {
   };
 }
 
+/// POST-M7 CLOSURE: the one canonical surface for an app-owned floating
+/// control.  The expanded create pills and the close circle are part of the FAB
+/// family, so they resolve the FAB role rather than reaching for
+/// `colorScheme.primary` (which is a brighter tonal step in Dark).  The
+/// fallback only exists so a theme without a FAB role still renders.
+Color _floatingControlSurface(BuildContext context) =>
+    Theme.of(context).floatingActionButtonTheme.backgroundColor ??
+    Theme.of(context).colorScheme.primary;
+
 /// The shared create control expands in place, leaving the current screen
 /// visible while a transparent barrier protects the rest of the app from
 /// accidental taps. Only the already-supported Event and Task flows are
@@ -273,7 +282,7 @@ final class _ContextualCreateOverlayState
                   ),
                 ),
                 child: Material(
-                  color: Theme.of(context).colorScheme.primary,
+                  color: _floatingControlSurface(context),
                   shape: const CircleBorder(),
                   child: InkWell(
                     key: const Key('contextual-create-close'),
@@ -327,7 +336,7 @@ final class _AnimatedActionPill extends StatelessWidget {
         );
       },
       child: Material(
-        color: Theme.of(context).colorScheme.primary,
+        color: _floatingControlSurface(context),
         elevation: 0,
         borderRadius: BorderRadius.circular(28),
         child: InkWell(

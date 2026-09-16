@@ -453,6 +453,21 @@ final class _DeviceContactImportScreenState
             ],
           ),
         ),
+        // POST-M7 CLOSURE: a returned-to selection screen must explain itself.
+        // Previously a validation rejection landed here with no message at all.
+        if (_error != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+            child: Text(
+              _error!,
+              key: const Key('device-import-error'),
+              style: TextStyle(
+                color: AppTheme.warningOf(context),
+                fontSize: 13,
+                height: 1.35,
+              ),
+            ),
+          ),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
           child: TextField(
@@ -574,6 +589,18 @@ final class _DeviceContactImportScreenState
               : 'Nothing new imported',
           style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
         ),
+        if (result.skippedCount > 0) ...<Widget>[
+          const SizedBox(height: 8),
+          Text(
+            '${result.skippedCount} skipped — already in your contacts, or not '
+            'enough information to store.',
+            style: TextStyle(
+              color: AppTheme.secondaryTextOf(context),
+              fontSize: 14,
+              height: 1.35,
+            ),
+          ),
+        ],
         const SizedBox(height: 8),
         if (result.duplicateContactIds.isNotEmpty) ...<Widget>[
           Text(
@@ -693,6 +720,7 @@ final class _DeviceContactImportScreenState
         return;
       }
       setState(() {
+        _error = null;
         _result = result;
         _phase = _ImportPhase.result;
       });
@@ -700,6 +728,18 @@ final class _DeviceContactImportScreenState
       if (mounted) {
         setState(() {
           _error = error.message;
+          _phase = _ImportPhase.select;
+        });
+      }
+    } on Object {
+      // POST-M7 CLOSURE: an unexpected failure used to escape this handler, so
+      // the spinner stayed up forever and nothing was explained.  Say what
+      // happened instead, and never pretend the batch was clean.
+      if (mounted) {
+        setState(() {
+          _error =
+              'The import could not be completed. Any contacts imported '
+              'before this point were kept.';
           _phase = _ImportPhase.select;
         });
       }

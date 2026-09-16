@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:rmplanner/app/router/route_names.dart';
 import 'package:rmplanner/app/shell/global_drawer_controller.dart';
+import 'package:rmplanner/app/shell/nav_destination_icon.dart';
 import 'package:rmplanner/features/shell/global_app_drawer.dart';
 
 final class MainShell extends StatefulWidget {
@@ -124,17 +125,23 @@ final class _MainShellState extends State<MainShell> {
                       return;
                   }
                 },
+                // POST-M7 CLOSURE (owner law, 2026-09-16): Home, Planner and
+                // Maps use the owner-supplied SVG artwork, tinted from the
+                // navigation IconTheme.  Contacts deliberately keeps its
+                // Material pair.  Keys, labels, order and routing are untouched.
                 destinations: const <NavigationDestination>[
                   NavigationDestination(
                     key: Key('nav-home'),
-                    icon: Icon(Icons.home_outlined),
-                    selectedIcon: Icon(Icons.home),
+                    icon: NavDestinationIcon(
+                      asset: NavDestinationIcon.houseAsset,
+                    ),
                     label: 'Home',
                   ),
                   NavigationDestination(
                     key: Key('nav-planner'),
-                    icon: Icon(Icons.calendar_month_outlined),
-                    selectedIcon: Icon(Icons.calendar_month),
+                    icon: NavDestinationIcon(
+                      asset: NavDestinationIcon.calendarAsset,
+                    ),
                     label: 'Planner',
                   ),
                   NavigationDestination(
@@ -145,8 +152,12 @@ final class _MainShellState extends State<MainShell> {
                   ),
                   NavigationDestination(
                     key: Key('nav-maps'),
-                    icon: Icon(Icons.map_outlined),
-                    selectedIcon: Icon(Icons.map),
+                    icon: NavDestinationIcon(
+                      asset: NavDestinationIcon.mapPinAsset,
+                      // Solid 16-grid glyph: optically corrected so its ink
+                      // height matches the 24-grid stroke icons.
+                      opticalScale: NavDestinationIcon.mapPinOpticalScale,
+                    ),
                     label: 'Maps',
                   ),
                 ],

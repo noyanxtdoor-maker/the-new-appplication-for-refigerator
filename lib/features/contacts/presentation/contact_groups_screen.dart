@@ -131,8 +131,9 @@ final class _ContactGroupsScreenState
         key: const Key('create-group-fab'),
         heroTag: 'contact-groups-fab',
         onPressed: () => _editGroup(null),
-        backgroundColor: Theme.of(context).colorScheme.primary,
-        foregroundColor: Theme.of(context).colorScheme.onPrimary,
+        // POST-M7 CLOSURE: inherit the canonical FAB surface role instead of
+        // bypassing it with the ColorScheme primary (a floating control is one
+        // identity in Light and Dark).
         icon: const Icon(Icons.add),
         label: const Text('New Group'),
       ),
@@ -730,117 +731,125 @@ final class _GroupEditorState extends State<_GroupEditor> {
         child: Padding(
           padding: const EdgeInsets.all(20),
           child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            Text(
-              widget.group == null ? 'New Group' : 'Edit Group',
-              style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              key: const Key('group-name-field'),
-              controller: _nameController,
-              autofocus: widget.group == null,
-              decoration: InputDecoration(
-                labelText: 'Name',
-                filled: true,
-                fillColor: AppTheme.surfaceOf(context),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(6),
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Text(
+                widget.group == null ? 'New Group' : 'Edit Group',
+                style: const TextStyle(
+                  fontSize: 19,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
-            ),
-            const SizedBox(height: 16),
-            const Text('Color', style: InternalScreen.fieldLabel),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: <Widget>[
-                for (final color in _visibleRecommendedColors)
-                  Semantics(
-                    button: true,
-                    selected: Vs11ColorSystem.sameOpaqueRgb(color.argb, _color),
-                    label:
-                        '${color.name} #${(color.argb & 0x00FFFFFF).toRadixString(16).padLeft(6, '0').toUpperCase()}',
-                    child: SizedBox(
-                      width: 48,
-                      height: 48,
-                      child: InkWell(
-                        key: Key('group-color-${color.argb.toRadixString(16)}'),
-                        customBorder: const CircleBorder(),
-                        onTap: () => setState(() => _color = color.argb),
-                        child: Center(
-                          child: Container(
-                            width: 44,
-                            height: 44,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: Color(color.argb),
-                              border: Border.all(
-                                color:
-                                    Vs11ColorSystem.sameOpaqueRgb(
-                                      color.argb,
-                                      _color,
-                                    )
-                                    ? Theme.of(context).colorScheme.onSurface
-                                    : Theme.of(context).colorScheme.outline,
-                                width:
-                                    Vs11ColorSystem.sameOpaqueRgb(
-                                      color.argb,
-                                      _color,
-                                    )
-                                    ? 3
-                                    : 1,
+              const SizedBox(height: 16),
+              TextField(
+                key: const Key('group-name-field'),
+                controller: _nameController,
+                autofocus: widget.group == null,
+                decoration: InputDecoration(
+                  labelText: 'Name',
+                  filled: true,
+                  fillColor: AppTheme.surfaceOf(context),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text('Color', style: InternalScreen.fieldLabel),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: <Widget>[
+                  for (final color in _visibleRecommendedColors)
+                    Semantics(
+                      button: true,
+                      selected: Vs11ColorSystem.sameOpaqueRgb(
+                        color.argb,
+                        _color,
+                      ),
+                      label:
+                          '${color.name} #${(color.argb & 0x00FFFFFF).toRadixString(16).padLeft(6, '0').toUpperCase()}',
+                      child: SizedBox(
+                        width: 48,
+                        height: 48,
+                        child: InkWell(
+                          key: Key(
+                            'group-color-${color.argb.toRadixString(16)}',
+                          ),
+                          customBorder: const CircleBorder(),
+                          onTap: () => setState(() => _color = color.argb),
+                          child: Center(
+                            child: Container(
+                              width: 44,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Color(color.argb),
+                                border: Border.all(
+                                  color:
+                                      Vs11ColorSystem.sameOpaqueRgb(
+                                        color.argb,
+                                        _color,
+                                      )
+                                      ? Theme.of(context).colorScheme.onSurface
+                                      : Theme.of(context).colorScheme.outline,
+                                  width:
+                                      Vs11ColorSystem.sameOpaqueRgb(
+                                        color.argb,
+                                        _color,
+                                      )
+                                      ? 3
+                                      : 1,
+                                ),
                               ),
-                            ),
-                            child:
-                                Vs11ColorSystem.sameOpaqueRgb(
-                                  color.argb,
-                                  _color,
-                                )
-                                ? Icon(
-                                    Icons.check,
-                                    size: 20,
-                                    color: _checkColor(color.argb),
+                              child:
+                                  Vs11ColorSystem.sameOpaqueRgb(
+                                    color.argb,
+                                    _color,
                                   )
-                                : null,
+                                  ? Icon(
+                                      Icons.check,
+                                      size: 20,
+                                      color: _checkColor(color.argb),
+                                    )
+                                  : null,
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            SizedBox(
-              height: 48,
-              child: TextButton.icon(
-                key: const Key('group-custom-color'),
-                onPressed: () => _chooseCustomColor(context),
-                icon: const Icon(Icons.palette_outlined, size: 18),
-                label: const Text('Custom Color'),
+                ],
               ),
-            ),
-            const SizedBox(height: 20),
-            FilledButton(
-              key: const Key('group-save'),
-              onPressed: () {
-                final name = _nameController.text.trim();
-                if (name.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Group name cannot be blank.'),
-                    ),
-                  );
-                  return;
-                }
-                Navigator.of(context).pop(_GroupEditorSave(name, _color));
-              },
-              child: const Text('Save'),
-            ),
-          ],
+              const SizedBox(height: 8),
+              SizedBox(
+                height: 48,
+                child: TextButton.icon(
+                  key: const Key('group-custom-color'),
+                  onPressed: () => _chooseCustomColor(context),
+                  icon: const Icon(Icons.palette_outlined, size: 18),
+                  label: const Text('Custom Color'),
+                ),
+              ),
+              const SizedBox(height: 20),
+              FilledButton(
+                key: const Key('group-save'),
+                onPressed: () {
+                  final name = _nameController.text.trim();
+                  if (name.isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Group name cannot be blank.'),
+                      ),
+                    );
+                    return;
+                  }
+                  Navigator.of(context).pop(_GroupEditorSave(name, _color));
+                },
+                child: const Text('Save'),
+              ),
+            ],
           ),
         ),
       ),

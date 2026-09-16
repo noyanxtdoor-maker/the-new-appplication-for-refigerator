@@ -1284,8 +1284,8 @@ final class _PlacementChrome extends StatelessWidget {
                     key: const Key('maps-centering-confirm'),
                     tooltip: 'Confirm',
                     onPressed: onConfirm,
-                    backgroundColor: Theme.of(context).colorScheme.primary,
-                    foregroundColor: Theme.of(context).colorScheme.onPrimary,
+                    // POST-M7 CLOSURE: inherit the canonical FAB role instead
+                    // of bypassing it with a local ColorScheme pair.
                     child: const Icon(Icons.check),
                   ),
                 ),
