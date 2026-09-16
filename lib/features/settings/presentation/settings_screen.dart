@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:rmplanner/app/router/route_names.dart';
+import 'package:rmplanner/app/shell/window_size_class.dart';
 import 'package:rmplanner/app/theme/app_theme.dart';
 import 'package:rmplanner/app/theme/internal_screen.dart';
 import 'package:rmplanner/features/settings/application/start_of_week_providers.dart';
@@ -41,132 +42,139 @@ final class SettingsScreen extends ConsumerWidget {
     return Scaffold(
       appBar: InternalAppBar(title: const Text('Settings')),
       body: SafeArea(
-        child: ListView(
-          padding: InternalScreen.pagePadding,
-          children: <Widget>[
-            const _SettingsSectionLabel('PRIVACY AND DEVICE'),
-            Card(
-              margin: EdgeInsets.zero,
-              color: Colors.transparent,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-                side: BorderSide(color: AppTheme.outlineOf(context)),
-              ),
-              child: Column(
-                children: <Widget>[
-                  ListTile(
-                    key: const Key('settings-appearance'),
-                    leading: const Icon(Icons.contrast_outlined),
-                    title: const Text('Appearance'),
-                    trailing: const Icon(Icons.chevron_right, size: 20),
-                    onTap: () => context.push(RoutePaths.appearance),
-                  ),
-                  const Divider(height: 1),
-                  ListTile(
-                    key: const Key('settings-privacy-data'),
-                    leading: const Icon(Icons.shield_outlined),
-                    title: const Text('Privacy and Data'),
-                    trailing: const Icon(Icons.chevron_right, size: 20),
-                    onTap: () => context.push(RoutePaths.privacyCenter),
-                  ),
-                  const Divider(height: 1),
-                  ListTile(
-                    key: const Key('settings-permissions'),
-                    leading: const Icon(Icons.lock_outline),
-                    title: const Text('Permissions'),
-                    trailing: const Icon(Icons.chevron_right, size: 20),
-                    onTap: () => context.push(RoutePaths.permissions),
-                  ),
-                  const Divider(height: 1),
-                  ListTile(
-                    key: const Key('settings-notifications'),
-                    leading: const Icon(Icons.notifications_outlined),
-                    title: const Text('Notifications'),
-                    trailing: const Icon(Icons.chevron_right, size: 20),
-                    onTap: () => context.push(RoutePaths.notificationsSettings),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 18),
-            const _SettingsSectionLabel('MAPS'),
-            Card(
-              margin: EdgeInsets.zero,
-              color: Colors.transparent,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-                side: BorderSide(color: AppTheme.outlineOf(context)),
-              ),
-              child: Column(
-                children: <Widget>[
-                  ListTile(
-                    key: const Key('settings-maps'),
-                    leading: const Icon(Icons.map_outlined),
-                    title: const Text('Maps'),
-                    trailing: const Icon(Icons.chevron_right, size: 20),
-                    onTap: () => context.push(RoutePaths.mapsSettings),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 18),
-            const _SettingsSectionLabel('PLANNER AND CALENDAR'),
-            Card(
-              margin: EdgeInsets.zero,
-              color: Colors.transparent,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-                side: BorderSide(color: AppTheme.outlineOf(context)),
-              ),
-              child: Column(
-                children: <Widget>[
-                  ListTile(
-                    key: const Key('settings-planner-calendar'),
-                    leading: const Icon(Icons.calendar_month_outlined),
-                    title: const Text('Planner and Calendar'),
-                    trailing: const Icon(Icons.chevron_right, size: 20),
-                    onTap: () => context.push(RoutePaths.plannerSettings),
-                  ),
-                  const Divider(height: 1),
-                  ListTile(
-                    key: const Key('settings-colors'),
-                    leading: const Icon(Icons.palette_outlined),
-                    title: const Text('Colors'),
-                    trailing: const Icon(Icons.chevron_right, size: 20),
-                    onTap: () => context.push(RoutePaths.colors),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 18),
-            const _SettingsSectionLabel('PLANNING'),
-            Card(
-              margin: EdgeInsets.zero,
-              color: Colors.transparent,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-                side: BorderSide(color: AppTheme.outlineOf(context)),
-              ),
-              child: Column(
-                children: <Widget>[
-                  ListTile(
-                    key: const Key('settings-start-of-week'),
-                    leading: const Icon(Icons.calendar_view_week_outlined),
-                    title: const Text('Start of week'),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        Text(startOfWeekLabel),
-                        const SizedBox(width: 4),
-                        const Icon(Icons.chevron_right, size: 20),
-                      ],
+        // PRE-BETA RESPONSIVE (owner law, 2026-09-16): ordinary settings
+        // content stops stretching across a wide window.  At phone widths this
+        // wrapper is layout-neutral, so the accepted phone appearance is
+        // unchanged.
+        child: MaxContentWidth(
+          child: ListView(
+            padding: InternalScreen.pagePadding,
+            children: <Widget>[
+              const _SettingsSectionLabel('PRIVACY AND DEVICE'),
+              Card(
+                margin: EdgeInsets.zero,
+                color: Colors.transparent,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  side: BorderSide(color: AppTheme.outlineOf(context)),
+                ),
+                child: Column(
+                  children: <Widget>[
+                    ListTile(
+                      key: const Key('settings-appearance'),
+                      leading: const Icon(Icons.contrast_outlined),
+                      title: const Text('Appearance'),
+                      trailing: const Icon(Icons.chevron_right, size: 20),
+                      onTap: () => context.push(RoutePaths.appearance),
                     ),
-                    onTap: () => context.push(RoutePaths.startOfWeek),
-                  ),
-                ],
+                    const Divider(height: 1),
+                    ListTile(
+                      key: const Key('settings-privacy-data'),
+                      leading: const Icon(Icons.shield_outlined),
+                      title: const Text('Privacy and Data'),
+                      trailing: const Icon(Icons.chevron_right, size: 20),
+                      onTap: () => context.push(RoutePaths.privacyCenter),
+                    ),
+                    const Divider(height: 1),
+                    ListTile(
+                      key: const Key('settings-permissions'),
+                      leading: const Icon(Icons.lock_outline),
+                      title: const Text('Permissions'),
+                      trailing: const Icon(Icons.chevron_right, size: 20),
+                      onTap: () => context.push(RoutePaths.permissions),
+                    ),
+                    const Divider(height: 1),
+                    ListTile(
+                      key: const Key('settings-notifications'),
+                      leading: const Icon(Icons.notifications_outlined),
+                      title: const Text('Notifications'),
+                      trailing: const Icon(Icons.chevron_right, size: 20),
+                      onTap: () =>
+                          context.push(RoutePaths.notificationsSettings),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+              const SizedBox(height: 18),
+              const _SettingsSectionLabel('MAPS'),
+              Card(
+                margin: EdgeInsets.zero,
+                color: Colors.transparent,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  side: BorderSide(color: AppTheme.outlineOf(context)),
+                ),
+                child: Column(
+                  children: <Widget>[
+                    ListTile(
+                      key: const Key('settings-maps'),
+                      leading: const Icon(Icons.map_outlined),
+                      title: const Text('Maps'),
+                      trailing: const Icon(Icons.chevron_right, size: 20),
+                      onTap: () => context.push(RoutePaths.mapsSettings),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 18),
+              const _SettingsSectionLabel('PLANNER AND CALENDAR'),
+              Card(
+                margin: EdgeInsets.zero,
+                color: Colors.transparent,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  side: BorderSide(color: AppTheme.outlineOf(context)),
+                ),
+                child: Column(
+                  children: <Widget>[
+                    ListTile(
+                      key: const Key('settings-planner-calendar'),
+                      leading: const Icon(Icons.calendar_month_outlined),
+                      title: const Text('Planner and Calendar'),
+                      trailing: const Icon(Icons.chevron_right, size: 20),
+                      onTap: () => context.push(RoutePaths.plannerSettings),
+                    ),
+                    const Divider(height: 1),
+                    ListTile(
+                      key: const Key('settings-colors'),
+                      leading: const Icon(Icons.palette_outlined),
+                      title: const Text('Colors'),
+                      trailing: const Icon(Icons.chevron_right, size: 20),
+                      onTap: () => context.push(RoutePaths.colors),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 18),
+              const _SettingsSectionLabel('PLANNING'),
+              Card(
+                margin: EdgeInsets.zero,
+                color: Colors.transparent,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  side: BorderSide(color: AppTheme.outlineOf(context)),
+                ),
+                child: Column(
+                  children: <Widget>[
+                    ListTile(
+                      key: const Key('settings-start-of-week'),
+                      leading: const Icon(Icons.calendar_view_week_outlined),
+                      title: const Text('Start of week'),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          Text(startOfWeekLabel),
+                          const SizedBox(width: 4),
+                          const Icon(Icons.chevron_right, size: 20),
+                        ],
+                      ),
+                      onTap: () => context.push(RoutePaths.startOfWeek),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

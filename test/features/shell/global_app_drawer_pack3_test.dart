@@ -71,9 +71,7 @@ void main() {
   }
 
   group('Pack 3 drawer — shell', () {
-    testWidgets('opens from Home and Planner via hamburger', (
-      tester,
-    ) async {
+    testWidgets('opens from Home and Planner via hamburger', (tester) async {
       await pumpApp(tester);
 
       await openDrawerFromHome(tester);
@@ -201,12 +199,16 @@ void main() {
       }
 
       // Every implemented destination is present.
+      //
+      // PRE-BETA (owner law, 2026-09-16): the `Life Goals` row was removed from
+      // the drawer deliberately, so it is no longer an expected destination.
+      // Only the drawer ROW is gone: `/progress`, the Life Goals screens and all
+      // Goal data/features remain intact (see life_goals_drawer_removal_test).
       for (final id in <String>[
         'drawer-planner',
         'drawer-planning',
         'drawer-plan-history',
         'drawer-activity-history',
-        'drawer-life-indicators',
         'drawer-messages',
         'drawer-account-settings',
         'drawer-about',
@@ -268,9 +270,11 @@ void main() {
         find.descendant(of: drawer, matching: find.text('Plan History')),
         findsOneWidget,
       );
+      // PRE-BETA (owner law, 2026-09-16): the owner removed the Life Goals
+      // drawer row, so its absence is now the invariant, not its presence.
       expect(
         find.descendant(of: drawer, matching: find.text('Life Goals')),
-        findsOneWidget,
+        findsNothing,
       );
       expect(tester.takeException(), isNull);
     });

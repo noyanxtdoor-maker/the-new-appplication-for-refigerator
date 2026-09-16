@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:rmplanner/app/shell/window_size_class.dart';
 import 'package:rmplanner/app/theme/app_theme.dart';
 import 'package:rmplanner/app/theme/internal_screen.dart';
 import 'package:rmplanner/app/theme/theme_color_mode.dart';
@@ -35,61 +36,66 @@ final class AppearanceScreen extends ConsumerWidget {
     return Scaffold(
       appBar: InternalAppBar(title: const Text('Appearance')),
       body: SafeArea(
-        child: ListView(
-          padding: InternalScreen.pagePadding,
-          children: <Widget>[
-            Text('APPEARANCE', style: InternalScreen.sectionHeading),
-            const SizedBox(height: 4),
-            RadioGroup<AppearanceMode>(
-              groupValue: current,
-              onChanged: (value) {
-                if (value == null || value == current) {
-                  return;
-                }
-                unawaited(_onSelectMode(ref, value));
-              },
-              child: Column(
-                children: <Widget>[
-                  for (final (mode, title) in _appearanceOptions)
-                    RadioListTile<AppearanceMode>(
-                      key: Key('appearance-option-${mode.storageName}'),
-                      value: mode,
-                      title: Text(title),
-                      activeColor: Theme.of(context).colorScheme.primary,
-                    ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 18),
-            Text('THEME COLOR', style: InternalScreen.sectionHeading),
-            const SizedBox(height: 4),
-            RadioGroup<ThemeColorMode>(
-              groupValue: currentColor,
-              onChanged: (value) {
-                if (value == null || value == currentColor) {
-                  return;
-                }
-                unawaited(_onSelectColor(ref, value));
-              },
-              child: Column(
-                children: <Widget>[
-                  for (final color in ThemeColorMode.values)
-                    RadioListTile<ThemeColorMode>(
-                      key: Key('theme-color-option-${color.storageName}'),
-                      value: color,
-                      title: Row(
-                        children: <Widget>[
-                          _ColorSwatch(color: color),
-                          const SizedBox(width: 12),
-                          Text(_colorLabel(color)),
-                        ],
+        // PRE-BETA RESPONSIVE (owner law, 2026-09-16): this settings detail is
+        // ordinary content, so it is capped on a wide window instead of
+        // stretching.  Layout-neutral at phone widths.
+        child: MaxContentWidth(
+          child: ListView(
+            padding: InternalScreen.pagePadding,
+            children: <Widget>[
+              Text('APPEARANCE', style: InternalScreen.sectionHeading),
+              const SizedBox(height: 4),
+              RadioGroup<AppearanceMode>(
+                groupValue: current,
+                onChanged: (value) {
+                  if (value == null || value == current) {
+                    return;
+                  }
+                  unawaited(_onSelectMode(ref, value));
+                },
+                child: Column(
+                  children: <Widget>[
+                    for (final (mode, title) in _appearanceOptions)
+                      RadioListTile<AppearanceMode>(
+                        key: Key('appearance-option-${mode.storageName}'),
+                        value: mode,
+                        title: Text(title),
+                        activeColor: Theme.of(context).colorScheme.primary,
                       ),
-                      activeColor: Theme.of(context).colorScheme.primary,
-                    ),
-                ],
+                  ],
+                ),
               ),
-            ),
-          ],
+              const SizedBox(height: 18),
+              Text('THEME COLOR', style: InternalScreen.sectionHeading),
+              const SizedBox(height: 4),
+              RadioGroup<ThemeColorMode>(
+                groupValue: currentColor,
+                onChanged: (value) {
+                  if (value == null || value == currentColor) {
+                    return;
+                  }
+                  unawaited(_onSelectColor(ref, value));
+                },
+                child: Column(
+                  children: <Widget>[
+                    for (final color in ThemeColorMode.values)
+                      RadioListTile<ThemeColorMode>(
+                        key: Key('theme-color-option-${color.storageName}'),
+                        value: color,
+                        title: Row(
+                          children: <Widget>[
+                            _ColorSwatch(color: color),
+                            const SizedBox(width: 12),
+                            Text(_colorLabel(color)),
+                          ],
+                        ),
+                        activeColor: Theme.of(context).colorScheme.primary,
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

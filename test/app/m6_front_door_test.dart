@@ -14,6 +14,7 @@ import 'package:rmplanner/features/startup/domain/startup_state.dart';
 import 'package:rmplanner/features/weekly_planning/application/weekly_planning_providers.dart';
 
 import '../support/test_dependencies.dart';
+import '../support/view_size.dart';
 
 void main() {
   testWidgets(
@@ -108,7 +109,13 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(container.read(startupControllerProvider), isA<StartupReady>());
-      expect(find.byKey(const Key('main-bottom-navigation')), findsOneWidget);
+      // PRE-BETA RESPONSIVE (owner law, 2026-09-16): primary navigation is a
+      // bottom BAR on a compact window and a side RAIL from 600 dp up, and the
+      // test binding's default surface is a LOGICAL 800x600 window. Asserting
+      // the BAR specifically would encode the retired bar-at-every-width law;
+      // `navigationFinder()` asserts the shell actually mounted its primary
+      // navigation, whichever presentation the width calls for.
+      expect(navigationFinder(), findsOneWidget);
       expect(find.text('Get Started'), findsNothing);
 
       // Home renders with the seeded weekly plan, as before M6.
@@ -156,7 +163,13 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.byKey(const Key('main-bottom-navigation')), findsOneWidget);
+      // PRE-BETA RESPONSIVE (owner law, 2026-09-16): primary navigation is a
+      // bottom BAR on a compact window and a side RAIL from 600 dp up, and the
+      // test binding's default surface is a LOGICAL 800x600 window. Asserting
+      // the BAR specifically would encode the retired bar-at-every-width law;
+      // `navigationFinder()` asserts the shell actually mounted its primary
+      // navigation, whichever presentation the width calls for.
+      expect(navigationFinder(), findsOneWidget);
       expect(find.text('Get Started'), findsNothing);
       expect(find.text('Setup'), findsNothing);
       expect(find.text("You're ready."), findsNothing);
@@ -227,7 +240,13 @@ void main() {
       await tester.pumpAndSettle();
 
       // No M6 replay.
-      expect(find.byKey(const Key('main-bottom-navigation')), findsOneWidget);
+      // PRE-BETA RESPONSIVE (owner law, 2026-09-16): primary navigation is a
+      // bottom BAR on a compact window and a side RAIL from 600 dp up, and the
+      // test binding's default surface is a LOGICAL 800x600 window. Asserting
+      // the BAR specifically would encode the retired bar-at-every-width law;
+      // `navigationFinder()` asserts the shell actually mounted its primary
+      // navigation, whichever presentation the width calls for.
+      expect(navigationFinder(), findsOneWidget);
       expect(find.text('Get Started'), findsNothing);
 
       // The persisted appearance survived the restart (device-scoped row).

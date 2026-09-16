@@ -63,14 +63,21 @@ Future<void> main() async {
   // the identical splash ImageProvider or an explicit failure surface.
   final splashFirstFrameGate = SplashFirstFrameGate();
   splashFirstFrameGate.defer();
-  // Planner Polish Delta 2: the app is portrait-only on every route, sheet,
-  // and dialog, regardless of the Android auto-rotate setting.  The manifest
-  // `screenOrientation="portrait"` protects the native Activity before the
-  // first frame; this Flutter-level lock keeps the engine portrait for the
-  // whole session and prevents any rotation-driven re-layout.
-  await SystemChrome.setPreferredOrientations(<DeviceOrientation>[
-    DeviceOrientation.portraitUp,
-  ]);
+  // PRE-BETA RESPONSIVE (owner law, 2026-09-16): Next Transfer no longer forces
+  // portrait.  The empty list is the documented "defer to the operating system
+  // default" contract, so the app follows the device's rotation state: it
+  // rotates when the user's auto-rotate setting allows it, and stays put when
+  // the user has locked rotation at the system level.  The matching runtime
+  // restriction in the manifest (android:screenOrientation) was removed in the
+  // same change, and no conditional phone-only re-lock is installed.
+  //
+  // Historical note: the previous `[DeviceOrientation.portraitUp]` lock was
+  // inherited Planner polish from before the M1-M7 program.  It was also a
+  // guarantee the app could not keep: Android 16+ ignores runtime and manifest
+  // orientation restrictions entirely on displays at least 600 dp wide, so
+  // tablets, unfolded foldables and desktop-windowing windows were already
+  // rotating regardless.
+  await SystemChrome.setPreferredOrientations(const <DeviceOrientation>[]);
 
   final environment = AppEnvironment.fromDartDefines();
   final diagnostics = SanitizedDiagnostics(

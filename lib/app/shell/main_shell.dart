@@ -3,7 +3,75 @@ import 'package:go_router/go_router.dart';
 import 'package:rmplanner/app/router/route_names.dart';
 import 'package:rmplanner/app/shell/global_drawer_controller.dart';
 import 'package:rmplanner/app/shell/nav_destination_icon.dart';
+import 'package:rmplanner/app/shell/window_size_class.dart';
 import 'package:rmplanner/features/shell/global_app_drawer.dart';
+
+/// ONE canonical destination model for the shell.
+///
+/// PRE-BETA RESPONSIVE (owner law, 2026-09-16): the shell presents the SAME
+/// four destinations in the bottom bar on a compact window and in the side rail
+/// on a wider one.  Both presentations are generated from this single list, so
+/// there is exactly one label/icon/key/route definition and the two
+/// presentations can never drift apart.
+final class _ShellDestination {
+  const _ShellDestination({
+    required this.key,
+    required this.label,
+    required this.routePath,
+    required this.icon,
+    this.selectedIcon,
+  });
+
+  final Key key;
+  final String label;
+  final String routePath;
+  final Widget icon;
+  final Widget? selectedIcon;
+}
+
+/// Home / Planner / Contacts / Maps, in the accepted order.
+///
+/// Artwork law is unchanged: Home, Planner and Maps keep the owner-supplied
+/// SVGs (with the pin's renderer-only optical correction), Contacts keeps its
+/// Material icon pair.
+const List<_ShellDestination> _shellDestinations = <_ShellDestination>[
+  _ShellDestination(
+    key: Key('nav-home'),
+    label: 'Home',
+    routePath: RoutePaths.home,
+    icon: NavDestinationIcon(asset: NavDestinationIcon.houseAsset),
+  ),
+  _ShellDestination(
+    key: Key('nav-planner'),
+    label: 'Planner',
+    routePath: RoutePaths.planner,
+    icon: NavDestinationIcon(asset: NavDestinationIcon.calendarAsset),
+  ),
+  _ShellDestination(
+    key: Key('nav-contacts'),
+    label: 'Contacts',
+    routePath: RoutePaths.contacts,
+    icon: Icon(Icons.people_outline),
+    selectedIcon: Icon(Icons.people),
+  ),
+  _ShellDestination(
+    key: Key('nav-maps'),
+    label: 'Maps',
+    routePath: RoutePaths.maps,
+    icon: NavDestinationIcon(
+      asset: NavDestinationIcon.mapPinAsset,
+      // Solid 16-grid glyph: optically corrected so its ink height matches the
+      // 24-grid stroke icons.
+      opticalScale: NavDestinationIcon.mapPinOpticalScale,
+    ),
+  ),
+];
+
+/// Key of the compact-width bottom navigation presentation.
+const Key kMainBottomNavigationKey = Key('main-bottom-navigation');
+
+/// Key of the wide-window side navigation presentation.
+const Key kMainNavigationRailKey = Key('main-navigation-rail');
 
 final class MainShell extends StatefulWidget {
   const MainShell({required this.child, super.key});
@@ -54,12 +122,29 @@ final class _MainShellState extends State<MainShell> {
     //   anything else   -> Home root.
     // Root-level routes pushed above the shell (tasks, events, privacy, ...)
     // are popped by the root navigator before this route is consulted.
+    // PRE-BETA RESPONSIVE: ONE window observation point for the whole shell.
+    // The width class decides the navigation PRESENTATION only; the selected
+    // destination still comes from the router, so the two presentations can
+    // never hold independent selection state.
+    final windowSizeClass = AppWindowSizeClass.of(context);
+    final showNavigation = !isGoalIconPicker;
+    final useRail = showNavigation && windowSizeClass.usesNavigationRail;
     final isHomeRoot = location == RoutePaths.home;
     // Root tab is exactly `/planner`; anything deeper under those prefixes is
     // a direct-entered child page that needs a root fallback.  `/more` is no
     // longer a root tab: a direct /more child falls back to Home.
     final isPlannerChild = location.startsWith('${RoutePaths.planner}/');
     final isContactsChild = location.startsWith('${RoutePaths.contacts}/');
+
+    // ONE selection handler shared by the bar and the rail.  The route comes
+    // from the single destination model, so the two presentations cannot route
+    // to different places.
+    void selectDestination(int index) {
+      if (index < 0 || index >= _shellDestinations.length) {
+        return;
+      }
+      context.go(_shellDestinations[index].routePath);
+    }
 
     return GlobalDrawerScope(
       controller: _controller,
@@ -102,64 +187,66 @@ final class _MainShellState extends State<MainShell> {
               context.go(RoutePaths.home);
             }
           },
-          child: widget.child,
+          child: useRail
+              // Wide window: the side rail and the routed child share the body,
+              // so no bottom bar steals vertical space from the content.
+              ? Row(
+                  children: <Widget>[
+                    NavigationRail(
+                      key: kMainNavigationRailKey,
+                      selectedIndex: selectedIndex,
+                      // Labels stay visible in both presentations; the rail's own
+                      // SafeArea (left/right inner side, top, bottom) keeps the
+                      // system insets correct without an extra wrapper here.
+                      labelType: NavigationRailLabelType.all,
+                      onDestinationSelected: selectDestination,
+                      destinations: <NavigationRailDestination>[
+                        for (final destination in _shellDestinations)
+                          NavigationRailDestination(
+                            // The destination key rides on the icon so the SAME
+                            // key resolves in both presentations (exactly one
+                            // presentation is mounted at a time).
+                            icon: KeyedSubtree(
+                              key: destination.key,
+                              child: destination.icon,
+                            ),
+                            selectedIcon: destination.selectedIcon == null
+                                ? null
+                                : KeyedSubtree(
+                                    key: destination.key,
+                                    child: destination.selectedIcon!,
+                                  ),
+                            label: Text(destination.label),
+                          ),
+                      ],
+                    ),
+                    Expanded(child: widget.child),
+                  ],
+                )
+              : widget.child,
         ),
-        bottomNavigationBar: isGoalIconPicker
+        // Exactly one navigation presentation is mounted in steady state: the
+        // rail above on a wide window, this bar on a compact one, and neither
+        // on the full-screen Goal icon picker.
+        bottomNavigationBar: useRail || isGoalIconPicker
             ? null
             : NavigationBar(
-                key: const Key('main-bottom-navigation'),
+                key: kMainBottomNavigationKey,
                 selectedIndex: selectedIndex,
-                onDestinationSelected: (index) {
-                  switch (index) {
-                    case 0:
-                      context.go(RoutePaths.home);
-                      return;
-                    case 1:
-                      context.go(RoutePaths.planner);
-                      return;
-                    case 2:
-                      context.go(RoutePaths.contacts);
-                      return;
-                    case 3:
-                      context.go(RoutePaths.maps);
-                      return;
-                  }
-                },
+                onDestinationSelected: selectDestination,
                 // POST-M7 CLOSURE (owner law, 2026-09-16): Home, Planner and
                 // Maps use the owner-supplied SVG artwork, tinted from the
                 // navigation IconTheme.  Contacts deliberately keeps its
                 // Material pair.  Keys, labels, order and routing are untouched.
-                destinations: const <NavigationDestination>[
-                  NavigationDestination(
-                    key: Key('nav-home'),
-                    icon: NavDestinationIcon(
-                      asset: NavDestinationIcon.houseAsset,
+                // PRE-BETA RESPONSIVE: generated from the one shared model above.
+                destinations: <NavigationDestination>[
+                  for (final destination in _shellDestinations)
+                    NavigationDestination(
+                      key: destination.key,
+                      icon: destination.icon,
+                      selectedIcon: destination.selectedIcon,
+                      label: destination.label,
                     ),
-                    label: 'Home',
-                  ),
-                  NavigationDestination(
-                    key: Key('nav-planner'),
-                    icon: NavDestinationIcon(
-                      asset: NavDestinationIcon.calendarAsset,
-                    ),
-                    label: 'Planner',
-                  ),
-                  NavigationDestination(
-                    key: Key('nav-contacts'),
-                    icon: Icon(Icons.people_outline),
-                    selectedIcon: Icon(Icons.people),
-                    label: 'Contacts',
-                  ),
-                  NavigationDestination(
-                    key: Key('nav-maps'),
-                    icon: NavDestinationIcon(
-                      asset: NavDestinationIcon.mapPinAsset,
-                      // Solid 16-grid glyph: optically corrected so its ink
-                      // height matches the 24-grid stroke icons.
-                      opticalScale: NavDestinationIcon.mapPinOpticalScale,
-                    ),
-                    label: 'Maps',
-                  ),
                 ],
               ),
       ),

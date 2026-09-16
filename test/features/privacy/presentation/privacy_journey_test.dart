@@ -10,6 +10,7 @@ import 'package:rmplanner/features/startup/application/startup_providers.dart';
 import 'package:rmplanner/features/startup/domain/startup_state.dart';
 
 import '../../../support/test_dependencies.dart';
+import '../../../support/view_size.dart';
 
 void main() {
   testWidgets(
@@ -108,7 +109,10 @@ void main() {
 
       await tester.tap(find.byKey(const Key('unlock-button')));
       await tester.pumpAndSettle();
-      expect(find.byKey(const Key('main-bottom-navigation')), findsOneWidget);
+      // PRE-BETA RESPONSIVE (owner law, 2026-09-16): navigation is a bar on a
+      // compact window and a rail from 600 dp up, so the assertion targets the
+      // ACTIVE presentation rather than the retired bar-at-every-width law.
+      expect(navigationFinder(), findsOneWidget);
       expect(await privacy.gate.isUnlockRequired(), isFalse);
 
       // Open the global app drawer via the Home hamburger. Pack 3

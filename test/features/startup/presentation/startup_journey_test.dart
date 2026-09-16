@@ -13,6 +13,7 @@ import 'package:rmplanner/features/startup/domain/startup_state.dart';
 import 'package:rmplanner/features/weekly_planning/application/weekly_planning_providers.dart';
 
 import '../../../support/test_dependencies.dart';
+import '../../../support/view_size.dart';
 
 void main() {
   testWidgets(
@@ -129,7 +130,10 @@ void main() {
       await tester.tap(find.text('Go to Home'));
       await tester.pumpAndSettle();
 
-      expect(find.byKey(const Key('main-bottom-navigation')), findsOneWidget);
+      // PRE-BETA RESPONSIVE (owner law, 2026-09-16): the shell presents one
+      // destination model as a bar below 600 dp and a rail from 600 dp up; the
+      // default test surface is a LOGICAL 800x600 window, i.e. the rail.
+      expect(navigationFinder(), findsOneWidget);
       final ready = container.read(startupControllerProvider);
       expect(ready, isA<StartupReady>());
       // The Light choice from Setup survived completion.
@@ -149,16 +153,17 @@ void main() {
       expect(tester.takeException(), isNull);
 
       // Link recovery guarantee is retained after M6 completion.
-      final homeContext = tester.element(
-        find.byKey(const Key('main-bottom-navigation')),
-      );
+      final homeContext = tester.element(navigationFinder());
       GoRouter.of(homeContext).go('/invalid-startup-link');
       await tester.pumpAndSettle();
       expect(find.text('Link unavailable'), findsOneWidget);
       expect(find.text('No local record was changed.'), findsOneWidget);
       await tester.tap(find.text('Return to Home'));
       await tester.pumpAndSettle();
-      expect(find.byKey(const Key('main-bottom-navigation')), findsOneWidget);
+      // PRE-BETA RESPONSIVE (owner law, 2026-09-16): the shell presents one
+      // destination model as a bar below 600 dp and a rail from 600 dp up; the
+      // default test surface is a LOGICAL 800x600 window, i.e. the rail.
+      expect(navigationFinder(), findsOneWidget);
 
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pump(const Duration(milliseconds: 1));

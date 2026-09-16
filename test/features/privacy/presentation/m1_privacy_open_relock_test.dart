@@ -42,6 +42,7 @@ import 'package:rmplanner/features/startup/application/startup_repository.dart';
 import 'package:rmplanner/features/startup/domain/startup_state.dart';
 
 import '../../../support/test_dependencies.dart';
+import '../../../support/view_size.dart';
 
 const PlannerDate _monday = PlannerDate(year: 2026, month: 7, day: 27);
 const String _taskId = 'm1-open-task';
@@ -177,7 +178,10 @@ Future<_Harness> _openHarness({required bool lockEnabled}) async {
   final database = openMemoryDatabase();
   addTearDown(database.close);
   final privacy = TestPrivacyDependencies(database: database);
-  final startup = buildTestRepository(database: database, privacyGate: privacy.gate);
+  final startup = buildTestRepository(
+    database: database,
+    privacyGate: privacy.gate,
+  );
   final profile = await startup.completeOnboarding();
   if (lockEnabled) {
     await privacy.repository.setLockEnabled(true);
@@ -257,7 +261,10 @@ void main() {
 
       // The canonical startup read still succeeds, so the app is Protected.
       expect(find.byKey(const Key('unlock-button')), findsOneWidget);
-      expect(container.read(startupControllerProvider), isA<StartupProtected>());
+      expect(
+        container.read(startupControllerProvider),
+        isA<StartupProtected>(),
+      );
       expect(
         container.read(privacyControllerProvider).status,
         isNot(PrivacyLockStatus.unlocked),
@@ -266,10 +273,17 @@ void main() {
       // A matching Task OPEN is accepted but held: not Ready yet.
       container
           .read(notificationResponseControllerProvider)
-          .capture(payload: NotificationPayloadCodec.encode(_taskOpen(harness.profileId)));
+          .capture(
+            payload: NotificationPayloadCodec.encode(
+              _taskOpen(harness.profileId),
+            ),
+          );
       await tester.pumpAndSettle();
       expect(find.byType(TaskPreviewSheet), findsNothing);
-      expect(find.byKey(const Key('main-bottom-navigation')), findsNothing);
+      // PRE-BETA RESPONSIVE (owner law, 2026-09-16): the shell's primary
+      // navigation is a bar below 600 dp and a rail from 600 dp up, so the
+      // locked-state invariant must be asserted against BOTH presentations.
+      expect(navigationFinder(), findsNothing);
 
       // Unlock while the retry still fails: no OS prompt, no access, no OPEN.
       await tester.tap(find.byKey(const Key('unlock-button')));
@@ -284,9 +298,15 @@ void main() {
         isNot(PrivacyLockStatus.unlocked),
       );
       expect(await harness.privacy.gate.isUnlockRequired(), isTrue);
-      expect(container.read(startupControllerProvider), isA<StartupProtected>());
+      expect(
+        container.read(startupControllerProvider),
+        isA<StartupProtected>(),
+      );
       expect(find.byType(TaskPreviewSheet), findsNothing);
-      expect(find.byKey(const Key('main-bottom-navigation')), findsNothing);
+      // PRE-BETA RESPONSIVE (owner law, 2026-09-16): the shell's primary
+      // navigation is a bar below 600 dp and a rail from 600 dp up, so the
+      // locked-state invariant must be asserted against BOTH presentations.
+      expect(navigationFinder(), findsNothing);
 
       // A fresh successful read plus a real OS success unlocks and releases it.
       harness.reader.failing = false;
@@ -393,7 +413,11 @@ void main() {
       gated.readTaskGate = Completer<void>();
       container
           .read(notificationResponseControllerProvider)
-          .capture(payload: NotificationPayloadCodec.encode(_taskOpen(harness.profileId)));
+          .capture(
+            payload: NotificationPayloadCodec.encode(
+              _taskOpen(harness.profileId),
+            ),
+          );
       await tester.pump();
       await tester.pump();
 
@@ -413,7 +437,10 @@ void main() {
         findsNothing,
         reason: 'a stale resolution must be a safe no-op, not a presentation',
       );
-      expect(container.read(startupControllerProvider), isA<StartupProtected>());
+      expect(
+        container.read(startupControllerProvider),
+        isA<StartupProtected>(),
+      );
       // The Protected transition while Home is mounted surfaces a pre-existing
       // Home-indicator `StateError` for one frame (the indicator providers
       // rebuild against a non-Ready profile).  Those indicators are outside the
@@ -423,7 +450,8 @@ void main() {
       expect(
         transitionError,
         anyOf(isNull, isA<StateError>()),
-        reason: 'only the inherited Home-indicator transition error is expected',
+        reason:
+            'only the inherited Home-indicator transition error is expected',
       );
     },
   );
@@ -461,7 +489,10 @@ void main() {
         PrivacyLockStatus.locked,
         reason: 'unknown settings still require protection at the threshold',
       );
-      expect(container.read(startupControllerProvider), isA<StartupProtected>());
+      expect(
+        container.read(startupControllerProvider),
+        isA<StartupProtected>(),
+      );
       expect(tester.takeException(), isNull);
     },
   );
@@ -478,7 +509,7 @@ void main() {
       PrivacyLockStatus.disabled,
     );
     expect(
-      find.byKey(const Key('main-bottom-navigation')),
+      navigationFinder(),
       findsOneWidget,
       reason: 'a genuinely disabled profile is not locked out',
     );

@@ -60,31 +60,21 @@ void main() {
     return destinations.map((d) => d.label).toList();
   }
 
-  testWidgets(
-    'NX-07/08 + MAPS V1: primary bottom navigation is exactly Home / '
-    'Planner / Contacts / Maps — no More tab, no Pathways tab',
-    (tester) async {
-      await pumpApp(tester);
-      expect(
-        navLabels(tester),
-        <String>['Home', 'Planner', 'Contacts', 'Maps'],
-      );
-      expect(
-        find.descendant(
-          of: navFinder(),
-          matching: find.text('More'),
-        ),
-        findsNothing,
-      );
-      expect(
-        find.descendant(
-          of: navFinder(),
-          matching: find.text('Pathways'),
-        ),
-        findsNothing,
-      );
-    },
-  );
+  testWidgets('NX-07/08 + MAPS V1: primary bottom navigation is exactly Home / '
+      'Planner / Contacts / Maps — no More tab, no Pathways tab', (
+    tester,
+  ) async {
+    await pumpApp(tester);
+    expect(navLabels(tester), <String>['Home', 'Planner', 'Contacts', 'Maps']);
+    expect(
+      find.descendant(of: navFinder(), matching: find.text('More')),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: navFinder(), matching: find.text('Pathways')),
+      findsNothing,
+    );
+  });
 
   testWidgets(
     'MAPS V1: the fourth tab opens the Maps screen (no fake placeholder) '
@@ -92,19 +82,13 @@ void main() {
     (tester) async {
       await pumpApp(tester);
       await tester.tap(
-        find.descendant(
-          of: navFinder(),
-          matching: find.text('Maps'),
-        ),
+        find.descendant(of: navFinder(), matching: find.text('Maps')),
       );
       await tester.pumpAndSettle();
       expect(find.byType(MapsScreen), findsOneWidget);
       // Switching back to Home restores the first tab (index 0).
       await tester.tap(
-        find.descendant(
-          of: navFinder(),
-          matching: find.text('Home'),
-        ),
+        find.descendant(of: navFinder(), matching: find.text('Home')),
       );
       await tester.pumpAndSettle();
       expect(find.byType(HomeScreen), findsOneWidget);
@@ -136,36 +120,33 @@ void main() {
     },
   );
 
-  testWidgets(
-    'NX-07/08: the drawer still exposes the secondary destinations '
-    '(Planner, Goal Planning, Plan History, Activity History, Life Goals, '
-    'Messages, Settings, About) and has no More entry',
-    (tester) async {
-      await pumpApp(tester);
-      await tester.tap(find.byKey(const Key('home-hamburger')));
-      await tester.pumpAndSettle();
-      for (final id in <String>[
-        'drawer-planner',
-        'drawer-planning',
-        'drawer-plan-history',
-        'drawer-activity-history',
-        'drawer-life-indicators',
-        'drawer-messages',
-        'drawer-account-settings',
-        'drawer-about',
-      ]) {
-        expect(
-          find.byKey(Key(id)),
-          findsOneWidget,
-          reason: 'drawer entry $id must remain reachable',
-        );
-      }
+  testWidgets('NX-07/08: the drawer still exposes the secondary destinations '
+      '(Planner, Goal Planning, Plan History, Activity History, '
+      'Messages, Settings, About) and has no More entry', (tester) async {
+    await pumpApp(tester);
+    await tester.tap(find.byKey(const Key('home-hamburger')));
+    await tester.pumpAndSettle();
+    // PRE-BETA (owner law, 2026-09-16): `drawer-life-indicators` was removed
+    // from the drawer on purpose.  Its absence is asserted explicitly below
+    // by the Life Goals removal contract test; the row is gone while the route
+    // and every Goal feature continue to exist.
+    for (final id in <String>[
+      'drawer-planner',
+      'drawer-planning',
+      'drawer-plan-history',
+      'drawer-activity-history',
+      'drawer-messages',
+      'drawer-account-settings',
+      'drawer-about',
+    ]) {
       expect(
-        find.byKey(const Key('global-app-drawer-list')),
+        find.byKey(Key(id)),
         findsOneWidget,
+        reason: 'drawer entry $id must remain reachable',
       );
-    },
-  );
+    }
+    expect(find.byKey(const Key('global-app-drawer-list')), findsOneWidget);
+  });
 
   testWidgets(
     'NX-04: Light appearance -> Light semantic drawer surface with readable '
@@ -186,18 +167,12 @@ void main() {
         isNot(lightScheme.surfaceContainerHigh),
         reason: 'Light drawer must not be a heavy slab',
       );
-      expect(
-        lightDrawer.backgroundColor,
-        isNot(Colors.black),
-      );
+      expect(lightDrawer.backgroundColor, isNot(Colors.black));
       // Unselected entry text is readable dark semantic on the Light drawer.
       final entryContext = tester.element(
         find.byKey(const Key('drawer-account-settings')),
       );
-      expect(
-        Theme.of(entryContext).brightness,
-        Brightness.light,
-      );
+      expect(Theme.of(entryContext).brightness, Brightness.light);
 
       await tester.pumpWidget(const SizedBox());
       await pumpApp(tester, appearance: AppearanceMode.dark);
@@ -209,14 +184,12 @@ void main() {
       final darkContext = tester.element(
         find.byKey(const Key('global-app-drawer')),
       );
-      expect(
-        Theme.of(darkContext).brightness,
-        Brightness.dark,
-      );
+      expect(Theme.of(darkContext).brightness, Brightness.dark);
       expect(
         darkDrawer.backgroundColor,
         const Color(0xFF181A1E),
-        reason: 'NX-04: Dark drawer keeps the exact pre-fix dark surface '
+        reason:
+            'NX-04: Dark drawer keeps the exact pre-fix dark surface '
             'token (byte-identical)',
       );
     },

@@ -53,9 +53,18 @@ enum GlobalDrawerGroup { planning, personal, account, support }
 /// destinations that are actually implemented in the current build.
 ///
 /// Destination deduplication: every feature has exactly one canonical route.
-/// Planning, Plan History, Life Goals, and Settings use the Pack 3
-/// approved labels; the obsolete "Weekly Planning" / "Weekly Plan History"
-/// labels are gone from the drawer.
+/// Planning, Plan History and Settings use the Pack 3 approved labels; the
+/// obsolete "Weekly Planning" / "Weekly Plan History" labels are gone from the
+/// drawer.
+///
+/// PRE-BETA (owner law, 2026-09-16): the `Life Goals` row was removed from the
+/// drawer at the owner's request.  ONLY the drawer row is gone.  The route
+/// (`RoutePaths.progress`, `/progress`, and its metric child routes), the
+/// Life Goals list/detail/edit screens, the Goal records, the Goal feature,
+/// Goal Planning, Plan History, Activity History and every Home Goal surface
+/// are untouched; the row was the app's only navigation entry point to
+/// `/progress`, so the list screen is intentionally unreachable from the UI
+/// for now while remaining fully resolvable by route.
 abstract final class GlobalDrawerCatalog {
   static const List<GlobalDrawerEntry> entries = <GlobalDrawerEntry>[
     // A. Planning and Records -----------------------------------------
@@ -90,14 +99,6 @@ abstract final class GlobalDrawerCatalog {
       group: GlobalDrawerGroup.planning,
       routePath: RoutePaths.activityHistory,
       navigation: GlobalDrawerNavigation.push,
-    ),
-    GlobalDrawerEntry._(
-      id: 'drawer-life-indicators',
-      label: 'Life Goals',
-      icon: Icons.insights_outlined,
-      group: GlobalDrawerGroup.planning,
-      routePath: RoutePaths.progress,
-      navigation: GlobalDrawerNavigation.openInShell,
     ),
     // B. Personal Tools -----------------------------------------------
     // Quick Notes and Personal Journal are omitted (no complete real
@@ -233,9 +234,7 @@ class _DrawerHeader extends StatelessWidget {
         color: Theme.of(context).brightness == Brightness.dark
             ? AppTheme.background
             : Theme.of(context).colorScheme.surfaceContainerLow,
-        border: Border(
-          bottom: BorderSide(color: AppTheme.outlineOf(context)),
-        ),
+        border: Border(bottom: BorderSide(color: AppTheme.outlineOf(context))),
       ),
       child: Row(
         children: <Widget>[

@@ -34,6 +34,7 @@ import 'package:rmplanner/features/weekly_planning/application/weekly_planning_r
 import 'package:rmplanner/features/weekly_planning/domain/weekly_plan.dart';
 
 import '../support/test_dependencies.dart';
+import '../support/view_size.dart';
 
 void main() {
   test(
@@ -129,7 +130,11 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      final shell = find.byKey(const Key('main-bottom-navigation'));
+      // PRE-BETA RESPONSIVE (owner law, 2026-09-16): this finder is a handle on
+      // the MOUNTED SHELL (used to reach the ProviderScope), not an assertion
+      // about the bottom bar. It must therefore match whichever navigation
+      // presentation the window width selects.
+      final shell = navigationFinder();
       expect(shell, findsOneWidget);
       final container = ProviderScope.containerOf(tester.element(shell));
       expect(container.read(startupControllerProvider), isA<StartupReady>());
@@ -266,7 +271,11 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      final shell = find.byKey(const Key('main-bottom-navigation'));
+      // PRE-BETA RESPONSIVE (owner law, 2026-09-16): this finder is a handle on
+      // the MOUNTED SHELL (used to reach the ProviderScope), not an assertion
+      // about the bottom bar. It must therefore match whichever navigation
+      // presentation the window width selects.
+      final shell = navigationFinder();
       final container = ProviderScope.containerOf(tester.element(shell));
       final repo = container.read(eventTypeRepositoryProvider);
       final customTypes = <EventType>[];
