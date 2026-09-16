@@ -171,20 +171,45 @@ abstract final class AppTheme {
   // M2 OWNER CORRECTION (Issue 2, 2026-09-14): dark accents were too bright
   // and inconsistent (Blue read as cyan/electric #389CDB, Rose as hot pink
   // #EB6986).  Both primaries are now deep, muted, coherent dark accents:
-  //   Blue Dark  #277FB5 (was #389CDB) — deep blue, never cyan/electric;
-  //   Rose Dark  #C95470 (was #EB6986) — deep muted rose/burgundy.
+  //   Blue Dark  #277CB5 (was #389CDB, then #277FB5) — deep blue, never
+  //     cyan/electric;
+  //   Rose Dark  #C34D6E (was #EB6986, then #C95470) — deep muted
+  //     rose/burgundy.
   // Each holds >=4.3:1 contrast against the real dark surfaces (#0D0E10
   // background, #181A1E surface, #101113 navigation), so FABs, selected
   // navigation, and the Planner current-time indicator stay readable while
-  // the overall dark composition stays subdued.  onPrimary remains the
-  // near-black baseline (no glaring fill text), the muted container pair is
+  // the overall dark composition stays subdued.  The muted container pair is
   // unchanged, and Light tokens, semantic/data colors, and Goal artwork stay
   // exactly as they were.
-  static const Color blueDarkPrimary = Color(0xFF277FB5);
-  static const Color blueDarkOnPrimary = Color(0xFF0D0E10);
-  static const Color roseDarkPrimary = Color(0xFFC95470);
+  //
+  // M6 FINAL CORRECTION (Issue 2 supersession, 2026-09-15): the M2 "near-black
+  // onPrimary" law is SUPERSEDED by the owner's final M6 law — a primary
+  // blue/rose filled action surface uses a WHITE foreground in BOTH themes.
+  // The two dark primaries were nudged by the smallest tonal step that makes
+  // WHITE reach the pinned 4.5:1 on-primary target while keeping every
+  // existing accent-vs-dark-surface gate:
+  //   Blue Dark #277CB5 — white 4.53:1, vs #0D0E10 4.26:1
+  //   Rose Dark #C34D6E — white 4.56:1, vs #0D0E10 4.24:1
+  // Both keep the exact accepted hue (the deltas are ~1% in luminance), so
+  // the identity is unchanged — only the tonal step needed for a white
+  // foreground.
+  static const Color blueDarkPrimary = brandBlueHue;
+  static const Color roseDarkPrimary = Color(0xFFC34D6E);
+
+  /// The ONE canonical foreground for a primary-filled action surface in
+  /// DARK mode (FABs, filled buttons, primary pills, the create overlay).
+  /// White in both themes; see the M6 final correction note above.
+  static const Color darkOnPrimary = Color(0xFFFFFFFF);
   static const Color blueDarkPrimaryContainer = Color(0xFF123A5C);
   static const Color blueDarkOnPrimaryContainer = Color(0xFFD3E3F4);
+
+  /// The ONE documented Next Transfer Blue identity.
+  ///
+  /// Light and Dark resolve different TONAL steps of this single hue so the
+  /// accent stays legible on a near-white and on a near-black canvas, but the
+  /// brand identity itself is defined once here and everywhere else derives
+  /// from it (no stray or user-facing "alternative" blue exists).
+  static const Color brandBlueHue = Color(0xFF277CB5);
 
   // ------------------------------------------------------- B2 accessors
   // Brightness-aware semantic accessors.  Dark mode ALWAYS returns the exact
@@ -513,7 +538,11 @@ abstract final class AppTheme {
     // baseline, pinned by the B3.1 contract tests).
     // Preserve the accepted dark neutral/container family; only accent roles
     // are superseded by M3.1, not stored colors or Goal artwork.
-    final seed = isBlue ? const Color(0xFF9FC8F0) : rose;
+    // M6 FINAL CORRECTION: the dark seed must derive from the canonical brand
+    // identity, never from an unrelated pale blue.  Blue Dark therefore seeds
+    // from the documented Next Transfer Blue itself; Rose Dark keeps the
+    // canonical rose highlight seed (byte-identical baseline).
+    final seed = isBlue ? brandBlueHue : rose;
     final primary = isBlue ? blueDarkPrimary : roseDarkPrimary;
     final colorScheme =
         ColorScheme.fromSeed(
@@ -522,11 +551,11 @@ abstract final class AppTheme {
           surface: surface,
         ).copyWith(
           primary: primary,
-          onPrimary: blueDarkOnPrimary,
+          onPrimary: darkOnPrimary,
           secondary: primary,
-          onSecondary: blueDarkOnPrimary,
+          onSecondary: darkOnPrimary,
           tertiary: primary,
-          onTertiary: blueDarkOnPrimary,
+          onTertiary: darkOnPrimary,
           primaryContainer: isBlue ? blueDarkPrimaryContainer : null,
           onPrimaryContainer: isBlue ? blueDarkOnPrimaryContainer : null,
           surface: surface,
@@ -608,7 +637,7 @@ abstract final class AppTheme {
       // treatment rather than independently selecting container roles.
       floatingActionButtonTheme: FloatingActionButtonThemeData(
         backgroundColor: primary,
-        foregroundColor: blueDarkOnPrimary,
+        foregroundColor: darkOnPrimary,
       ),
       // Pack 2 accent restraint: the selected root uses the theme primary
       // (Rose Dark baseline = canonical rose; Blue Dark = blue accent), while

@@ -30,13 +30,14 @@ void main() {
 
   group('exact canonical dark tokens', () {
     test('Dark Blue primary is the corrected muted deep blue', () {
-      expect(AppTheme.blueDarkPrimary, const Color(0xFF277FB5));
+      // M6 final correction nudged the tonal step so WHITE reaches 4.5:1.
+      expect(AppTheme.blueDarkPrimary, const Color(0xFF277CB5));
       // NOT the old bright cyan/electric blue.
       expect(AppTheme.blueDarkPrimary, isNot(const Color(0xFF389CDB)));
     });
 
     test('Dark Rose primary is the corrected muted deep rose', () {
-      expect(AppTheme.roseDarkPrimary, const Color(0xFFC95470));
+      expect(AppTheme.roseDarkPrimary, const Color(0xFFC34D6E));
       // NOT the old hot/bright pink.
       expect(AppTheme.roseDarkPrimary, isNot(const Color(0xFFEB6986)));
     });
@@ -48,7 +49,7 @@ void main() {
       expect(scheme.primary, AppTheme.blueDarkPrimary);
       expect(scheme.secondary, AppTheme.blueDarkPrimary);
       expect(scheme.tertiary, AppTheme.blueDarkPrimary);
-      expect(scheme.onPrimary, AppTheme.blueDarkOnPrimary);
+      expect(scheme.onPrimary, AppTheme.darkOnPrimary);
     });
 
     test('Rose dark scheme', () {
@@ -56,7 +57,7 @@ void main() {
       expect(scheme.primary, AppTheme.roseDarkPrimary);
       expect(scheme.secondary, AppTheme.roseDarkPrimary);
       expect(scheme.tertiary, AppTheme.roseDarkPrimary);
-      expect(scheme.onPrimary, AppTheme.blueDarkOnPrimary);
+      expect(scheme.onPrimary, AppTheme.darkOnPrimary);
     });
 
     test('dark FABs resolve the canonical primary/onPrimary', () {
@@ -65,9 +66,9 @@ void main() {
       final blue = blueTheme.colorScheme;
       final rose = roseTheme.colorScheme;
       expect(blue.primary, AppTheme.blueDarkPrimary);
-      expect(blue.onPrimary, AppTheme.blueDarkOnPrimary);
+      expect(blue.onPrimary, AppTheme.darkOnPrimary);
       expect(rose.primary, AppTheme.roseDarkPrimary);
-      expect(rose.onPrimary, AppTheme.blueDarkOnPrimary);
+      expect(rose.onPrimary, AppTheme.darkOnPrimary);
       expect(blueTheme.floatingActionButtonTheme.backgroundColor, blue.primary);
       expect(blueTheme.floatingActionButtonTheme.foregroundColor, blue.onPrimary);
       expect(roseTheme.floatingActionButtonTheme.backgroundColor, rose.primary);
@@ -124,7 +125,7 @@ void main() {
     test('onPrimary is readable on primary', () {
       for (final primary in [AppTheme.blueDarkPrimary, AppTheme.roseDarkPrimary]) {
         expect(
-          contrastRatio(AppTheme.blueDarkOnPrimary, primary),
+          contrastRatio(AppTheme.darkOnPrimary, primary),
           greaterThanOrEqualTo(4.0),
         );
       }

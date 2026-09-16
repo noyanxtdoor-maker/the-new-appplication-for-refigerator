@@ -281,9 +281,13 @@ final class _ContextualCreateOverlayState
                     onTap: dismiss,
                     child: Icon(
                       Icons.close,
-                      color: Theme.of(context).brightness == Brightness.dark
-                          ? Colors.black
-                          : Theme.of(context).colorScheme.onPrimary,
+                      // M6 FINAL CORRECTION: this used to hardcode Colors.black
+                      // in dark mode — the exact "black glyph on a blue
+                      // floating control" regression.  The canonical onPrimary
+                      // role owns this foreground (white in BOTH themes); a
+                      // local colour override here could only ever drift from
+                      // the theme.
+                      color: Theme.of(context).colorScheme.onPrimary,
                       size: 26,
                     ),
                   ),

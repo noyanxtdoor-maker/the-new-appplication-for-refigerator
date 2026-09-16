@@ -1643,11 +1643,15 @@ class _PagerPreviewColumnState extends State<_PagerPreviewColumn> {
     if (current != widget.pageDate) {
       return const SizedBox.shrink();
     }
-    if (now.hour < widget.settings.visibleStartHour ||
-        now.hour >= widget.settings.visibleEndHour) {
+    final minuteOfDay = now.hour * 60 + now.minute;
+    // M6 closure: the bound is the CANVAS minute range the caller passes
+    // in (the full 00:00-1440 civil day), never the soft planning window.
+    // The planning window only seeds the initial scroll position and the
+    // max-zoom-out fit target, so gating visibility on it blanked the
+    // indicator during the boundary hours of any narrower window.
+    if (minuteOfDay < visibleStart || minuteOfDay >= visibleEnd) {
       return const SizedBox.shrink();
     }
-    final minuteOfDay = now.hour * 60 + now.minute;
     final resolvedMinuteY = minuteOfDay * pixelsPerMinute;
     final resolvedIndicatorTop =
         resolvedMinuteY - kPlannerPagerCurrentTimeIndicatorHeight / 2;

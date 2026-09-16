@@ -50,7 +50,7 @@ void main() {
       expect(find.byType(M5AppSplash), findsNothing);
       expect(find.text('Your next transfer\nstarts here.'), findsOneWidget);
       expect(
-        find.text('Plan what matters, privately on this device.'),
+        find.text('The mission has ended. The next transfer begins.'),
         findsOneWidget,
       );
 

@@ -127,10 +127,23 @@ final class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
 /// launch surface uses).  Light resolves the canonical light surface instead.
 const Color _frontDoorField = nextTransferSplashBlue;
 
-/// The approved brand blue, kept ONLY as the Blue candidate swatch inside the
-/// Accent colour chooser (the applied accent itself resolves through the
-/// canonical theme, so the chooser can still show two distinct candidates).
-const Color _frontDoorBlueSwatch = Color(0xFF2F80ED);
+/// The accent a theme colour ACTUALLY resolves to at the current brightness.
+///
+/// M6 FINAL CORRECTION: the Accent chooser previously showed a third,
+/// decorative blue (`#2F80ED`) and an unrelated rose step, so the swatch
+/// disagreed with the accent the app really applied.  The swatch is now
+/// derived from the same canonical brand constants the theme uses, which means
+/// it cannot drift from the applied accent and no stray blue exists anywhere
+/// user-facing.
+Color _frontDoorAppliedAccent(ThemeColorMode mode, Brightness brightness) {
+  final isDark = brightness == Brightness.dark;
+  return switch (mode) {
+    ThemeColorMode.blue =>
+      isDark ? AppTheme.blueDarkPrimary : AppTheme.blueLightPrimary,
+    ThemeColorMode.rose =>
+      isDark ? AppTheme.roseDarkPrimary : AppTheme.roseLightPrimary,
+  };
+}
 
 /// Bottom clearance for a front-door CTA.
 ///
@@ -587,7 +600,7 @@ final class _WelcomeStage extends StatelessWidget {
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    'Plan what matters, privately on this device.',
+                    'The mission has ended. The next transfer begins.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: palette.muted,
@@ -815,7 +828,10 @@ final class _SetupStageState extends ConsumerState<_SetupStage> {
                           palette: palette,
                           selected: accent.mode == color,
                           label: accent.label,
-                          swatch: accent.swatch,
+                          swatch: _frontDoorAppliedAccent(
+                            accent.mode,
+                            Theme.of(context).brightness,
+                          ),
                           onTap: _saving
                               ? null
                               : () => unawaited(_selectColor(accent.mode)),
@@ -922,16 +938,15 @@ const List<_ThemeOption> _themeOptions = <_ThemeOption>[
 ];
 
 final class _AccentOption {
-  const _AccentOption(this.mode, this.label, this.swatch);
+  const _AccentOption(this.mode, this.label);
 
   final ThemeColorMode mode;
   final String label;
-  final Color swatch;
 }
 
 const List<_AccentOption> _accentOptions = <_AccentOption>[
-  _AccentOption(ThemeColorMode.blue, 'Blue', _frontDoorBlueSwatch),
-  _AccentOption(ThemeColorMode.rose, 'Rose', AppTheme.roseLightProgress),
+  _AccentOption(ThemeColorMode.blue, 'Blue'),
+  _AccentOption(ThemeColorMode.rose, 'Rose'),
 ];
 
 /// A rounded selectable card with the approved selected ring.
@@ -1131,8 +1146,11 @@ final class _ReadyStage extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: <Widget>[
                           SizedBox(height: constraints.maxHeight * 0.05),
+                          // M6 FINAL CORRECTION: one restrained success mark and
+                          // nothing else.  A smaller mark reads best with a
+                          // slightly larger separation from the headline.
                           Center(child: _ReadyArtwork(palette: palette)),
-                          const SizedBox(height: 30),
+                          const SizedBox(height: 36),
                           Text(
                             "You're ready.",
                             textAlign: TextAlign.center,
@@ -1203,120 +1221,42 @@ final class _ReadyStage extends StatelessWidget {
   }
 }
 
-/// The exact source rectangle of the frozen splash artwork used for the Ready
-/// illustration, in the asset's own 941x1672 pixel space.
+/// The restrained You're Ready success mark.
 ///
-/// Measured from the locked asset (`assets/branding/next_transfer_splash.png`):
-/// the drawn landscape artwork occupies roughly x 291..659 / y 665..1011 inside
-/// a rounded tile spanning x 225..716 / y 362..1160.  This window frames that
-/// artwork and stays well inside the tile, so the owner-rejected rounded
-/// "app-icon tile" is excluded and NO new asset generation is required.
-@visibleForTesting
-const Rect m6ReadyIllustrationSource = Rect.fromLTRB(283, 658, 667, 1018);
-
-/// Measured bounding box of the splash asset's rounded tile (the app mark), in
-/// the same pixel space.
-@visibleForTesting
-const Rect m6SplashTileBounds = Rect.fromLTRB(225, 362, 716, 1160);
-
-/// Minimum margin (in asset pixels) the Ready crop keeps from the tile frame,
-/// so the rounded tile edge can never appear inside the illustration.
-@visibleForTesting
-const double m6ReadyIllustrationMinTileMargin = 40;
-
-/// Renders an EXACT source rectangle of the frozen splash artwork, filling
-/// [width] x [height] with cover semantics.
+/// M6 FINAL CORRECTION (owner law; SUPERSEDES the earlier crop-based artwork
+/// that a previous audit approved): You're Ready is MINIMAL.  It renders
+/// exactly ONE small white success circle with a check glyph — no app logo, no
+/// splash crop, no mountain artwork, no road/path artwork and no secondary
+/// artwork tile.  The whole `_SplashCrop` composition and its asset windows
+/// were removed from this screen; the frozen splash asset itself is untouched
+/// and is still used (unchanged) by the Welcome mark.
 ///
-/// Presentation only: the asset, its bytes, its registered path and the
-/// pubspec are untouched.  This exists because `Image` alone cannot restrict
-/// its source window to a sub-rectangle, which is what excluding the splash
-/// tile frame requires.
-final class _SplashCrop extends StatelessWidget {
-  const _SplashCrop({
-    required this.width,
-    required this.height,
-    required this.source,
-  });
-
-  final double width;
-  final double height;
-  final Rect source;
-
-  /// The locked asset's intrinsic size.
-  static const Size _assetSize = Size(941, 1672);
-
-  @override
-  Widget build(BuildContext context) {
-    final scale = math.max(width / source.width, height / source.height);
-    final renderWidth = _assetSize.width * scale;
-    final renderHeight = _assetSize.height * scale;
-    final left = (width - source.width * scale) / 2 - source.left * scale;
-    final top = (height - source.height * scale) / 2 - source.top * scale;
-    return ClipRect(
-      child: SizedBox(
-        width: width,
-        height: height,
-        child: Stack(
-          clipBehavior: Clip.none,
-          children: <Widget>[
-            Positioned(
-              left: left,
-              top: top,
-              width: renderWidth,
-              height: renderHeight,
-              child: Image(
-                image: nextTransferSplashImage,
-                fit: BoxFit.fill,
-                filterQuality: FilterQuality.medium,
-                excludeFromSemantics: true,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Restrained success mark above the approved landscape artwork.
-///
-/// Owner-approved target: a small check circle, clean vertical separation from
-/// the illustration, the mountain/winding-path artwork WITHOUT the rounded
-/// app-icon tile, and no overlap between mark and artwork.  The check and its
-/// circle are appearance-aware through [palette], so You're Ready inherits the
-/// Light/Dark/System and Blue/Rose choice made in Setup.
+/// The circle stays white in BOTH themes (the palette already resolves it that
+/// way) and the check carries the canonical accent, so You're Ready still
+/// inherits the Light/Dark/System and Blue/Rose choice made in Setup.
 final class _ReadyArtwork extends StatelessWidget {
   const _ReadyArtwork({required this.palette});
+
+  /// Owner-locked restrained size.  The previous 76px circle read oversized.
+  static const double circleSize = 64;
+
+  /// The check glyph inside the circle.
+  static const double checkSize = 32;
 
   final _FrontDoorPalette palette;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        Container(
-          key: const Key('m6-ready-check'),
-          width: 76,
-          height: 76,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: palette.checkCircle,
-            border: Border.all(color: palette.checkCircleBorder, width: 1.5),
-          ),
-          child: Icon(Icons.check, size: 40, color: palette.accent),
-        ),
-        const SizedBox(height: 22),
-        ClipRRect(
-          key: const Key('m6-ready-illustration'),
-          borderRadius: BorderRadius.circular(18),
-          child: const _SplashCrop(
-            width: 224,
-            height: 210,
-            source: m6ReadyIllustrationSource,
-          ),
-        ),
-      ],
+    return Container(
+      key: const Key('m6-ready-check'),
+      width: circleSize,
+      height: circleSize,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: palette.checkCircle,
+        border: Border.all(color: palette.checkCircleBorder, width: 1.5),
+      ),
+      child: Icon(Icons.check, size: checkSize, color: palette.accent),
     );
   }
 }

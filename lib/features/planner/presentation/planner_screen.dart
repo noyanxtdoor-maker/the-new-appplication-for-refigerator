@@ -4834,12 +4834,23 @@ final class _TimedEventTimelineState extends State<_TimedEventTimeline> {
                             final resolvedIndicatorTop =
                                 resolvedMinuteY -
                                 _currentTimeIndicatorHeight / 2;
+                            // M6 closure: the visibility bound is the
+                            // CANVAS (the full 00:00-24:00 civil day this
+                            // timeline always spans), never the soft
+                            // planning window. `visibleStartHour` /
+                            // `visibleEndHour` only seed the initial scroll
+                            // position and the max-zoom-out fit target, so
+                            // gating visibility on them blanked the
+                            // indicator during the boundary hours of any
+                            // window narrower than the full day (e.g.
+                            // 23:00-00:59 for a 01:00-23:00 window, and
+                            // 22:00-05:59 for the 06:00-22:00 default).
                             final indicatorVisible =
                                 widget.settings.showCurrentTime &&
                                 widget.selectedDate ==
                                     PlannerDate.fromDateTime(currentNow) &&
-                                currentNow.hour >= _planWindowFirstHour &&
-                                currentNow.hour < _planWindowLastHour;
+                                currentNow.hour >= kPlannerCivilDayStartHour &&
+                                currentNow.hour < kPlannerCivilDayEndHour;
                             return Stack(
                               clipBehavior: Clip.none,
                               children: <Widget>[

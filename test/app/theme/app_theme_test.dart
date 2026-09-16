@@ -11,7 +11,9 @@ void main() {
 
       expect(AppTheme.rose, expectedRose);
       expect(scheme.primary, AppTheme.roseDarkPrimary);
-      expect(scheme.onPrimary, const Color(0xFF0D0E10));
+      // M6 final correction: the dark on-primary role is WHITE (the M2
+      // near-black baseline is superseded by the owner's FAB foreground law).
+      expect(scheme.onPrimary, AppTheme.darkOnPrimary);
     });
 
     test('Q4: primary and surface text meet WCAG AA contrast', () {
@@ -31,7 +33,9 @@ void main() {
       final scheme = AppTheme.dark(ThemeColorMode.rose).colorScheme;
 
       expect(scheme.primary, AppTheme.roseDarkPrimary);
-      expect(scheme.onPrimary, const Color(0xFF0D0E10));
+      // M6 final correction: the dark on-primary role is WHITE (the M2
+      // near-black baseline is superseded by the owner's FAB foreground law).
+      expect(scheme.onPrimary, AppTheme.darkOnPrimary);
       expect(scheme.surface, const Color(0xFF181A1E));
       expect(scheme.onSurface, const Color(0xFFF4F1F2));
       expect(scheme.outline, const Color(0xFF454850));
@@ -150,7 +154,7 @@ void main() {
       final rose = AppTheme.dark(ThemeColorMode.rose).colorScheme;
 
       expect(blue.primary, AppTheme.blueDarkPrimary);
-      expect(blue.onPrimary, const Color(0xFF0D0E10));
+      expect(blue.onPrimary, AppTheme.darkOnPrimary);
       expect(blue.primaryContainer, const Color(0xFF123A5C));
       expect(blue.onPrimaryContainer, const Color(0xFFD3E3F4));
 

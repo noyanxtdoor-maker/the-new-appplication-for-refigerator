@@ -810,5 +810,75 @@ void main() {
             'own the indicator again',
       );
     });
+
+    testWidgets('TEST 8 — M6 closure: under the DEFAULT 06:00-22:00 '
+        'planning window the 2026-07-31 preview column still paints the '
+        'current-time indicator at 22:59, 23:00, 23:30 and 23:59, because '
+        'the pager canvas spans the full civil day', (tester) async {
+      final (database, plannerRepo) = await _buildRepositories();
+      // Selected is _tomorrow so the previous preview page is _today
+      // (2026-07-31), which owns the indicator for a 2026-07-31 clock.
+      final currentTime = await _pumpPlanner(
+        tester: tester,
+        database: database,
+        plannerRepository: plannerRepo,
+        selected: _tomorrow,
+        current: DateTime(2026, 7, 31, 16, 3),
+      );
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(PlannerScreen)),
+      );
+      final settings = container.read(eventTypeControllerProvider).settings;
+      expect(
+        settings.visibleStartHour,
+        6,
+        reason: 'this regression must run against the DEFAULT planning '
+            'window, not a widened one',
+      );
+      expect(settings.visibleEndHour, 22);
+
+      const samples = <(int, int, String)>[
+        (22, 59, '10:59 PM'),
+        (23, 0, '11:00 PM'),
+        (23, 30, '11:30 PM'),
+        (23, 59, '11:59 PM'),
+      ];
+      for (final (hour, minute, label) in samples) {
+        currentTime.value = DateTime(2026, 7, 31, hour, minute);
+        await tester.pump();
+        final clock =
+            '${hour.toString().padLeft(2, '0')}:'
+            '${minute.toString().padLeft(2, '0')}';
+        final ownership = _indicatorOwnership(
+          tester,
+          previous: _today,
+          selected: _tomorrow,
+          next: PlannerDate(year: 2026, month: 8, day: 2),
+        );
+        expect(
+          ownership.total,
+          1,
+          reason:
+              'the preview page that owns 2026-07-31 must paint exactly one '
+              'indicator at $clock even though the soft planning window '
+              'ends at 22:00',
+        );
+        expect(
+          ownership.ownerPage,
+          _today,
+          reason: 'the 2026-07-31 preview must own the indicator at $clock',
+        );
+        expect(
+          tester
+              .widget<Text>(
+                find.byKey(const Key('planner-current-time-label')),
+              )
+              .data,
+          label,
+          reason: 'the 12-hour label at $clock must be $label',
+        );
+      }
+      expect(tester.takeException(), isNull);
+    });
   });
 }

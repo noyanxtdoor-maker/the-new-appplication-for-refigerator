@@ -1408,6 +1408,202 @@ void main() {
       expect(after.ledger, before.ledger);
       expect(tester.takeException(), isNull);
     });
+
+    testWidgets(
+      'TEST 11 — M6 closure: the indicator stays visible across every hour '
+      'of the selected current day under the DEFAULT 06:00-22:00 planning '
+      'window, including 23:00-23:59 and the noon boundary',
+      (tester) async {
+        final (database, plannerRepo, _) = await _buildRepositories();
+        final pumped = await _pumpPlanner(
+          tester: tester,
+          database: database,
+          plannerRepository: plannerRepo,
+          selected: _selectedToday,
+          current: _fourOhThree,
+        );
+        final container = ProviderScope.containerOf(
+          tester.element(find.byType(PlannerScreen)),
+        );
+        final settings = container.read(eventTypeControllerProvider).settings;
+        expect(
+          settings.visibleStartHour,
+          6,
+          reason: 'this regression must run against the DEFAULT planning '
+              'window, not a widened one',
+        );
+        expect(settings.visibleEndHour, 22);
+
+        const samples = <(int, int, String)>[
+          (11, 59, '11:59 AM'),
+          (12, 0, '12:00 PM'),
+          (12, 59, '12:59 PM'),
+          (13, 0, '1:00 PM'),
+          (22, 0, '10:00 PM'),
+          (22, 59, '10:59 PM'),
+          (23, 0, '11:00 PM'),
+          (23, 30, '11:30 PM'),
+          (23, 59, '11:59 PM'),
+        ];
+        final gridHeight = tester
+            .getRect(find.byKey(const Key('planner-time-grid')))
+            .height;
+        double? previousY;
+        for (final (hour, minute, label) in samples) {
+          pumped.currentTime.value = DateTime(2026, 7, 31, hour, minute);
+          await tester.pump();
+          final clock =
+              '${hour.toString().padLeft(2, '0')}:'
+              '${minute.toString().padLeft(2, '0')}';
+          expect(
+            find.byKey(const Key('planner-current-time-indicator')),
+            findsOneWidget,
+            reason:
+                'the current-time indicator must be visible at $clock on '
+                'the selected current day: the timeline canvas spans the '
+                'full 00:00-24:00 civil day, so the soft planning window '
+                'must never clip the indicator',
+          );
+          expect(
+            tester
+                .widget<Text>(
+                  find.byKey(const Key('planner-current-time-label')),
+                )
+                .data,
+            label,
+            reason: 'the 12-hour label at $clock must be $label',
+          );
+          final centerY = _centerYInGrid(
+            tester,
+            find.byKey(const Key('planner-current-time-dot')),
+          );
+          expect(
+            centerY,
+            greaterThanOrEqualTo(0),
+            reason: 'the $clock dot must stay inside the canvas (got $centerY)',
+          );
+          expect(
+            centerY,
+            lessThanOrEqualTo(gridHeight),
+            reason:
+                'the $clock dot must stay inside the canvas '
+                '(got $centerY of $gridHeight)',
+          );
+          if (previousY != null) {
+            expect(
+              centerY,
+              greaterThan(previousY),
+              reason:
+                  'the indicator must advance monotonically through the '
+                  'day (at $clock expected greater than $previousY, got '
+                  '$centerY)',
+            );
+          }
+          previousY = centerY;
+        }
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets(
+      'TEST 12 — M6 closure: after the local date rollover the indicator '
+      'reappears at 00:00 and remains continuous through 01:00 on the NEW '
+      'current day under the DEFAULT planning window',
+      (tester) async {
+        final (database, plannerRepo, _) = await _buildRepositories();
+        const august1 = PlannerDate(year: 2026, month: 8, day: 1);
+        final pumped = await _pumpPlanner(
+          tester: tester,
+          database: database,
+          plannerRepository: plannerRepo,
+          selected: august1,
+          current: _august1Midnight,
+        );
+        final container = ProviderScope.containerOf(
+          tester.element(find.byType(PlannerScreen)),
+        );
+        final settings = container.read(eventTypeControllerProvider).settings;
+        expect(settings.visibleStartHour, 6);
+        expect(settings.visibleEndHour, 22);
+
+        // Date law first: while the clock is still 31 July 23:59,
+        // viewing 1 August must not paint the marker at all (a
+        // 00:00-05:59 planner row is still 31 July's row).
+        pumped.currentTime.value = _july31LateNight;
+        await tester.pump();
+        expect(
+          find.byKey(const Key('planner-current-time-indicator')),
+          findsNothing,
+          reason:
+              'the indicator must never paint on a non-current viewed '
+              'date',
+        );
+
+        const samples = <(int, int, String)>[
+          (0, 0, '12:00 AM'),
+          (0, 1, '12:01 AM'),
+          (0, 30, '12:30 AM'),
+          (0, 59, '12:59 AM'),
+          (1, 0, '1:00 AM'),
+        ];
+        double? previousY;
+        for (final (hour, minute, label) in samples) {
+          pumped.currentTime.value = DateTime(2026, 8, 1, hour, minute);
+          await tester.pump();
+          final clock =
+              '${hour.toString().padLeft(2, '0')}:'
+              '${minute.toString().padLeft(2, '0')}';
+          expect(
+            find.byKey(const Key('planner-current-time-indicator')),
+            findsOneWidget,
+            reason:
+                'the current-time indicator must be visible at $clock on '
+                'the new current local day (the canvas starts at 00:00, so '
+                'the soft planning window must not clip the indicator)',
+          );
+          expect(
+            tester
+                .widget<Text>(
+                  find.byKey(const Key('planner-current-time-label')),
+                )
+                .data,
+            label,
+            reason: 'the 12-hour label at $clock must be $label',
+          );
+          final centerY = _centerYInGrid(
+            tester,
+            find.byKey(const Key('planner-current-time-dot')),
+          );
+          if (previousY == null) {
+            expect(
+              centerY,
+              closeTo(0, 0.5),
+              reason:
+                  '00:00 must sit at the very top of the full civil-day '
+                  'canvas (got $centerY)',
+            );
+          } else {
+            expect(
+              centerY,
+              greaterThan(previousY),
+              reason:
+                  'the indicator must advance monotonically into the new '
+                  'day (at $clock expected greater than $previousY, got '
+                  '$centerY)',
+            );
+          }
+          previousY = centerY;
+        }
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    // M6 closure regression: the boundary hours of the soft planning
+    // window are exactly where the indicator used to vanish. `TEST 11`
+    // and `TEST 12` drive the DEFAULT 06:00-22:00 window above so a
+    // future change that re-couples visibility to
+    // `visibleStartHour` / `visibleEndHour` fails loudly instead of
+    // silently blanking 22:00-05:59 again.
   });
 
   // ------------------------------------------------------------- CT-02
@@ -1589,7 +1785,7 @@ void main() {
         tester,
         theme: AppTheme.dark(ThemeColorMode.rose),
         expectedPrimary: AppTheme.roseDarkPrimary,
-        expectedOnPrimary: AppTheme.blueDarkOnPrimary,
+        expectedOnPrimary: AppTheme.darkOnPrimary,
       );
     });
 
@@ -1599,7 +1795,7 @@ void main() {
         tester,
         theme: AppTheme.dark(ThemeColorMode.blue),
         expectedPrimary: AppTheme.blueDarkPrimary,
-        expectedOnPrimary: AppTheme.blueDarkOnPrimary,
+        expectedOnPrimary: AppTheme.darkOnPrimary,
       );
     });
   });

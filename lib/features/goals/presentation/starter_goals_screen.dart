@@ -4,8 +4,8 @@ import 'package:rmplanner/app/theme/app_theme.dart';
 import 'package:rmplanner/app/theme/internal_screen.dart';
 import 'package:rmplanner/features/goals/application/goal_providers.dart';
 import 'package:rmplanner/features/goals/domain/goal.dart';
-import 'package:rmplanner/features/goals/domain/goal_icon_registry.dart';
 import 'package:rmplanner/features/goals/domain/starter_goals.dart';
+import 'package:rmplanner/features/goals/presentation/widgets/goal_icon.dart';
 import 'package:rmplanner/features/indicators/domain/life_indicator.dart';
 import 'package:rmplanner/features/settings/application/start_of_week_providers.dart';
 
@@ -100,9 +100,11 @@ final class _StarterGoalsScreenState extends ConsumerState<StarterGoalsScreen> {
                 ? _amount(_targetFor(_monthly, template))
                 : null,
           ),
-          iconId: GoalIconRegistry.instance
-              .suggestForGoalTitle(template.title)
-              ?.iconId,
+          // M6 FINAL CORRECTION: the icon is the template's declared canonical
+          // identity.  It is NEVER derived from `suggestForGoalTitle`, whose
+          // fuzzy keyword match returned null for "Ministering Visit" and the
+          // wrong icon for other templates.
+          iconId: template.iconId,
           expectedSlotIndex: slot,
           startDay: startDay,
         );
@@ -283,6 +285,19 @@ final class _StarterGoalCard extends StatelessWidget {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
+                // M6 FINAL CORRECTION: the canonical SVG is visible while
+                // choosing, so the icon the Goal will actually carry is never a
+                // surprise after creation.
+                Padding(
+                  padding: const EdgeInsets.only(top: 2, right: 12),
+                  child: GoalIcon(
+                    key: Key('starter-goal-${template.id}-icon'),
+                    iconId: template.iconId,
+                    size: 32,
+                    semanticLabel: '${template.title} icon',
+                    fallbackIcon: goalIconFallbackForRole(template.role),
+                  ),
+                ),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,

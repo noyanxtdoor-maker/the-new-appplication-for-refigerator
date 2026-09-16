@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:rmplanner/app/theme/app_theme.dart';
 import 'package:rmplanner/app/theme/theme_color_mode.dart';
 import 'package:rmplanner/core/database/app_database.dart';
 import 'package:rmplanner/core/diagnostics/sanitized_diagnostics.dart';
 import 'package:rmplanner/core/platform/app_environment.dart';
 import 'package:rmplanner/features/settings/application/appearance_providers.dart';
 import 'package:rmplanner/features/settings/application/appearance_repository.dart';
-import 'package:rmplanner/features/startup/presentation/onboarding_screen.dart';
 
 import '../support/test_dependencies.dart';
 
@@ -205,7 +205,9 @@ void main() {
     expect(checkIcon.color, setupAccent);
   });
 
-  testWidgets('Ready check and illustration never overlap', (tester) async {
+  testWidgets('Ready is minimal: one restrained white check, no artwork', (
+    tester,
+  ) async {
     final database = openMemoryDatabase();
     addTearDown(database.close);
     await pumpFrontDoor(tester, database);
@@ -223,41 +225,174 @@ void main() {
       findsOneWidget,
     );
 
-    final check = tester.getRect(find.byKey(const Key('m6-ready-check')));
-    final illustration = tester.getRect(
-      find.byKey(const Key('m6-ready-illustration')),
+    // M6 FINAL CORRECTION: You're Ready is MINIMAL.  The splash crop, the
+    // mountain/path artwork, the app mark and any secondary artwork tile were
+    // removed, so no illustration node and no image may exist here.
+    expect(find.byKey(const Key('m6-ready-illustration')), findsNothing);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('m6-ready-check')),
+        matching: find.byType(Image),
+      ),
+      findsNothing,
+      reason: 'the success mark must never be artwork',
     );
-    // Clean separation: the restrained mark sits wholly above the artwork.
-    expect(check.bottom, lessThanOrEqualTo(illustration.top));
-    // The mark is restrained, not the owner-rejected oversized glyph.
-    expect(check.width, lessThanOrEqualTo(90));
-    expect(check.height, lessThanOrEqualTo(90));
+
+    // Owner-locked restrained size: the old 76px circle read oversized.
+    final check = tester.getRect(find.byKey(const Key('m6-ready-check')));
+    expect(check.width, 64);
+    expect(check.height, 64);
+
+    final glyph = tester.widget<Icon>(
+      find.descendant(
+        of: find.byKey(const Key('m6-ready-check')),
+        matching: find.byType(Icon),
+      ),
+    );
+    expect(glyph.size, 32);
+    expect(glyph.icon, Icons.check);
+
+    expect(tester.takeException(), isNull);
   });
 
-  test('Ready illustration crop stays inside the splash tile (no app mark)', () {
+  testWidgets('Ready has no splash artwork anywhere on the screen', (
+    tester,
+  ) async {
+    final database = openMemoryDatabase();
+    addTearDown(database.close);
+    await pumpFrontDoor(tester, database);
+    await tester.tap(find.text('Get Started'));
+    await tester.pumpAndSettle();
+    await scrollTo(tester, find.byKey(const Key('m6-setup-continue')));
+    await tester.tap(find.byKey(const Key('m6-setup-continue')));
+    await tester.pumpAndSettle();
+
+    // The frozen splash PNG is still used by the Welcome mark, but You're
+    // Ready must carry none of it.
     expect(
-      m6ReadyIllustrationSource.left,
-      greaterThanOrEqualTo(
-        m6SplashTileBounds.left + m6ReadyIllustrationMinTileMargin,
+      find.descendant(
+        of: find.byType(Scaffold),
+        matching: find.byType(ClipRRect),
       ),
+      findsNothing,
     );
-    expect(
-      m6ReadyIllustrationSource.right,
-      lessThanOrEqualTo(
-        m6SplashTileBounds.right - m6ReadyIllustrationMinTileMargin,
-      ),
-    );
-    expect(
-      m6ReadyIllustrationSource.top,
-      greaterThanOrEqualTo(
-        m6SplashTileBounds.top + m6ReadyIllustrationMinTileMargin,
-      ),
-    );
-    expect(
-      m6ReadyIllustrationSource.bottom,
-      lessThanOrEqualTo(
-        m6SplashTileBounds.bottom - m6ReadyIllustrationMinTileMargin,
-      ),
-    );
+
+    // Go to Home stays present and reachable on the minimal screen.
+    final cta = find.byKey(const Key('m6-ready-cta'));
+    expect(cta, findsOneWidget);
+    expect(tester.getRect(cta).bottom, lessThanOrEqualTo(tester.view.physicalSize.height / tester.view.devicePixelRatio));
   });
+
+  testWidgets('Welcome carries the owner tagline and drops the old line', (
+    tester,
+  ) async {
+    final database = openMemoryDatabase();
+    addTearDown(database.close);
+    await pumpFrontDoor(tester, database);
+
+    expect(find.text('Your next transfer\nstarts here.'), findsOneWidget);
+    expect(
+      find.text('The mission has ended. The next transfer begins.'),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Plan what matters, privately on this device.'),
+      findsNothing,
+    );
+    expect(find.text('Get Started'), findsOneWidget);
+  });
+
+  testWidgets('the Setup Blue and Rose swatches show the APPLIED accent', (
+    tester,
+  ) async {
+    // Fresh install: dark + blue, so the chooser must show the DARK tonal step
+    // of the canonical brand accents — never a stray decorative blue.
+    final database = openMemoryDatabase();
+    addTearDown(database.close);
+    await pumpFrontDoor(tester, database);
+    await tester.tap(find.text('Get Started'));
+    await tester.pumpAndSettle();
+
+    await scrollTo(tester, find.byKey(const Key('m6-accent-option-blue')));
+    expect(swatchColor(tester, 'blue'), AppTheme.blueDarkPrimary);
+    expect(swatchColor(tester, 'rose'), AppTheme.roseDarkPrimary);
+
+    // Light resolves the light tonal step of the SAME two identities.
+    await tester.tap(find.byKey(const Key('m6-theme-option-light')));
+    await tester.pumpAndSettle();
+    await scrollTo(tester, find.byKey(const Key('m6-accent-option-blue')));
+    expect(swatchColor(tester, 'blue'), AppTheme.blueLightPrimary);
+    expect(swatchColor(tester, 'rose'), AppTheme.roseLightPrimary);
+  });
+
+  test('dark primary-filled surfaces use the canonical WHITE foreground', () {
+    expect(AppTheme.darkOnPrimary, Colors.white);
+    for (final mode in ThemeColorMode.values) {
+      final dark = AppTheme.dark(mode);
+      expect(dark.colorScheme.onPrimary, AppTheme.darkOnPrimary);
+      expect(
+        dark.floatingActionButtonTheme.backgroundColor,
+        dark.colorScheme.primary,
+      );
+      expect(dark.floatingActionButtonTheme.foregroundColor, Colors.white);
+
+      final light = AppTheme.light(mode);
+      expect(light.floatingActionButtonTheme.foregroundColor, Colors.white);
+    }
+  });
+
+  test('the white foreground keeps every pinned contrast gate', () {
+    for (final primary in <Color>[
+      AppTheme.blueDarkPrimary,
+      AppTheme.roseDarkPrimary,
+    ]) {
+      expect(_contrast(Colors.white, primary), greaterThanOrEqualTo(4.5));
+      expect(
+        _contrast(primary, const Color(0xFF0D0E10)),
+        greaterThanOrEqualTo(4.0),
+      );
+      expect(_contrast(primary, AppTheme.surface), greaterThanOrEqualTo(3.5));
+      expect(
+        _contrast(primary, const Color(0xFF101113)),
+        greaterThanOrEqualTo(4.0),
+      );
+    }
+  });
+
+  test('dark blue surfaces no longer seed from a stray pale blue', () {
+    final blue = AppTheme.dark(ThemeColorMode.blue).colorScheme;
+    final straySeed = ColorScheme.fromSeed(
+      seedColor: const Color(0xFF9FC8F0),
+      brightness: Brightness.dark,
+      surface: AppTheme.surface,
+    );
+    // `surfaceTint` is the seed-derived channel Material leaves least damped,
+    // so it is the reliable observable that the dark scheme is no longer
+    // derived from the stray pale blue.  Container tones are deliberately NOT
+    // asserted here: Material rounds them onto a shared tonal ramp, so two
+    // different blue seeds can legitimately land on the same container value.
+    expect(blue.surfaceTint, isNot(straySeed.surfaceTint));
+    // The dark seed IS the documented brand identity.
+    expect(AppTheme.brandBlueHue, AppTheme.blueDarkPrimary);
+  });
+}
+
+/// WCAG relative-luminance contrast ratio between two opaque colours.
+double _contrast(Color a, Color b) {
+  final la = a.computeLuminance();
+  final lb = b.computeLuminance();
+  final lighter = la > lb ? la : lb;
+  final darker = la > lb ? lb : la;
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+/// The colour painted by the accent chooser's swatch for [storageName].
+Color swatchColor(WidgetTester tester, String storageName) {
+  final container = tester.widget<Container>(
+    find.descendant(
+      of: find.byKey(Key('m6-accent-option-$storageName')),
+      matching: find.byType(Container),
+    ),
+  );
+  return (container.decoration! as BoxDecoration).color!;
 }

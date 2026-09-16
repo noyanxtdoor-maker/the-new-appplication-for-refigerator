@@ -110,7 +110,9 @@ void main() {
 
     final goals = await database.select(database.goals).get();
     expect(goals, hasLength(1));
-    expect(goals.single.title, 'Job Applications');
+    // M6 FINAL CORRECTION: the created Goal carries the owner-approved
+    // Starter name, so Starter list, Goal Planning and Home all agree.
+    expect(goals.single.title, 'Find Date');
     expect(goals.single.role, GoalRole.dailyWeekly.storageName);
   });
 
@@ -160,7 +162,7 @@ void main() {
     expect(goals, hasLength(2));
     expect(
       goals.map((goal) => goal.title).toSet(),
-      <String>{'Scripture Study', 'Exercise'},
+      <String>{'Work with Missionaries', 'Exercise'},
     );
   });
 

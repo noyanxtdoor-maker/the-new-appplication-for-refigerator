@@ -21,6 +21,7 @@ import 'package:rmplanner/features/maps/domain/map_coordinate.dart';
 import 'package:rmplanner/features/maps/domain/saved_place.dart';
 import 'package:rmplanner/features/maps/presentation/saved_place_marker_visuals.dart';
 import 'package:rmplanner/features/planner/presentation/widgets/anchored_top_bar_popup.dart';
+import 'package:rmplanner/features/privacy/application/privacy_providers.dart';
 
 export 'package:rmplanner/features/maps/application/map_session_provider.dart'
     show NextTransferMapType;
@@ -162,7 +163,8 @@ final class GoogleMapsSurface extends ConsumerStatefulWidget {
   ConsumerState<GoogleMapsSurface> createState() => _GoogleMapsSurfaceState();
 }
 
-final class _GoogleMapsSurfaceState extends ConsumerState<GoogleMapsSurface> {
+final class _GoogleMapsSurfaceState extends ConsumerState<GoogleMapsSurface>
+    with WidgetsBindingObserver {
   static const double _markerEdgeWidth = 2;
   static const double _markerLogicalSize = 34;
   // Selected-marker composition constants. The pin lives entirely in the
@@ -320,6 +322,21 @@ final class _GoogleMapsSurfaceState extends ConsumerState<GoogleMapsSurface> {
   int? _lastDispatchedFocusNonce;
   bool _locating = false;
   bool _showMyLocation = false;
+
+  /// True after an explicit Locate whose permission Android is blocking.  A
+  /// resume that finds Location now enabled continues the SAME intent, so the
+  /// user never has to leave Maps, reopen it and find Locate again.
+  bool _locateIntentPending = false;
+
+  /// Bounded base-map readiness watchdog — the only honest signal Dart has.
+  /// If the platform view never reports a created controller inside the window
+  /// the map surface did not come up; this NEVER claims to detect a native
+  /// tile/authorization failure, which is invisible from Dart.
+  Timer? _mapReadyWatchdog;
+  bool _mapLoadFailed = false;
+  int _mapGeneration = 0;
+
+  static const Duration _mapReadyTimeout = Duration(seconds: 12);
   // VS-15 M6.2: layer visibility and grouping derive from the ONE durable
   // MapsPreferences provider (device-scoped). The old independent local
   // booleans are retired — a recreated surface cannot reset a user choice.
@@ -371,6 +388,72 @@ final class _GoogleMapsSurfaceState extends ConsumerState<GoogleMapsSurface> {
       if (mounted) setState(() {});
     });
     ref.listenManual(mapsPreferencesProvider, _onMapsPreferencesChanged);
+    WidgetsBinding.instance.addObserver(this);
+    _armMapReadyWatchdog();
+  }
+
+  /// Armed only for the REAL platform map.  A test double that injects a
+  /// `mapBuilder` never creates a platform view, so it must never trip the
+  /// watchdog.
+  void _armMapReadyWatchdog() {
+    _mapReadyWatchdog?.cancel();
+    _mapReadyWatchdog = null;
+    if (widget.mapBuilder != null) {
+      return;
+    }
+    _mapReadyWatchdog = Timer(_mapReadyTimeout, () {
+      if (!mounted || _controller != null) {
+        return;
+      }
+      setState(() => _mapLoadFailed = true);
+    });
+  }
+
+  /// Recreates the platform view instead of recycling a dead one.  The
+  /// generation is part of the GoogleMap key, so Flutter disposes the old
+  /// view and builds a fresh one.
+  void _retryMapLoad() {
+    setState(() {
+      _mapLoadFailed = false;
+      _mapGeneration += 1;
+      _controller = null;
+    });
+    _armMapReadyWatchdog();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed || !_locateIntentPending) {
+      return;
+    }
+    unawaited(_resumePendingLocate());
+  }
+
+  /// Passive recovery only — it NEVER prompts.  If the user turned Location on
+  /// in Android Settings and came back, the pending Locate continues on its
+  /// own.  Uses the existing no-prompt capability, never background location.
+  Future<void> _resumePendingLocate() async {
+    if (_locating || !mounted) {
+      return;
+    }
+    final service = ref.read(currentLocationServiceProvider);
+    if (service is! PassiveCurrentLocationService) {
+      return;
+    }
+    final result = await (service as PassiveCurrentLocationService)
+        .locateIfAlreadyGranted();
+    if (!mounted || result.status != CurrentLocationStatus.located) {
+      return;
+    }
+    final coordinate = result.coordinate;
+    if (coordinate == null) {
+      return;
+    }
+    _locateIntentPending = false;
+    _startupCameraClaimed = true;
+    _cameraIntent += 1;
+    setState(() => _showMyLocation = true);
+    await _animateTo(coordinate, zoom: 16);
   }
 
   @override
@@ -398,6 +481,9 @@ final class _GoogleMapsSurfaceState extends ConsumerState<GoogleMapsSurface> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _mapReadyWatchdog?.cancel();
+    _mapReadyWatchdog = null;
     _interactionChannel?.setMethodCallHandler(null);
     _controller?.dispose();
     super.dispose();
@@ -576,7 +662,12 @@ final class _GoogleMapsSurfaceState extends ConsumerState<GoogleMapsSurface> {
   );
 
   Future<void> _onMapCreated(GoogleMapController controller) async {
+    _mapReadyWatchdog?.cancel();
+    _mapReadyWatchdog = null;
     _controller = controller;
+    if (_mapLoadFailed && mounted) {
+      setState(() => _mapLoadFailed = false);
+    }
     widget.onMapController?.call(controller);
     ref.read(mapsSessionProvider.notifier).recordCamera(_initialCameraPosition);
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
@@ -1277,18 +1368,39 @@ final class _GoogleMapsSurfaceState extends ConsumerState<GoogleMapsSurface> {
       CurrentLocationStatus.denied =>
         'Location permission was denied. You can still use the map.',
       CurrentLocationStatus.permanentlyDenied =>
-        'Location is blocked in Android Settings. The map remains usable.',
+        'Location is blocked for Next Transfer. Turn it on in Android '
+            'Settings and come back — the map continues on its own.',
       CurrentLocationStatus.serviceDisabled =>
         'Turn on device location, then try Locate again.',
       CurrentLocationStatus.unavailable =>
         'Your current location could not be determined. Try again.',
       CurrentLocationStatus.located => null,
     };
+    // M6 FINAL CORRECTION: a blocked Locate gets a truthful route to the one
+    // place that can change it, and the intent survives the Settings trip.
+    final needsSettings =
+        result.status == CurrentLocationStatus.permanentlyDenied;
+    _locateIntentPending = needsSettings;
     if (message != null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(message)));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          duration: needsSettings
+              ? const Duration(seconds: 8)
+              : const Duration(seconds: 4),
+          action: needsSettings
+              ? SnackBarAction(
+                  label: 'Settings',
+                  onPressed: () => unawaited(_openAppSettings()),
+                )
+              : null,
+        ),
+      );
     }
+  }
+
+  Future<void> _openAppSettings() async {
+    await ref.read(permissionGatewayProvider).openSystemSettings();
   }
 
   Future<void> _applyPassiveCoordinate(MapCoordinate coordinate) async {
@@ -1518,7 +1630,9 @@ final class _GoogleMapsSurfaceState extends ConsumerState<GoogleMapsSurface> {
             Listener(
               onPointerDown: (_) => _claimUserCameraIntent(),
               child: GoogleMap(
-                key: const Key('maps-screen-map'),
+                // M6 FINAL CORRECTION: the generation lets Retry recreate the
+                // platform view instead of recycling a dead one.
+                key: Key('maps-screen-map-$_mapGeneration'),
                 initialCameraPosition: _initialCameraPosition,
                 mapType: mapType.googleType,
                 markers: _markers,
@@ -1569,6 +1683,12 @@ final class _GoogleMapsSurfaceState extends ConsumerState<GoogleMapsSurface> {
                 },
               ),
             ),
+        // M6 FINAL CORRECTION: a bounded, truthful base-map failure surface.
+        // It sits UNDER the floating controls so they stay usable, and it can
+        // only be visible while no platform controller ever came up, so a
+        // healthy map is never covered.
+        if (_mapLoadFailed)
+          Positioned.fill(child: _MapLoadFailure(onRetry: _retryMapLoad)),
         ValueListenableBuilder<double>(
           valueListenable: widget.controlsLift ?? _ZeroValueListenable(),
           builder: (context, lift, _) {
@@ -1702,6 +1822,61 @@ final class _CompactMarkerToggle extends StatelessWidget {
               scale: .84,
               child: Switch(value: value, onChanged: onChanged),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The bounded base-map failure surface.
+///
+/// Dart cannot observe a native tile/authorization failure, so this is shown
+/// only after the map surface failed to report a created controller inside the
+/// watchdog window.  It states the situation truthfully, never blames Location
+/// permission (the base map does not need it) and never leaks a credential.
+final class _MapLoadFailure extends StatelessWidget {
+  const _MapLoadFailure({required this.onRetry});
+
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: Theme.of(context).colorScheme.surface,
+      child: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            key: const Key('maps-load-failure'),
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Icon(
+                Icons.map_outlined,
+                size: 48,
+                color: AppTheme.secondaryTextOf(context),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'The map could not load',
+                textAlign: TextAlign.center,
+                style: AppTypography.sectionTitle,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Next Transfer could not start the map surface on this device. '
+                'Check your connection and try again. Your saved pins are '
+                'untouched.',
+                textAlign: TextAlign.center,
+                style: AppTypography.secondary,
+              ),
+              const SizedBox(height: 20),
+              FilledButton(
+                key: const Key('maps-load-retry'),
+                onPressed: onRetry,
+                child: const Text('Retry'),
+              ),
+            ],
           ),
         ),
       ),

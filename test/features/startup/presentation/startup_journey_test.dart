@@ -40,7 +40,7 @@ void main() {
       // Screen 1 — Welcome: approved copy, dots, no account/tutorial chrome.
       expect(find.text('Your next transfer\nstarts here.'), findsOneWidget);
       expect(
-        find.text('Plan what matters, privately on this device.'),
+        find.text('The mission has ended. The next transfer begins.'),
         findsOneWidget,
       );
       expect(find.text('Get Started'), findsOneWidget);

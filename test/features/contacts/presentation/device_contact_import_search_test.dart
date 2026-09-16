@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:rmplanner/features/contacts/domain/contact.dart';
 import 'package:rmplanner/features/contacts/presentation/device_contact_import_screen.dart';
+import 'package:rmplanner/features/privacy/domain/permission_summary.dart';
 
 void main() {
   final drafts = <DeviceContactDraft>[
@@ -30,7 +30,8 @@ void main() {
         child: MaterialApp(
           home: DeviceContactImportScreen(
             deviceReader: () async => drafts,
-            permissionRequester: () async => PermissionStatus.granted,
+            permissionRequester: () async =>
+                OperatingSystemPermissionState.granted,
           ),
         ),
       ),
