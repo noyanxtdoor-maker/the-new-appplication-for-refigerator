@@ -86,6 +86,19 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.byType(MapsScreen), findsOneWidget);
+      // CLOSED-BETA HOTFIX (owner law, 2026-09-16): the FIRST Maps entry now
+      // presents the ONE app-owned Location education surface. It is
+      // dismissible and never gates the base map; answer it here so its modal
+      // barrier cannot absorb the next tab tap. The Maps screen identity and
+      // the tab-return law asserted below are unchanged.
+      expect(
+        find.byKey(const Key('maps-location-education')),
+        findsOneWidget,
+      );
+      await tester.tap(
+        find.byKey(const Key('maps-location-education-not-now')),
+      );
+      await tester.pumpAndSettle();
       // Switching back to Home restores the first tab (index 0).
       await tester.tap(
         find.descendant(of: navFinder(), matching: find.text('Home')),

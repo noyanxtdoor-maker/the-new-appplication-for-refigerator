@@ -149,11 +149,16 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(service.locateCalls, 1);
-    expect(find.textContaining('Location is blocked for Next Transfer'),
-        findsOneWidget);
-    expect(find.text('Settings'), findsOneWidget);
+    // CLOSED-BETA HOTFIX (owner law, 2026-09-16): the permanently denied
+    // route is now the explicit app-owned education surface rather than the
+    // previous transient snackbar with its bare 'Settings' action.
+    expect(
+      find.byKey(const Key('maps-location-settings-education')),
+      findsOneWidget,
+    );
+    expect(find.text('Location permission is turned off'), findsOneWidget);
 
-    await tester.tap(find.text('Settings'));
+    await tester.tap(find.byKey(const Key('maps-location-settings-open')));
     await tester.pumpAndSettle();
     expect(gateway.settingsOpened, isTrue);
   });

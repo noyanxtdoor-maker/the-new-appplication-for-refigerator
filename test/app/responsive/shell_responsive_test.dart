@@ -172,6 +172,14 @@ void main() {
       await tester.tap(navigationLabelFinder('Maps'));
       await tester.pumpAndSettle();
       expect(tester.widget<NavigationRail>(railFinder()).selectedIndex, 3);
+      // CLOSED-BETA HOTFIX (owner law): the FIRST Maps entry presents the ONE
+      // app-owned Location education surface. Answer it before the next tab
+      // tap so its modal barrier cannot absorb it; the rail routing law this
+      // test asserts is unchanged.
+      await tester.tap(
+        find.byKey(const Key('maps-location-education-not-now')),
+      );
+      await tester.pumpAndSettle();
 
       await tester.tap(navigationLabelFinder('Home'));
       await tester.pumpAndSettle();

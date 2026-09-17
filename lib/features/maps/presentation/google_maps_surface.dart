@@ -15,13 +15,16 @@ import 'package:rmplanner/features/maps/application/map_interaction_trace.dart';
 import 'package:rmplanner/features/maps/application/map_marker_target.dart';
 import 'package:rmplanner/features/maps/application/map_providers.dart';
 import 'package:rmplanner/features/maps/application/map_session_provider.dart';
+import 'package:rmplanner/features/maps/application/maps_location_education_provider.dart';
 import 'package:rmplanner/features/maps/application/maps_preferences_provider.dart';
 import 'package:rmplanner/features/maps/application/maps_preferences_repository.dart';
 import 'package:rmplanner/features/maps/domain/map_coordinate.dart';
 import 'package:rmplanner/features/maps/domain/saved_place.dart';
+import 'package:rmplanner/features/maps/presentation/maps_location_education.dart';
 import 'package:rmplanner/features/maps/presentation/saved_place_marker_visuals.dart';
 import 'package:rmplanner/features/planner/presentation/widgets/anchored_top_bar_popup.dart';
 import 'package:rmplanner/features/privacy/application/privacy_providers.dart';
+import 'package:rmplanner/features/privacy/domain/permission_summary.dart';
 
 export 'package:rmplanner/features/maps/application/map_session_provider.dart'
     show NextTransferMapType;
@@ -390,6 +393,38 @@ final class _GoogleMapsSurfaceState extends ConsumerState<GoogleMapsSurface>
     ref.listenManual(mapsPreferencesProvider, _onMapsPreferencesChanged);
     WidgetsBinding.instance.addObserver(this);
     _armMapReadyWatchdog();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        unawaited(_presentLocationEducationIfDue());
+      }
+    });
+  }
+
+  /// OWNER LAW (closed-beta Maps hotfix): the ONE first-entry Location
+  /// education, presented from the canonical map surface.
+  ///
+  /// It never gates or covers the base map — the map is already built behind
+  /// it — and "Allow location" is answered by the EXISTING Locate path, which
+  /// is what actually raises the operating-system runtime dialog and records
+  /// the truthful privacy audit. No second permission framework is added.
+  Future<void> _presentLocationEducationIfDue() async {
+    final bool due;
+    try {
+      due = await ref.read(mapsLocationEducationDueProvider.future);
+    } on Object {
+      return;
+    }
+    if (!mounted || !due) {
+      return;
+    }
+    // Marked BEFORE the dialog: "Not now" (or a barrier dismissal) must never
+    // re-present inside this session.
+    ref.read(mapsLocationEducationProvider.notifier).markPresented();
+    final choice = await showMapsLocationEducationDialog(context);
+    if (!mounted || choice != MapsLocationEducationChoice.allow) {
+      return;
+    }
+    await _locate();
   }
 
   /// Armed only for the REAL platform map.  A test double that injects a
@@ -423,10 +458,39 @@ final class _GoogleMapsSurfaceState extends ConsumerState<GoogleMapsSurface>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state != AppLifecycleState.resumed || !_locateIntentPending) {
+    if (state != AppLifecycleState.resumed) {
       return;
     }
-    unawaited(_resumePendingLocate());
+    // OWNER-REPORTED DEFECT: manually granting Location in Android App
+    // Settings and returning produced no visible reaction, because permission
+    // state was only re-read while a blocked Locate intent was pending. This
+    // refresh is PASSIVE — it never prompts and never moves the camera.
+    unawaited(_refreshLocationPermissionOnResume());
+    if (_locateIntentPending) {
+      unawaited(_resumePendingLocate());
+    }
+  }
+
+  /// Re-reads the REAL operating-system Location permission on every resume.
+  ///
+  /// The blue-dot state follows the operating system, never a stale in-memory
+  /// value, so no restart or navigation round trip is required. A graceful
+  /// no-op when the permission is unavailable or the read fails.
+  Future<void> _refreshLocationPermissionOnResume() async {
+    final bool granted;
+    try {
+      granted =
+          await ref
+              .read(permissionGatewayProvider)
+              .status(OptionalPermission.foregroundLocation) ==
+          OperatingSystemPermissionState.granted;
+    } on Object {
+      return;
+    }
+    if (!mounted || !granted || _showMyLocation) {
+      return;
+    }
+    setState(() => _showMyLocation = true);
   }
 
   /// Passive recovery only — it NEVER prompts.  If the user turned Location on
@@ -1347,6 +1411,9 @@ final class _GoogleMapsSurfaceState extends ConsumerState<GoogleMapsSurface>
 
   Future<void> _locate() async {
     if (_locating) return;
+    // An explicit Locate answers the education question too: the user has just
+    // engaged with Location directly, so the first-entry prompt is finished.
+    ref.read(mapsLocationEducationProvider.notifier).markPresented();
     _startupCameraClaimed = true;
     _cameraIntent += 1;
     setState(() => _locating = true);
@@ -1364,36 +1431,35 @@ final class _GoogleMapsSurfaceState extends ConsumerState<GoogleMapsSurface>
       return;
     }
     if (!mounted) return;
+    // OWNER LAW (closed-beta Maps hotfix): a permanently denied permission has
+    // exactly one remaining route, so it gets the explicit education surface
+    // with a direct app-settings action. The M6 intent law is preserved: the
+    // pending Locate still continues by itself when the user comes back.
+    if (result.status == CurrentLocationStatus.permanentlyDenied) {
+      _locateIntentPending = true;
+      final choice = await showMapsLocationSettingsDialog(context);
+      if (!mounted) return;
+      if (choice == MapsLocationSettingsChoice.openSettings) {
+        await _openAppSettings();
+      }
+      return;
+    }
+    _locateIntentPending = false;
     final message = switch (result.status) {
       CurrentLocationStatus.denied =>
         'Location permission was denied. You can still use the map.',
-      CurrentLocationStatus.permanentlyDenied =>
-        'Location is blocked for Next Transfer. Turn it on in Android '
-            'Settings and come back — the map continues on its own.',
       CurrentLocationStatus.serviceDisabled =>
         'Turn on device location, then try Locate again.',
       CurrentLocationStatus.unavailable =>
         'Your current location could not be determined. Try again.',
-      CurrentLocationStatus.located => null,
+      CurrentLocationStatus.located ||
+      CurrentLocationStatus.permanentlyDenied => null,
     };
-    // M6 FINAL CORRECTION: a blocked Locate gets a truthful route to the one
-    // place that can change it, and the intent survives the Settings trip.
-    final needsSettings =
-        result.status == CurrentLocationStatus.permanentlyDenied;
-    _locateIntentPending = needsSettings;
     if (message != null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(message),
-          duration: needsSettings
-              ? const Duration(seconds: 8)
-              : const Duration(seconds: 4),
-          action: needsSettings
-              ? SnackBarAction(
-                  label: 'Settings',
-                  onPressed: () => unawaited(_openAppSettings()),
-                )
-              : null,
+          duration: const Duration(seconds: 4),
         ),
       );
     }
