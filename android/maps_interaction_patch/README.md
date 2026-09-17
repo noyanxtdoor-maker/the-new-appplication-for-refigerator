@@ -83,11 +83,24 @@ and distance to identify only that individual's would-be cluster. It never adds
 the selected record to the live manager. An exact-coordinate remainder is
 handled by Dart and is excluded from that inference.
 
-Only that remainder can render below the unchanged global minimum of 4.
-Other three-record groups retain upstream behavior. Membership changes and
-selection clear trigger clustering without a camera action. A read-only
-remainder query on camera idle keeps the exception consistent with the current
-zoom, without replacing the live clustering algorithm.
+OWNER BUG (closed beta, corrected): the render gate originally inherited the
+library's global minimum of four records per cluster, and only the selected
+remainder could render below it. That made the durable **Group nearby markers**
+setting inert for the ordinary case — two or three nearby records of the same
+category never grouped at all, at any zoom, so the setting looked broken. The
+gate now renders a group from `ntMinimumGroupSize = 2` records, and the
+remainder query uses the same constant. The dependency's own default is NOT
+patched (`getMinClusterSize()` still reports 4). A plain library algorithm still
+carries the library's own 100-pixel radius; only the cluster managers this app
+creates — which exist only while the setting is ON — are tuned to
+`ntGroupRadiusPx = 65` screen pixels at the current zoom, because the owner
+found 100 px collapsed genuinely nearby pins while they were still far apart on
+screen. Grouping still loosens as the user zooms out and separates as the user
+zooms in, just later. Membership changes and selection clear
+trigger clustering without a camera action. A read-only remainder query on
+camera idle keeps the exception consistent with the current zoom, without
+replacing the live clustering algorithm. Turning the setting OFF still passes
+no cluster managers at all, so nothing groups and this gate is never consulted.
 
 The accepted Dart red-pin painter is reused to compose selected count imagery.
 Native selection updates modify the existing count marker rather than adding
@@ -111,8 +124,15 @@ Run the focused native tests:
 `gradlew :google_maps_flutter_android:testDebugUnitTest --tests io.flutter.plugins.googlemaps.NtMapInteractionTest`
 
 These tests execute the native gesture boundary, pixel resolver, real bitmap
-render comparison, remainder exception and stale-generation guards. They are
-not handset acceptance or a physical tap-latency benchmark.
+render comparison, the nearby-group gate (`nearbyGroupsRenderFromTwoAndRemainderStillRenders`,
+which fails against the pre-fix gate), the untouched library radius
+(`libraryDefaultGroupRadiusIsNotMonkeyPatched`), the radius actually applied to
+the app's group managers (`appCreatedGroupManagersUseTheTunedRadius`), the
+tuning's measured effect on near records
+(`tunedRadiusKeepsNearRecordsIndividualLater`), and the retained zoom
+separation (`libraryProximityDistanceIsUntouchedSoZoomStillSeparates`),
+the remainder exception and the stale-generation guards. They are not handset
+acceptance or a physical tap-latency benchmark.
 
 ## Removing the patch later
 

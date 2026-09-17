@@ -125,6 +125,18 @@ final class PrivacyCenterScreen extends ConsumerWidget {
                   ),
                   const Divider(height: 1),
                   ListTile(
+                    key: const Key('backup-recovery-tile'),
+                    leading: const Icon(Icons.backup_outlined),
+                    title: const Text('Backup & Restore'),
+                    subtitle: const Text(
+                      'Back up your Next Transfer data, or restore it from a '
+                      'backup file.',
+                    ),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => context.push(RoutePaths.backupRecovery),
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
                     key: const Key('deletion-impact-tile'),
                     leading: const Icon(Icons.delete_outline),
                     title: const Text('Review deletion impacts'),

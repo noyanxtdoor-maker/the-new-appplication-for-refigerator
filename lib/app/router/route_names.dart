@@ -67,6 +67,7 @@ abstract final class RouteNames {
   static const String privacyCenter = 'privacy-center';
   static const String permissions = 'permissions';
   static const String diagnosticPreview = 'diagnostic-preview';
+  static const String backupRecovery = 'backup-recovery';
   static const String messages = 'messages';
   static const String messageDetail = 'message-detail';
   static const String about = 'about';
@@ -129,6 +130,7 @@ abstract final class RoutePaths {
   static const String privacyCenter = '/privacy';
   static const String permissions = '/privacy/permissions';
   static const String diagnosticPreview = '/privacy/diagnostics';
+  static const String backupRecovery = '/privacy/backup';
   static const String messages = '/messages';
   static const String messageDetailPath = '/messages/message';
 

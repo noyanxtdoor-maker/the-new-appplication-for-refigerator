@@ -63,6 +63,39 @@ final class StartupController extends Notifier<StartupState> {
     }
   }
 
+  /// Re-resolves the whole app after a restore replaced local state.
+  ///
+  /// [initialize] is the canonical re-resolution, but it publishes
+  /// [StartupOpening] first, which would throw the user out of the screen the
+  /// restore just happened on. A restore therefore re-resolves through the same
+  /// snapshot gate — so the Privacy Lock and every consistency check still
+  /// apply — while publishing the result directly, without the opening
+  /// transition. Nothing is fabricated: the destination is whatever
+  /// [StartupSnapshot] says it is, exactly as on a relaunch.
+  Future<void> refreshAfterRestore() async {
+    final attempt = ++_attempt;
+    _diagnostics.record(
+      'startup_refresh_after_restore',
+      context: <String, Object?>{'attempt': attempt},
+    );
+    try {
+      final snapshot = await _repository.resolveStartup();
+      if (!_isCurrent(attempt)) {
+        return;
+      }
+      state = _stateFromSnapshot(snapshot);
+    } on Object {
+      if (!_isCurrent(attempt)) {
+        return;
+      }
+      _diagnostics.record(
+        'startup_recovery_required',
+        context: <String, Object?>{'attempt': attempt},
+      );
+      state = const StartupRecovery(reasonCode: 'database_open_failed');
+    }
+  }
+
   Future<void> continueLocalOnly() async {
     final attempt = _attempt;
     try {

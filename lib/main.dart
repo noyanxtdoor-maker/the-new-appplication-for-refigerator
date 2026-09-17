@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:rmplanner/app/m5_app_splash.dart';
 import 'package:rmplanner/app/next_transfer_app.dart';
 import 'package:rmplanner/app/startup_bootstrap.dart';
@@ -17,6 +18,10 @@ import 'package:rmplanner/core/platform/app_environment.dart';
 import 'package:rmplanner/core/security/auth_token_store.dart';
 import 'package:rmplanner/core/security/privacy_gate.dart';
 import 'package:rmplanner/core/time/app_clock.dart';
+import 'package:rmplanner/features/backup/application/backup_providers.dart';
+import 'package:rmplanner/features/backup/data/backup_document_gateway.dart';
+import 'package:rmplanner/features/backup/data/backup_downloads_writer.dart';
+import 'package:rmplanner/features/backup/data/secure_checkpoint_key_store.dart';
 import 'package:rmplanner/features/contacts/application/contact_providers.dart';
 import 'package:rmplanner/features/contacts/data/drift_contact_repository.dart';
 import 'package:rmplanner/features/goals/application/goal_providers.dart';
@@ -279,6 +284,23 @@ Future<void> main() async {
       overrides: [
         appEnvironmentProvider.overrideWithValue(environment),
         diagnosticsProvider.overrideWithValue(diagnostics),
+        // VS-18 Backup & Restore: the database, one-tap saving straight to
+        // Downloads (MediaStore, no storage permission) with the Storage
+        // Access Framework picker as the fallback destination, and the
+        // device-bound recovery checkpoint key/directory.
+        appDatabaseProvider.overrideWithValue(database),
+        backupDocumentGatewayProvider.overrideWithValue(
+          const FileSelectorBackupDocumentGateway(),
+        ),
+        backupDownloadsWriterProvider.overrideWithValue(
+          const MethodChannelBackupDownloadsWriter(),
+        ),
+        checkpointKeyStoreProvider.overrideWithValue(
+          SecureStorageCheckpointKeyStore(),
+        ),
+        checkpointDirectoryProvider.overrideWithValue(
+          () async => getApplicationSupportDirectory(),
+        ),
         startupRepositoryProvider.overrideWithValue(
           bootstrap.isReady
               ? startupRepository
@@ -296,6 +318,13 @@ Future<void> main() async {
           notificationFoundationRepository,
         ),
         notificationGatewayProvider.overrideWithValue(notificationGateway),
+        // OWNER correction #3: Backup & Restore operation feedback reaches the
+        // notification shade through this same plugin instance and the same
+        // granted notification permission. No second plugin, no scheduler and
+        // no additional Android permission.
+        transientNotificationGatewayProvider.overrideWithValue(
+          notificationGateway,
+        ),
         reminderDeviceLocationProvider.overrideWithValue(
           calendarEventTimeZones.deviceLocation,
         ),

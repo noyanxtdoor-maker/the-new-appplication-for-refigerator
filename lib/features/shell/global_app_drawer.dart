@@ -115,8 +115,18 @@ abstract final class GlobalDrawerCatalog {
     // Entirely omitted: no approved canonical resource URLs exist in the
     // repository (Pack 3 locked policy 9).
     // D. Account and App ----------------------------------------------
-    // Sync and Backup / Export Data are omitted (no canonical screens or
-    // fake sync status exist; Pack 3 locked policy 8).
+    // Sync is still omitted (no canonical sync backend exists and no fake
+    // sync status is shown; Pack 3 locked policy 8). Backup is no longer
+    // omitted: VS-18 gives it a real canonical screen, so it gets a real
+    // drawer row that opens that screen directly.
+    GlobalDrawerEntry._(
+      id: 'drawer-backup-restore',
+      label: 'Backup & Restore',
+      icon: Icons.cloud_download_outlined,
+      group: GlobalDrawerGroup.account,
+      routePath: RoutePaths.backupRecovery,
+      navigation: GlobalDrawerNavigation.push,
+    ),
     GlobalDrawerEntry._(
       id: 'drawer-account-settings',
       label: 'Settings',

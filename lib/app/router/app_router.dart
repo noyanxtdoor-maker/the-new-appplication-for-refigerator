@@ -6,6 +6,7 @@ import 'package:rmplanner/app/router/route_names.dart';
 import 'package:rmplanner/app/router/startup_route_guard.dart';
 import 'package:rmplanner/app/shell/main_shell.dart';
 import 'package:rmplanner/core/time/week_period.dart';
+import 'package:rmplanner/features/backup/presentation/backup_recovery_screen.dart';
 import 'package:rmplanner/features/contacts/presentation/add_people_screen.dart';
 import 'package:rmplanner/features/contacts/presentation/contact_detail_screen.dart';
 import 'package:rmplanner/features/contacts/presentation/contact_form_screen.dart';
@@ -606,6 +607,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         name: RouteNames.diagnosticPreview,
         path: RoutePaths.diagnosticPreview,
         builder: (context, state) => const DiagnosticPreviewScreen(),
+      ),
+      GoRoute(
+        name: RouteNames.backupRecovery,
+        path: RoutePaths.backupRecovery,
+        builder: (context, state) => const BackupRecoveryScreen(),
       ),
       GoRoute(
         name: RouteNames.mapPicker,

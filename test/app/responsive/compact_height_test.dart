@@ -257,7 +257,9 @@ void main() {
       await pumpShell(tester, TestWindowSizes.phoneLandscape);
       await tester.tap(find.byKey(const Key('home-hamburger')));
       await tester.pumpAndSettle();
-      // On a short window the drawer scrolls; the entry must still be reachable.
+      // On a short window the drawer scrolls; the entry must still be
+      // reachable and actually tappable, so it is scrolled fully into view
+      // rather than merely "found".
       await tester.scrollUntilVisible(
         find.byKey(const Key('drawer-account-settings')),
         160,
@@ -266,6 +268,10 @@ void main() {
           matching: find.byType(Scrollable),
         ),
       );
+      await tester.ensureVisible(
+        find.byKey(const Key('drawer-account-settings')),
+      );
+      await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
       await tester.tap(find.byKey(const Key('drawer-account-settings')));
       await tester.pumpAndSettle();

@@ -9,6 +9,15 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterFragmentActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        // One-tap backup: writes the portable backup into the user-visible
+        // Downloads folder via MediaStore, with no storage permission.
+        BackupDownloadsWriter.register(
+            MethodChannel(
+                flutterEngine.dartExecutor.binaryMessenger,
+                BackupDownloadsWriter.CHANNEL,
+            ),
+            this,
+        )
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "com.nexttransfer.rmplanner/social_app_home",

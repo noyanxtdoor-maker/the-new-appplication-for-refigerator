@@ -4,12 +4,16 @@ import 'package:rmplanner/core/notifications/canonical_reminder_delivery_gateway
 import 'package:rmplanner/core/notifications/notification_gateway.dart';
 import 'package:rmplanner/core/notifications/notification_payload.dart';
 import 'package:rmplanner/core/notifications/notification_response_controller.dart';
+import 'package:rmplanner/core/notifications/transient_notification_gateway.dart';
 import 'package:rmplanner/features/notifications/application/reminder_background_runtime.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:workmanager/workmanager.dart';
 
 final class FlutterLocalNotificationsGateway
-    implements NotificationGateway, CanonicalReminderDeliveryGateway {
+    implements
+        NotificationGateway,
+        CanonicalReminderDeliveryGateway,
+        TransientNotificationGateway {
   FlutterLocalNotificationsGateway({
     FlutterLocalNotificationsPlugin? plugin,
     this.runningDeliveryPlatformId,
@@ -58,6 +62,19 @@ final class FlutterLocalNotificationsGateway
         ),
       );
     }
+    // OWNER correction #3: transient operation feedback (Backup & Restore)
+    // reaches the shade through this same plugin, on its own channel. Low
+    // importance keeps progress and result cards silent — the user just
+    // started the operation and is watching the screen — while still being
+    // visible in the shade. The reminder channels above are untouched.
+    await android?.createNotificationChannel(
+      AndroidNotificationChannel(
+        transientNotificationsChannelId,
+        transientNotificationsChannelLabel,
+        description: transientNotificationsChannelDescription,
+        importance: Importance.low,
+      ),
+    );
     final launch = await _plugin.getNotificationAppLaunchDetails();
     if (launch?.didNotificationLaunchApp ?? false) {
       final response = launch?.notificationResponse;
@@ -157,6 +174,46 @@ final class FlutterLocalNotificationsGateway
       ),
     ),
   );
+
+  // OWNER correction #3. This is NOT a reminder transport: no payload, no
+  // action buttons, no schedule, no WorkManager tag, and never a place in the
+  // reminder platform-id space. A card posted here cannot be picked up by
+  // `pending()`, by `hasPendingReminder` or by `hasDisplayedReminder`, because
+  // there is no pending *request* and the ids used are outside the range the
+  // reminder allocator can produce.
+  @override
+  Future<void> showTransient({
+    required int platformId,
+    required String title,
+    String? body,
+  }) async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
+    await _plugin.show(
+      id: platformId,
+      title: title,
+      body: body,
+      notificationDetails: const NotificationDetails(
+        android: AndroidNotificationDetails(
+          transientNotificationsChannelId,
+          transientNotificationsChannelLabel,
+          channelDescription: transientNotificationsChannelDescription,
+          importance: Importance.low,
+          priority: Priority.low,
+          // One card per operation: updating it must not re-alert, and a
+          // finished operation's card is the user's to dismiss.
+          onlyAlertOnce: true,
+          autoCancel: true,
+          ongoing: false,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Future<void> dismissTransient(int platformId) async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
+    await _plugin.cancel(id: platformId);
+  }
 
   @override
   Future<void> cancel(int platformId) async {

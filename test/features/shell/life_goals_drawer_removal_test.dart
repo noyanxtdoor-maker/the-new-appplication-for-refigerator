@@ -58,6 +58,7 @@ void main() {
     'drawer-plan-history',
     'drawer-activity-history',
     'drawer-messages',
+    'drawer-backup-restore',
     'drawer-account-settings',
     'drawer-about',
   ];

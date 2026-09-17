@@ -92,7 +92,7 @@ public class NtMapInteractionTest {
     StaticCluster<MarkerBuilder> cluster=new StaticCluster<>(new LatLng(0,0));
     for(String id:ids)cluster.add(builder(id));return cluster;
   }
-  @Test public void threeExceptionAppliesOnlyToExactSelectionRemainder() throws Exception {
+  @Test public void nearbyGroupsRenderFromTwoAndRemainderStillRenders() throws Exception {
     Field f=NtMapInteraction.class.getDeclaredField("remainder");f.setAccessible(true);f.set(nt,Set.of("A","C","D"));
     assertTrue(nt.remainder(cluster("A","C","D")));
     assertFalse(nt.remainder(cluster("E","F","G")));
@@ -101,13 +101,96 @@ public class NtMapInteractionTest {
     controller.ntInteraction=nt;
     @SuppressWarnings("unchecked") ClusterManager<MarkerBuilder> manager=mock(ClusterManager.class);
     ClusterManagersController.MarkerClusterRenderer<MarkerBuilder> renderer=new ClusterManagersController.MarkerClusterRenderer<>(context,map,manager,controller);
+    // The dependency's own default is NOT monkey-patched: the gate below is the
+    // only thing that decides, so "Group nearby markers" OFF (no cluster
+    // managers at all) is untouched and upstream stays upgradeable.
     assertEquals(4,renderer.getMinClusterSize());
-    assertTrue(renderer.shouldRenderAsCluster(cluster("A","C","D")));
-    assertFalse(renderer.shouldRenderAsCluster(cluster("E","F","G")));
-    f.set(nt,Collections.emptySet());
-    assertFalse(renderer.shouldRenderAsCluster(cluster("A","C","D")));
+    // OWNER BUG (closed beta): "Group nearby markers" was inert because this
+    // gate inherited the library floor of four, so two or three genuinely near
+    // markers never grouped. Regression: they must group now.
+    assertTrue(renderer.shouldRenderAsCluster(cluster("A","B")));
+    assertTrue(renderer.shouldRenderAsCluster(cluster("A","B","C")));
     assertTrue(renderer.shouldRenderAsCluster(cluster("A","B","C","D")));
+    // A single item is never a group, whatever the selection state.
+    assertFalse(renderer.shouldRenderAsCluster(cluster("A")));
+    // The selected remainder keeps rendering, and clearing the remainder no
+    // longer demotes a still-near group back to invisible individual pins.
+    assertTrue(renderer.shouldRenderAsCluster(cluster("A","C","D")));
+    f.set(nt,Collections.emptySet());
+    assertTrue(renderer.shouldRenderAsCluster(cluster("A","C","D")));
+    assertFalse(renderer.shouldRenderAsCluster(cluster("A")));
+    // With no interaction bridge on the surface, the gate is unchanged.
+    controller.ntInteraction=null;
+    assertTrue(renderer.shouldRenderAsCluster(cluster("A","B")));
+    assertFalse(renderer.shouldRenderAsCluster(cluster("A")));
   }
+  MarkerBuilder at(double lat, double lng) {
+    MarkerBuilder b=mock(MarkerBuilder.class);
+    when(b.getPosition()).thenReturn(new LatLng(lat,lng));
+    return b;
+  }
+
+  com.google.maps.android.clustering.algo.NonHierarchicalDistanceBasedAlgorithm<MarkerBuilder> libRadius(int radius,double off) {
+    com.google.maps.android.clustering.algo.NonHierarchicalDistanceBasedAlgorithm<MarkerBuilder> a=
+        new com.google.maps.android.clustering.algo.NonHierarchicalDistanceBasedAlgorithm<>();
+    a.setMaxDistanceBetweenClusteredItems(radius);
+    a.addItem(at(14.6000,121.0000));
+    a.addItem(at(14.6000+off,121.0000+off));
+    return a;
+  }
+
+  @Test public void libraryDefaultGroupRadiusIsNotMonkeyPatched() {
+    com.google.maps.android.clustering.algo.NonHierarchicalDistanceBasedAlgorithm<MarkerBuilder> algorithm=
+        new com.google.maps.android.clustering.algo.NonHierarchicalDistanceBasedAlgorithm<>();
+    // The dependency keeps its own default, so upstream stays upgradeable. The
+    // app tunes only the cluster managers it creates, below.
+    assertEquals(100,algorithm.getMaxDistanceBetweenClusteredItems());
+  }
+
+  @Test public void appCreatedGroupManagersUseTheTunedRadius() {
+    ClusterManagersController controller=new ClusterManagersController(mock(MapsCallbackApi.class),context,PlatformMarkerType.values()[0]);
+    controller.init(map,new com.google.maps.android.collections.MarkerManager(map));
+    when(map.getCameraPosition()).thenReturn(new com.google.android.gms.maps.model.CameraPosition(new LatLng(0,0),10,0,0));
+    controller.addClusterManager("maps-people");
+    // OWNER TUNING (closed beta, correction #4): 100 px collapsed genuinely
+    // nearby pins while they were still far apart on screen. 65 px keeps them
+    // individual for longer and still groups once the map is zoomed out
+    // further. This applies only to the managers this app creates, which exist
+    // only while "Group nearby markers" is ON.
+    assertEquals(65,controller.clusterManagerIdToManager.get("maps-people")
+        .getAlgorithm().getMaxDistanceBetweenClusteredItems());
+  }
+
+  @Test public void tunedRadiusKeepsNearRecordsIndividualLater() {
+    // Two records about 22 m apart (0.0002 degrees), the ordinary "nearby but
+    // distinct" case. At zoom 18 the library's own 100 px radius already merged
+    // them; the tuned 65 px radius keeps them individual there and only groups
+    // them once the map is zoomed one step further out. This is the measured
+    // effect of the owner's tuning, and it is measured rather than assumed.
+    assertEquals("the untuned radius grouped them at zoom 18",
+        1,libRadius(100,0.0002).getClusters(18f).size());
+    assertEquals("the tuned radius keeps them individual there",
+        2,libRadius(65,0.0002).getClusters(18f).size());
+    assertEquals("and still groups them one zoom further out",
+        1,libRadius(65,0.0002).getClusters(17f).size());
+    assertEquals("and separates them when zoomed right in",
+        2,libRadius(65,0.0002).getClusters(20f).size());
+  }
+
+  @Test public void libraryProximityDistanceIsUntouchedSoZoomStillSeparates() {
+    com.google.maps.android.clustering.algo.NonHierarchicalDistanceBasedAlgorithm<MarkerBuilder> algorithm=
+        new com.google.maps.android.clustering.algo.NonHierarchicalDistanceBasedAlgorithm<>();
+    // A plain library algorithm (as created above) still uses the library's own
+    // radius: the app's tuning is applied to its own cluster managers, never to
+    // the dependency.
+    assertEquals(100,algorithm.getMaxDistanceBetweenClusteredItems());
+    // Two records roughly 60 m apart, the owner's reported case.
+    algorithm.addItem(at(14.6000,121.0000));
+    algorithm.addItem(at(14.6004,121.0004));
+    assertEquals("nearby at a wide view groups",1,algorithm.getClusters(14f).size());
+    assertEquals("zooming in separates them again",2,algorithm.getClusters(20f).size());
+  }
+
   @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
   @Test public void countBitmapKeepsUpstreamNativePixels() throws Exception {
     @SuppressWarnings("unchecked") ClusterManager<MarkerBuilder> manager=mock(ClusterManager.class);
