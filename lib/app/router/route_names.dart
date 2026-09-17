@@ -68,6 +68,7 @@ abstract final class RouteNames {
   static const String permissions = 'permissions';
   static const String diagnosticPreview = 'diagnostic-preview';
   static const String messages = 'messages';
+  static const String messageDetail = 'message-detail';
   static const String about = 'about';
   static const String contacts = 'contacts';
   static const String maps = 'maps';
@@ -129,6 +130,12 @@ abstract final class RoutePaths {
   static const String permissions = '/privacy/permissions';
   static const String diagnosticPreview = '/privacy/diagnostics';
   static const String messages = '/messages';
+  static const String messageDetailPath = '/messages/message';
+
+  /// Detail route for one bundled local message (stable message id).
+  static String messageDetail(String messageId) =>
+      '$messageDetailPath/$messageId';
+
   static const String about = '/about';
   static const String contacts = '/contacts';
   static const String maps = '/maps';

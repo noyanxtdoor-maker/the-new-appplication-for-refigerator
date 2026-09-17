@@ -110,6 +110,14 @@ Future<EventTypePickerSelection?> showEventTypePicker({
                       eventColorsByTypeId: ref
                           .read(eventTypeControllerProvider)
                           .resolvedEventColorsByTypeId,
+                      taskAccentColor: Color(
+                        ref
+                                .read(eventTypeControllerProvider)
+                                .eventColors[PlannerEventColorResolver
+                                    .taskStableKey]
+                                ?.accentArgb ??
+                            PlannerEventColorDefaults.task.accentArgb,
+                      ),
                       includeTask: includeTask,
                     ),
                   ),
@@ -245,6 +253,7 @@ final class _EventTypePickerSheet extends StatelessWidget {
     required this.choicesReady,
     required this.recommendedEventTypeId,
     required this.eventColorsByTypeId,
+    required this.taskAccentColor,
     required this.includeTask,
   });
 
@@ -252,6 +261,12 @@ final class _EventTypePickerSheet extends StatelessWidget {
   final bool choicesReady;
   final String? recommendedEventTypeId;
   final Map<String, EventColorPreference> eventColorsByTypeId;
+
+  /// The LIVE configured accent of the canonical Task identity. The Task row
+  /// is not an `activity_types` row, so it is never present in
+  /// [eventColorsByTypeId]; it must not fall back to a hard-coded literal or
+  /// the selector would disagree with Settings > Colors after a customization.
+  final Color taskAccentColor;
   final bool includeTask;
 
   @override
@@ -419,12 +434,13 @@ final class _EventTypePickerSheet extends StatelessWidget {
             padding: const EdgeInsets.only(left: 26),
             child: Row(
               children: <Widget>[
-                const DecoratedBox(
+                DecoratedBox(
+                  key: const Key('event-type-icon-planner_task'),
                   decoration: BoxDecoration(
-                    color: Color(0xFFF2E9E0),
+                    color: taskAccentColor,
                     shape: BoxShape.circle,
                   ),
-                  child: SizedBox(width: 22, height: 22),
+                  child: const SizedBox(width: 22, height: 22),
                 ),
                 const SizedBox(width: 10),
                 Expanded(

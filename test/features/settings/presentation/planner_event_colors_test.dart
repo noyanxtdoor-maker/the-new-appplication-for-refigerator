@@ -5,9 +5,11 @@ import 'package:rmplanner/core/ids/identifier_source.dart';
 import 'package:rmplanner/core/platform/app_environment.dart';
 import 'package:rmplanner/features/contacts/data/drift_contact_repository.dart';
 import 'package:rmplanner/features/contacts/domain/contact.dart';
+import 'package:rmplanner/features/planner/data/drift_event_type_repository.dart';
 import 'package:rmplanner/features/planner/domain/event_color_preferences.dart';
 import 'package:rmplanner/features/planner/presentation/widgets/planner_event_color_preview.dart';
 
+import '../../../support/gated_event_type_repository.dart';
 import '../../../support/test_dependencies.dart';
 
 void main() {
@@ -66,13 +68,17 @@ void main() {
     expect(find.text('Events'), findsOneWidget);
     expect(find.byType(PlannerEventColorPreview), findsWidgets);
     expect(find.text('Person Status'), findsNothing);
+    // Closed-beta V2 (owner decision AG-2, 2026-09-17): this profile has zero
+    // Life Goals, so each canonical goal-linked row presents its neutral
+    // `Life Goal <slotIndex>` placeholder instead of its seeded label.
     for (final label in <String>[
-      'Job Application',
-      'Scripture Study',
-      'Exercise',
+      'Life Goal 1',
+      'Life Goal 2',
+      'Life Goal 3',
+      'Life Goal 4',
+      'Life Goal 5',
+      'Life Goal 6',
       'Contact',
-      'Budget Review',
-      'Temple Visit',
       'Meeting',
       // Accepted prospective-presentation law: the untouched canonical system
       // Study row presents as "Study & Planning" on fresh prospective surfaces,
@@ -86,6 +92,14 @@ void main() {
       expect(find.text(label), findsOneWidget);
     }
     for (final label in <String>[
+      // The seeded goal-shaped vocabulary of the six canonical rows must never
+      // masquerade as Goals the user actually has.
+      'Job Application',
+      'Scripture Study',
+      'Exercise',
+      'Budget Review',
+      'Ministering Visit',
+      'Temple Visit',
       'General',
       'Teaching',
       'Finding',
@@ -94,6 +108,21 @@ void main() {
     ]) {
       expect(find.text(label), findsNothing);
     }
+    // The Colors row keys are derived from the row's DISPLAY label, which now
+    // follows the AG-2 law. Derive the key from the rendered row rather than
+    // hard-coding a label the screen may legitimately change.
+    String rowLabel(String stableKey) {
+      final texts = find
+          .descendant(
+            of: find.byKey(Key('event-color-row-$stableKey')),
+            matching: find.byType(Text),
+          )
+          .evaluate();
+      return (texts.first.widget as Text).data!;
+    }
+
+    final jobApplicationLabel = rowLabel('job_application');
+    expect(jobApplicationLabel, 'Life Goal 1');
     final colorsList = find.byKey(const Key('planner-event-colors-list'));
     await tester.drag(colorsList, const Offset(0, -2000));
     await tester.pumpAndSettle();
@@ -112,10 +141,10 @@ void main() {
     expect(tester.getSize(preview), const Size(159, 40));
     final previewRect = tester.getRect(preview);
     for (final key in <Key>[
-      const Key('event-color-swatch-Job Application-accent'),
-      const Key('event-color-pencil-Job Application-accent'),
-      const Key('event-color-swatch-Job Application-Event background'),
-      const Key('event-color-pencil-Job Application-Event background'),
+      Key('event-color-swatch-$jobApplicationLabel-accent'),
+      Key('event-color-pencil-$jobApplicationLabel-accent'),
+      Key('event-color-swatch-$jobApplicationLabel-Event background'),
+      Key('event-color-pencil-$jobApplicationLabel-Event background'),
     ]) {
       expect(tester.getRect(find.byKey(key)).center.dy, previewRect.center.dy);
     }
@@ -125,7 +154,7 @@ void main() {
     );
 
     final jobAccent = find.byKey(
-      const Key('event-color-swatch-Job Application-accent'),
+      Key('event-color-swatch-$jobApplicationLabel-accent'),
     );
     final originalAccent = tester
         .widget<PlannerEventColorPreview>(preview)
@@ -163,7 +192,7 @@ void main() {
     expect(savedAccent, contains('job_application'));
 
     final jobSurface = find.byKey(
-      const Key('event-color-swatch-Job Application-Event background'),
+      Key('event-color-swatch-$jobApplicationLabel-Event background'),
     );
     await tester.tap(jobSurface);
     await tester.pumpAndSettle();
@@ -411,6 +440,103 @@ void main() {
       saved?.surfaceArgb,
       0xFF58464E,
       reason: 'a recommended Apply must persist the mapped dark surface',
+    );
+  });
+
+  testWidgets('a rejected Task accent save is surfaced in the UI', (
+    tester,
+  ) async {
+    // Closed-beta V2 (owner decision AG-1, 2026-09-17): the uniqueness guard
+    // legitimately refuses a deliberate duplicate accent. That refusal must not
+    // be swallowed — the only previous signal was a banner pinned to the top of
+    // a long, scrolled list.
+    tester.view.physicalSize = const Size(393, 874);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    final database = openMemoryDatabase();
+    addTearDown(database.close);
+    final privacy = TestPrivacyDependencies(database: database);
+    final startup = buildTestRepository(
+      database: database,
+      privacyGate: privacy.gate,
+    );
+    await startup.completeOnboarding();
+
+    // Refuse the save exactly as the real uniqueness guard does.
+    final gatedRepository =
+        GatedEventTypeRepository(
+            DriftEventTypeRepository(
+              database: database,
+              clock: FixedClock(DateTime.utc(2026, 9, 17, 12)),
+            ),
+          )
+          ..colorSaveFailure = StateError(
+            'That color is already used by another active Event Type.',
+          );
+
+    await tester.pumpWidget(
+      privacy.buildApp(
+        environment: const AppEnvironment(
+          name: AppEnvironmentName.production,
+          label: 'PRODUCTION',
+        ),
+        diagnostics: SanitizedDiagnostics(),
+        startupRepository: startup,
+        eventTypeRepository: gatedRepository,
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('home-hamburger')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('drawer-account-settings')));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('settings-colors')),
+      160,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('settings-colors')));
+    await tester.pumpAndSettle();
+
+    final taskAccent = find.byKey(const Key('event-color-swatch-Task-accent'));
+    await tester.scrollUntilVisible(
+      taskAccent,
+      160,
+      scrollable: find.descendant(
+        of: find.byKey(const Key('planner-event-colors-list')),
+        matching: find.byType(Scrollable),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(taskAccent);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const Key('planner-event-color-picker')),
+      findsOneWidget,
+      reason: 'the Task accent editor must open before the save is attempted.',
+    );
+    await tester.tap(find.byKey(const Key('planner-event-color-save')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byType(SnackBar),
+      findsOneWidget,
+      reason:
+          'A refused save must produce a visible, truthful failure surface '
+          'instead of being ignored.',
+    );
+    final savedJson = await database
+        .select(database.plannerPreferences)
+        .get()
+        .then(
+          (rows) => rows.isEmpty ? '' : rows.single.eventColorPreferencesJson,
+        );
+    expect(
+      savedJson,
+      isNot(contains('planner_task')),
+      reason: 'the refused color must never be persisted.',
     );
   });
 }

@@ -51,11 +51,8 @@ final class _PlannerEventColorsScreenState
     final overrides = ref
         .watch(goalEventTypeNameOverridesProvider(profileId))
         .value;
-    String labelFor(EventType type) => _displayLabelFor(
-        type,
-        bindings,
-        overrides,
-      );
+    String labelFor(EventType type) =>
+        _displayLabelFor(type, bindings, overrides);
     return Scaffold(
       appBar: InternalAppBar(title: const Text('Colors')),
       body: SafeArea(
@@ -221,9 +218,25 @@ final class _PlannerEventColorsScreenState
     return PlannerEventColorResolver.preferenceForType(type, state.eventColors);
   }
 
-  /// Settings display label for one row: the live Goal's effective name
-  /// (MANUAL override, else Goal title) when this canonical row currently
-  /// has a valid live occupant; otherwise the pure prospective alias law.
+  /// Settings display label for one row (closed-beta V2, owner decision
+  /// AG-2, 2026-09-17):
+  ///
+  ///   manual stored name override
+  ///     -> live current Goal title
+  ///     -> `Life Goal <slotIndex>`
+  ///
+  /// A non-goal-linked row keeps the pure prospective alias law. A
+  /// goal-linked row whose canonical slot has no real live Goal must NEVER
+  /// display its seeded label, because those seeds are goal-shaped vocabulary
+  /// ("Exercise", "Temple Visit", ...) and would masquerade as goals the user
+  /// does not have. Starter Goal suggestions are not current Goals and are not
+  /// consulted here.
+  ///
+  /// The placeholder is derived from the explicit canonical slot index — never
+  /// from list position — so it stays stable across ordering changes.
+  ///
+  /// This law is deliberately scoped to this Colors surface; the general Event
+  /// Types screen keeps its own accepted presentation.
   /// Display only — every save freshly re-validates.
   static String _displayLabelFor(
     EventType type,
@@ -231,12 +244,14 @@ final class _PlannerEventColorsScreenState
     Map<String, GoalEventTypeNameOverride>? overrides,
   ) {
     final slot = CanonicalGoalSlot.tryByEventTypeKey(type.stableKey);
-    if (slot == null || bindings == null) {
+    if (slot == null) {
       return EventTypePresentation.prospectiveLabel(type);
     }
-    final binding = bindings[slot.slotIndex];
+    // A non-canonical Goal slot keeps the accepted prospective alias; every
+    // canonical slot falls through to a truthful Goal-derived label.
+    final binding = bindings?[slot.slotIndex];
     if (binding == null) {
-      return EventTypePresentation.prospectiveLabel(type);
+      return 'Life Goal ${slot.slotIndex}';
     }
     final stored = overrides?[binding.goalId];
     if (stored != null && stored.eventTypeStableKey == type.stableKey) {
@@ -311,12 +326,34 @@ final class _PlannerEventColorsScreenState
             accentArgb: current.accentArgb,
             surfaceArgb: chosen.toARGB32(),
           );
-    await controller.saveEventColor(type, updated);
+    final saved = await controller.saveEventColor(type, updated);
+    _reportSaveOutcome(saved);
     if (mounted) {
       setState(() {
         _liveEventColors.remove(type.stableKey);
       });
     }
+  }
+
+  /// Truthful failure surface (closed-beta V2, owner decision AG-1).
+  ///
+  /// The uniqueness guard legitimately refuses a deliberate duplicate accent.
+  /// The banner above the list is easy to miss on a long, scrolled screen, so
+  /// a refused save is announced where the user is actually looking. Nothing is
+  /// persisted on failure, and the controller's own message is surfaced
+  /// verbatim so the stated reason stays honest.
+  void _reportSaveOutcome(bool saved) {
+    if (saved || !mounted) {
+      return;
+    }
+    final message = ref.read(eventTypeControllerProvider).message;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          message ?? 'That color was not saved. You can safely retry.',
+        ),
+      ),
+    );
   }
 
   Future<void> _editRecommendedAccent(
@@ -339,7 +376,7 @@ final class _PlannerEventColorsScreenState
     if (!mounted || chosen == null) {
       return;
     }
-    await controller.saveEventColor(
+    final saved = await controller.saveEventColor(
       type,
       EventColorPreference(
         accentArgb: chosen.toARGB32(),
@@ -352,6 +389,7 @@ final class _PlannerEventColorsScreenState
         ),
       ),
     );
+    _reportSaveOutcome(saved);
     if (mounted) {
       setState(() {
         _liveEventColors.remove(type.stableKey);
@@ -429,7 +467,8 @@ final class _PlannerEventColorsScreenState
       ),
     );
     if (restore == true && context.mounted) {
-      await controller.restoreEventColorDefaults();
+      final restored = await controller.restoreEventColorDefaults();
+      _reportSaveOutcome(restored);
       if (mounted) {
         setState(_liveEventColors.clear);
       }
@@ -585,7 +624,7 @@ const EventType _taskColorType = EventType(
   stableKey: PlannerEventColorResolver.taskStableKey,
   label: 'Task',
   icon: EventTypeIcon.calendar,
-  colorValue: 0xFFF2E9E0,
+  colorValue: 0xFF8FAFC2,
   isSystem: true,
   isArchived: false,
   reportRequiredDefault: true,
@@ -969,24 +1008,27 @@ final class _GroupColorEditorSheetState extends State<_GroupColorEditorSheet> {
                                 color: Color(color.argb),
                                 shape: BoxShape.circle,
                                 border: Border.all(
-                                  color: _matchesOpaqueRgb(
-                                    _draft.toARGB32(),
-                                    color.argb,
-                                  )
+                                  color:
+                                      _matchesOpaqueRgb(
+                                        _draft.toARGB32(),
+                                        color.argb,
+                                      )
                                       ? Theme.of(context).colorScheme.onSurface
                                       : Theme.of(context).colorScheme.outline,
-                                  width: _matchesOpaqueRgb(
-                                    _draft.toARGB32(),
-                                    color.argb,
-                                  )
+                                  width:
+                                      _matchesOpaqueRgb(
+                                        _draft.toARGB32(),
+                                        color.argb,
+                                      )
                                       ? 3
                                       : 1,
                                 ),
                               ),
-                              child: _matchesOpaqueRgb(
-                                _draft.toARGB32(),
-                                color.argb,
-                              )
+                              child:
+                                  _matchesOpaqueRgb(
+                                    _draft.toARGB32(),
+                                    color.argb,
+                                  )
                                   ? Icon(
                                       Icons.check,
                                       size: 20,

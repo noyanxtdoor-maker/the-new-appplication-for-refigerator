@@ -59,6 +59,7 @@ import 'package:rmplanner/features/settings/presentation/planner_event_colors_sc
 import 'package:rmplanner/features/settings/presentation/settings_screen.dart';
 import 'package:rmplanner/features/settings/presentation/start_of_week_screen.dart';
 import 'package:rmplanner/features/shell/about_screen.dart';
+import 'package:rmplanner/features/shell/message_detail_screen.dart';
 import 'package:rmplanner/features/shell/messages_screen.dart';
 import 'package:rmplanner/features/startup/application/startup_providers.dart';
 import 'package:rmplanner/features/startup/domain/startup_state.dart';
@@ -73,8 +74,9 @@ import 'package:rmplanner/features/weekly_planning/presentation/weekly_planning_
 
 // Exposed so notification OPEN routing can present the canonical Planner
 // preview over the shell root after landing on the Planner tab.
-final GlobalKey<NavigatorState> appRootNavigatorKey =
-    GlobalKey<NavigatorState>(debugLabel: 'root');
+final GlobalKey<NavigatorState> appRootNavigatorKey = GlobalKey<NavigatorState>(
+  debugLabel: 'root',
+);
 final _rootNavigatorKey = appRootNavigatorKey;
 final _shellNavigatorKey = GlobalKey<NavigatorState>(debugLabel: 'shell');
 
@@ -550,6 +552,18 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         name: RouteNames.messages,
         path: RoutePaths.messages,
         builder: (context, state) => const MessagesScreen(),
+        routes: <RouteBase>[
+          // Bundled local message detail. The id is a stable bundled message
+          // identity, never a database row, so this route resolves purely from
+          // the shipped catalog.
+          GoRoute(
+            name: RouteNames.messageDetail,
+            path: 'message/:messageId',
+            builder: (context, state) => MessageDetailScreen(
+              messageId: state.pathParameters['messageId']!,
+            ),
+          ),
+        ],
       ),
       GoRoute(
         name: RouteNames.about,

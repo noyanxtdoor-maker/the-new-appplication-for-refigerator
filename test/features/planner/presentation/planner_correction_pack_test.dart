@@ -319,8 +319,26 @@ void main() {
       await tester.pumpAndSettle();
 
       final current = PlannerEventColorDefaults.lockedJobApplication;
+      // Closed-beta V2 (owner decision AG-2, 2026-09-17): the canonical
+      // Job Application row now presents its neutral `Life Goal 1` placeholder
+      // while the profile has no real Goal in slot 1, and the row's control
+      // keys are derived from that display label. Read the rendered label
+      // instead of hard-coding one the screen may legitimately present.
+      final jobApplicationLabel =
+          (find
+                      .descendant(
+                        of: find.byKey(
+                          const Key('event-color-row-job_application'),
+                        ),
+                        matching: find.byType(Text),
+                      )
+                      .evaluate()
+                      .first
+                      .widget
+                  as Text)
+              .data!;
       final jobAccent = find.byKey(
-        const Key('event-color-swatch-Job Application-accent'),
+        Key('event-color-swatch-$jobApplicationLabel-accent'),
       );
       await tester.tap(jobAccent);
       await tester.pumpAndSettle();

@@ -416,11 +416,10 @@ final class DriftEventTypeRepository implements EventTypeRepository {
     // (event colors, group colors, Goal name overrides, and any invalid raw
     // owner content) instead of a pre-transaction row snapshot that could
     // erase a concurrent color/name/group save.
-    final encodedPresentation =
-        await PlannerPresentationDocumentStore(
-          database: database,
-          clock: clock,
-        ).encodedCurrentDocument(profileId);
+    final encodedPresentation = await PlannerPresentationDocumentStore(
+      database: database,
+      clock: clock,
+    ).encodedCurrentDocument(profileId);
     await database
         .into(database.plannerPreferences)
         .insertOnConflictUpdate(
@@ -497,13 +496,18 @@ final class DriftEventTypeRepository implements EventTypeRepository {
       database: database,
       clock: clock,
     );
-    return store.update(profileId, (current) async {
-      return PlannerColorPreferencesDocument(
-        events: current.document.events,
-        groups: <String, int>{...current.document.groups, normalizedId: colorArgb},
-        goalEventTypeNames: current.document.goalEventTypeNames,
-      );
-    }).then((document) => document.groups);
+    return store
+        .update(profileId, (current) async {
+          return PlannerColorPreferencesDocument(
+            events: current.document.events,
+            groups: <String, int>{
+              ...current.document.groups,
+              normalizedId: colorArgb,
+            },
+            goalEventTypeNames: current.document.goalEventTypeNames,
+          );
+        })
+        .then((document) => document.groups);
   }
 
   @override
@@ -565,6 +569,14 @@ final class DriftEventTypeRepository implements EventTypeRepository {
   /// peer after opaque-RGB normalization. Existing fallback/default/legacy
   /// duplicates remain readable and a type may retain its own current color.
   /// This rule is scoped to Event Types only; Groups use their own pool.
+  ///
+  /// Closed-beta V2 (owner decision AG-1, 2026-09-17): the synthetic Task
+  /// identity is treated EXACTLY like a real Event Type. It owns no
+  /// `activity_types` row, so a peer list built only from that table silently
+  /// omitted it — which let a real Event Type claim the Task accent, and which
+  /// made a Task save indistinguishable from a brand-new type. Both directions
+  /// are now symmetric: the Task can always retain its own current accent, and
+  /// no other identity (including the Task) may newly take the other's accent.
   Future<void> _ensureUniqueActiveEventTypeAccent({
     required String profileId,
     required String eventTypeStableKey,
@@ -572,28 +584,52 @@ final class DriftEventTypeRepository implements EventTypeRepository {
   }) async {
     final activeTypes = await readEventTypes(profileId: profileId);
     final preferences = await _readColorDocument(profileId);
-    final current = activeTypes
-        .where((type) => type.stableKey == eventTypeStableKey)
-        .firstOrNull;
-    if (current != null) {
-      final currentAccent =
-          preferences.events[current.stableKey]?.accentArgb ??
-          PlannerEventColorDefaults.forEventType(current).accentArgb;
-      // Retaining an existing duplicate/default is compatibility, not a new
-      // deliberate duplicate assignment.
-      if (Vs11ColorSystem.sameOpaqueRgb(currentAccent, proposedAccentArgb)) {
-        return;
+
+    /// The accent this identity currently resolves to, whether it is a real
+    /// row or the synthetic Task identity that owns no `activity_types` row.
+    int? effectiveAccentFor(String stableKey) {
+      final stored = preferences.events[stableKey]?.accentArgb;
+      if (stored != null) {
+        return stored;
       }
+      if (stableKey == PlannerEventColorDefaults.taskStableKey) {
+        return PlannerEventColorDefaults.task.accentArgb;
+      }
+      final type = activeTypes
+          .where((candidate) => candidate.stableKey == stableKey)
+          .firstOrNull;
+      return type == null
+          ? null
+          : PlannerEventColorDefaults.forEventType(type).accentArgb;
     }
-    final collision = activeTypes.any((type) {
-      if (type.stableKey == eventTypeStableKey) {
-        return false;
-      }
-      final effectiveAccent =
-          preferences.events[type.stableKey]?.accentArgb ??
-          PlannerEventColorDefaults.forEventType(type).accentArgb;
-      return Vs11ColorSystem.sameOpaqueRgb(effectiveAccent, proposedAccentArgb);
-    });
+
+    final isKnownIdentity =
+        eventTypeStableKey == PlannerEventColorDefaults.taskStableKey ||
+        activeTypes.any((type) => type.stableKey == eventTypeStableKey);
+    final currentAccent = isKnownIdentity
+        ? effectiveAccentFor(eventTypeStableKey)
+        : null;
+    // Retaining an existing duplicate/default is compatibility, not a new
+    // deliberate duplicate assignment.
+    if (currentAccent != null &&
+        Vs11ColorSystem.sameOpaqueRgb(currentAccent, proposedAccentArgb)) {
+      return;
+    }
+    final collision =
+        <String>[
+          for (final type in activeTypes) type.stableKey,
+          PlannerEventColorDefaults.taskStableKey,
+        ].any((stableKey) {
+          if (stableKey == eventTypeStableKey) {
+            return false;
+          }
+          final effectiveAccent = effectiveAccentFor(stableKey);
+          return effectiveAccent != null &&
+              Vs11ColorSystem.sameOpaqueRgb(
+                effectiveAccent,
+                proposedAccentArgb,
+              );
+        });
     if (collision) {
       throw StateError(
         'That color is already used by another active Event Type.',
@@ -679,8 +715,9 @@ final class DriftEventTypeRepository implements EventTypeRepository {
   }
 
   @override
-  Future<Map<String, GoalEventTypeNameOverride>>
-      readGoalEventTypeNameOverrides(String profileId) async {
+  Future<Map<String, GoalEventTypeNameOverride>> readGoalEventTypeNameOverrides(
+    String profileId,
+  ) async {
     return (await _readColorDocument(profileId)).goalEventTypeNames;
   }
 
@@ -788,9 +825,9 @@ final class DriftEventTypeRepository implements EventTypeRepository {
         final nameMatches = observedEntry == null
             ? storedEntry == null
             : storedEntry != null &&
-                storedEntry.eventTypeStableKey ==
-                    observedEntry.eventTypeStableKey &&
-                storedEntry.name == observedEntry.name;
+                  storedEntry.eventTypeStableKey ==
+                      observedEntry.eventTypeStableKey &&
+                  storedEntry.name == observedEntry.name;
         if (!nameMatches) {
           throw StateError(
             'That Event Type changed while you were editing. '
@@ -799,9 +836,8 @@ final class DriftEventTypeRepository implements EventTypeRepository {
         }
         final changedColor = patch.colorPreference;
         if (changedColor != null) {
-          final lockedDefault =
-              PlannerEventColorDefaults
-                  .pmgStableKeyDefaults[canonicalSlot.eventTypeStableKey];
+          final lockedDefault = PlannerEventColorDefaults
+              .pmgStableKeyDefaults[canonicalSlot.eventTypeStableKey];
           final effectiveNow =
               stored.events[canonicalSlot.eventTypeStableKey] ??
               lockedDefault ??
@@ -875,8 +911,8 @@ final class DriftEventTypeRepository implements EventTypeRepository {
       nameOverride: savedEntry?.name,
       colorPreference:
           document.events[canonicalSlot.eventTypeStableKey] ??
-          PlannerEventColorDefaults
-              .pmgStableKeyDefaults[canonicalSlot.eventTypeStableKey] ??
+          PlannerEventColorDefaults.pmgStableKeyDefaults[canonicalSlot
+              .eventTypeStableKey] ??
           PlannerEventColorDefaults.other,
     );
   }
@@ -931,8 +967,9 @@ final class DriftEventTypeRepository implements EventTypeRepository {
       // The owner wants ALL currently saved recommended auto-surfaces to
       // appear dark, while arbitrary manual surfaces must never be
       // overwritten.  Non-recommended accents keep the generic repair below.
-      final recommendedDarkSurfaceArgb =
-          recommendedSurfaceArgbForAccent(entry.value.accentArgb);
+      final recommendedDarkSurfaceArgb = recommendedSurfaceArgbForAccent(
+        entry.value.accentArgb,
+      );
       if (recommendedDarkSurfaceArgb != null) {
         final oldLegacyAutoSurfaceArgb = EventColorMath.lightMutedSurfaceArgb(
           entry.value.accentArgb,
@@ -1259,15 +1296,16 @@ final class DriftEventTypeRepository implements EventTypeRepository {
   /// never merged; duplicate display labels are reported without guessing
   /// identity.
   Future<void> _ensureEducationType(String profileId) async {
-    final byId = await (database.select(database.activityTypes)..where(
-          (table) => table.id.equals(SystemEventTypeIds.education),
-        )).get();
+    final byId = await (database.select(
+      database.activityTypes,
+    )..where((table) => table.id.equals(SystemEventTypeIds.education))).get();
     final byKey =
         await (database.select(database.activityTypes)..where(
               (table) =>
                   table.profileId.equals(profileId) &
                   table.stableKey.equals(SystemEventTypeKeys.education),
-            )).get();
+            ))
+            .get();
     if (byId.isEmpty && byKey.isEmpty) {
       await _assertEducationAccentAvailable(profileId);
       return;
@@ -1318,7 +1356,8 @@ final class DriftEventTypeRepository implements EventTypeRepository {
               (table) =>
                   table.profileId.equals(profileId) &
                   table.isArchived.equals(false),
-            )).get();
+            ))
+            .get();
     final preferenceRow = await (database.select(
       database.plannerPreferences,
     )..where((table) => table.profileId.equals(profileId))).getSingleOrNull();

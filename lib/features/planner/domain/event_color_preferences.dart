@@ -86,7 +86,10 @@ final class GoalEventTypeNameOverride {
     if (name is! String || name.trim().isEmpty) {
       return null;
     }
-    return GoalEventTypeNameOverride(eventTypeStableKey: key, name: name.trim());
+    return GoalEventTypeNameOverride(
+      eventTypeStableKey: key,
+      name: name.trim(),
+    );
   }
 
   @override
@@ -309,6 +312,14 @@ abstract final class EventColorPreferenceCodec {
 /// deterministic muted fallback for the current Next Transfer system types,
 /// which intentionally do not use those PMG labels.
 abstract final class PlannerEventColorDefaults {
+  /// The synthetic canonical Task identity's stable key.
+  ///
+  /// Mirrors `PlannerEventColorResolver.taskStableKey` in the presentation
+  /// layer so the data layer can reason about the Task identity without
+  /// importing presentation. The two constants must stay equal; a contract
+  /// test asserts that, so drift can never pass silently.
+  static const String taskStableKey = 'planner_task';
+
   // PMG tonal discipline (Parts 11-15): every accent is faded, desaturated,
   // gray-mixed, and comfortable on black — never fresh, candy, or neon.  The
   // surfaces are the same hue blended into a neutral charcoal veil at a
@@ -396,9 +407,21 @@ abstract final class PlannerEventColorDefaults {
     accentArgb: 0xFFE1CFB9,
     surfaceArgb: 0xFF4B4744,
   );
+
+  /// Closed-beta V2 (owner decision AG-1, 2026-09-17).
+  ///
+  /// Meal keeps its accepted warm beige/tan identity. Task moves to an
+  /// approved muted cool slate identity so the two can never be mistaken for
+  /// one another on the Planner timeline: the former Task pair
+  /// (#F2E9E0 / #494844) collapsed onto Meal's surfaces in Dark
+  /// (ΔRGB 2,1,0) and in the locked Light render transform.
+  ///
+  /// The canonical Task identity, its stable key, its preference storage and
+  /// the user's ability to customize it through Settings > Colors are all
+  /// unchanged; only the default pair moves. Meal is deliberately untouched.
   static const EventColorPreference task = EventColorPreference(
-    accentArgb: 0xFFF2E9E0,
-    surfaceArgb: 0xFF494844,
+    accentArgb: 0xFF8FAFC2,
+    surfaceArgb: 0xFF3D4F59,
   );
 
   // Locked system-type pairs. The six fixed Goal-linked Event Types resolve
