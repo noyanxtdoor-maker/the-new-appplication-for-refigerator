@@ -431,10 +431,14 @@ void main() {
           isFavorite: false,
         ),
       );
+      // A brand-new profile is created with the five canonical default Groups,
+      // which already own the warm amber / teal / moss / denim / rose-ember
+      // colours. This custom Group therefore takes a palette entry outside that
+      // set so it does not collide with an active default Group.
       final group = await contacts.createGroup(
         profileId: profile.id,
         name: 'Preview marker group',
-        colorValue: ContactGroupColorPalette.tealArgb,
+        colorValue: ContactGroupColorPalette.mutedVioletArgb,
       );
       await contacts.setContactGroups(
         profileId: profile.id,

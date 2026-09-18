@@ -1127,7 +1127,16 @@ final class _GroupPickerState extends State<_GroupPicker> {
                             ),
                           ),
                           const SizedBox(width: 10),
-                          Text(group.name),
+                          // The canonical default name "Ministering Assignments"
+                          // is long enough that a bare Text would overflow this
+                          // ListTile title on a narrow screen or at a larger text
+                          // scale, so the name flexes and ellipsises instead.
+                          Expanded(
+                            child: Text(
+                              group.name,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
                         ],
                       ),
                       onTap: () => setState(() => _primary = group.id),

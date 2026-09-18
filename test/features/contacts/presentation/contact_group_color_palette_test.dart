@@ -44,9 +44,20 @@ void main() {
         'Slate gray:ffd987c5',
       ],
     );
-    expect(ContactBuiltInGroupDefaults.family.colorArgb, 0xFFE3B756);
-    expect(ContactBuiltInGroupDefaults.friends.colorArgb, 0xFF63AEA8);
-    expect(ContactBuiltInGroupDefaults.avoid.colorArgb, 0xFFE2944E);
+    // Owner-transcribed PMG reference colours (2026-09-18 lock). These are
+    // asserted as literals so a future edit to a palette constant, or to the
+    // mapping itself, cannot silently drift the shipped defaults.
+    expect(ContactBuiltInGroupDefaults.family.colorArgb, 0xFF76B181);
+    expect(ContactBuiltInGroupDefaults.friends.colorArgb, 0xFFE89C72);
+    expect(
+      ContactBuiltInGroupDefaults.ministeringAssignments.colorArgb,
+      0xFF98CED8,
+    );
+    expect(ContactBuiltInGroupDefaults.members.colorArgb, 0xFF29646C);
+    expect(ContactBuiltInGroupDefaults.avoid.colorArgb, 0xFFC7566A);
+    expect(ContactUngroupedColor.argb, 0xFFEBC766);
+    // Legacy Other keeps the colour its already-existing rows were created
+    // with; it is preserved, never re-coloured by the canonical defaults.
     expect(ContactBuiltInGroupDefaults.other.colorArgb, 0xFFB373A2);
   });
 

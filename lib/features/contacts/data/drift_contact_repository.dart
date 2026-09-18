@@ -7,13 +7,12 @@ import 'package:rmplanner/core/database/app_database.dart';
 import 'package:rmplanner/core/ids/identifier_source.dart';
 import 'package:rmplanner/core/time/app_clock.dart';
 import 'package:rmplanner/features/contacts/application/contact_repository.dart';
+import 'package:rmplanner/features/contacts/data/contact_group_seeding.dart';
 import 'package:rmplanner/features/contacts/domain/contact.dart';
 import 'package:rmplanner/features/notifications/domain/reminder_policy.dart';
 import 'package:rmplanner/features/planner/application/calendar_event_repository.dart';
 import 'package:rmplanner/features/planner/data/calendar_event_time_zones.dart';
 import 'package:rmplanner/features/planner/domain/calendar_event.dart';
-import 'package:rmplanner/features/planner/domain/event_color_preferences.dart'
-    hide ContactGroup, ContactGroupDefaults;
 import 'package:rmplanner/features/planner/domain/planner_date.dart';
 import 'package:rmplanner/features/planner/domain/planner_task.dart';
 
@@ -1680,7 +1679,13 @@ final class DriftContactRepository
         (table) => OrderingTerm.asc(table.name),
       ]);
     final rows = await query.get();
-    return rows.map(_groupFromRow).toList(growable: false);
+    // Owner order law: the five canonical built-ins occupy the first five
+    // positions; every other row (custom groups and the legacy `Other`) follows
+    // in the query's existing `sortOrder, name` order, preserved exactly.
+    return ContactBuiltInGroupDefaults.canonicalFirst(
+      rows.map(_groupFromRow).toList(growable: false),
+      profileId,
+    );
   }
 
   @override
@@ -1948,59 +1953,32 @@ final class DriftContactRepository
     });
   }
 
+  /// Creates any missing canonical default Group. Additive and non-throwing:
+  /// a same-name collision is skipped, never raised, so this is safe on the
+  /// post-restore reconciliation path as well.
   @override
   Future<void> ensureBuiltInGroups(String profileId) async {
-    // Read-only collision gate BEFORE any mutation (C2 privacy-safe gate).
-    final existing = await (database.select(
-      database.contactGroups,
-    )..where((table) => table.profileId.equals(profileId))).get();
-    final existingByName = <String, ContactGroupRow>{};
-    for (final row in existing) {
-      existingByName.putIfAbsent(row.name, () => row);
-    }
-    // Legacy Store A override read (dormant after canonicalization): a saved
-    // override for a built-in stable key is imported ONLY when creating a
-    // missing built-in row.
-    final legacyGroups = await _readLegacyStoreAGroupColors(profileId);
-    final now = clock.nowUtc();
-    for (final builtIn in ContactBuiltInGroupDefaults.ordered) {
-      final expectedId = ContactBuiltInGroupIdentity.idForProfile(
-        profileId,
-        builtIn.key,
-      );
-      final rowById = existing.where((row) => row.id == expectedId).firstOrNull;
-      if (rowById != null) {
-        // Real built-in row already exists: canonical, never overwrite from
-        // Store A.
-        continue;
-      }
-      final nameCollision = existingByName[builtIn.name];
-      if (nameCollision != null) {
-        // STOP C2: a real row uses the built-in name but NOT the expected
-        // built-in identity. Never auto-merge or overwrite by name.
-        throw ContactValidationException(
-          'Built-in group "${builtIn.name}" collides with an existing custom '
-          'group (id ${nameCollision.id}). C2 built-in reconciliation stopped '
-          'to preserve your data.',
-        );
-      }
-      final override = legacyGroups[builtIn.key];
-      await database
-          .into(database.contactGroups)
-          .insert(
-            ContactGroupsCompanion.insert(
-              id: expectedId,
-              profileId: profileId,
-              name: builtIn.name,
-              colorValue: override ?? builtIn.colorArgb,
-              isArchived: const Value<bool>(false),
-              sortOrder: const Value<int>(0),
-              createdAtUtc: now,
-              updatedAtUtc: now,
-            ),
-            mode: InsertMode.insertOrIgnore,
-          );
-    }
+    await seedCanonicalContactGroups(
+      database,
+      profileId: profileId,
+      clock: clock,
+    );
+  }
+
+  /// The explicit, user-initiated canonical-defaults action. Creates missing
+  /// canonical groups and (only here) re-applies the canonical name, order and
+  /// colour to the canonical ids. Never modifies any other row.
+  @override
+  Future<ContactGroupDefaultsOutcome> applyDefaultGroups(
+    String profileId, {
+    bool restoreCanonicalValues = false,
+  }) {
+    return seedCanonicalContactGroups(
+      database,
+      profileId: profileId,
+      clock: clock,
+      restoreCanonicalValues: restoreCanonicalValues,
+    );
   }
 
   @override
@@ -2023,22 +2001,6 @@ final class DriftContactRepository
             ),
           );
     }
-  }
-
-  /// Reads ONLY the legacy Settings group-color map (Store A) without
-  /// mutating it. Returns an empty map when absent or malformed.
-  Future<Map<String, int>> _readLegacyStoreAGroupColors(
-    String profileId,
-  ) async {
-    final row = await (database.select(
-      database.plannerPreferences,
-    )..where((table) => table.profileId.equals(profileId))).getSingleOrNull();
-    if (row == null) {
-      return const <String, int>{};
-    }
-    return EventColorPreferenceCodec.decodeDocument(
-      row.eventColorPreferencesJson,
-    ).groups;
   }
 
   // -- Tags -----------------------------------------------------------------

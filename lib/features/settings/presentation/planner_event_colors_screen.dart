@@ -619,12 +619,19 @@ final class _EventColorControls extends StatelessWidget {
   }
 }
 
-const EventType _taskColorType = EventType(
+/// The synthetic canonical Task identity used by this Colors surface ONLY.
+///
+/// `colorValue` deliberately reads [PlannerEventColorDefaults.task] instead of
+/// repeating the literal: before this it duplicated the Task accent, so a
+/// future Task default change could have left Settings and the Planner
+/// rendering two different Task colours with nothing to catch it. Runtime
+/// behaviour is unchanged — this resolves to the same value today.
+final EventType _taskColorType = EventType(
   id: 'planner_task',
   stableKey: PlannerEventColorResolver.taskStableKey,
   label: 'Task',
   icon: EventTypeIcon.calendar,
-  colorValue: 0xFF8FAFC2,
+  colorValue: PlannerEventColorDefaults.task.accentArgb,
   isSystem: true,
   isArchived: false,
   reportRequiredDefault: true,

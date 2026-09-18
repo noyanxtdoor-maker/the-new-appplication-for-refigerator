@@ -46,8 +46,9 @@ void main() {
   }
 
   group('C2 built-in default groups', () {
-    test('seeds the four defaults idempotently with deterministic identity',
-        () async {
+    test(
+        'seeds the five canonical defaults idempotently, in owner order, and '
+        'never seeds the retired Other row', () async {
       final (database, contacts, profileId) = await arrange();
       addTearDown(database.close);
 
@@ -55,30 +56,37 @@ void main() {
       await contacts.ensureBuiltInGroups(profileId);
 
       final rows = await contacts.readGroups(profileId);
-      expect(rows, hasLength(4));
+      expect(
+        rows.map((row) => row.name).toList(growable: false),
+        <String>[
+          'Family',
+          'Friends',
+          'Ministering Assignments',
+          'Members',
+          'Avoid',
+        ],
+        reason: 'canonical order, with no legacy Other row',
+      );
       final byName = {for (final row in rows) row.name: row};
+      // Owner-transcribed PMG literals (2026-09-18 lock): a new profile's real
+      // rows must carry exactly these stored ARGB values.
+      expect(byName['Family']!.colorValue, 0xFF76B181);
+      expect(byName['Friends']!.colorValue, 0xFFE89C72);
+      expect(byName['Ministering Assignments']!.colorValue, 0xFF98CED8);
+      expect(byName['Members']!.colorValue, 0xFF29646C);
+      expect(byName['Avoid']!.colorValue, 0xFFC7566A);
       expect(
-        byName['Family']!.colorValue,
-        ContactBuiltInGroupDefaults.family.colorArgb,
+        byName.containsKey('Other'),
+        isFalse,
+        reason: 'Other is retired as a default',
       );
-      expect(
-        byName['Friends']!.colorValue,
-        ContactBuiltInGroupDefaults.friends.colorArgb,
-      );
-      expect(
-        byName['Avoid']!.colorValue,
-        ContactBuiltInGroupDefaults.avoid.colorArgb,
-      );
-      expect(
-        byName['Other']!.colorValue,
-        ContactBuiltInGroupDefaults.other.colorArgb,
-      );
-      // Deterministic identity uses the profile context.
+      // Deterministic identity and canonical order use the profile context.
       for (final group in ContactBuiltInGroupDefaults.ordered) {
         expect(
           byName[group.name]!.id,
           ContactBuiltInGroupIdentity.idForProfile(profileId, group.key),
         );
+        expect(byName[group.name]!.sortOrder, group.canonicalOrder);
       }
     });
 
@@ -103,6 +111,16 @@ void main() {
         () async {
       final (database, contacts, profileId) = await arrange();
       addTearDown(database.close);
+
+      // A canonical row is seeded at profile creation now, so simulate a
+      // pre-C2 install by removing exactly that one identity first.
+      await (database.delete(database.contactGroups)..where(
+            (table) =>
+                table.id.equals(
+                  ContactBuiltInGroupIdentity.idForProfile(profileId, 'family'),
+                ),
+          ))
+          .go();
 
       // Write a legacy Store A group override for Family.
       final document = EventColorPreferenceCodec.encodeDocument(
@@ -133,21 +151,6 @@ void main() {
         profileId,
         'family',
       );
-      final now = clock.nowUtc();
-      await database
-          .into(database.contactGroups)
-          .insert(
-            ContactGroupsCompanion.insert(
-              id: familyId,
-              profileId: profileId,
-              name: 'Family',
-              colorValue: 0xFF111111,
-              isArchived: const Value<bool>(false),
-              sortOrder: const Value<int>(0),
-              createdAtUtc: now,
-              updatedAtUtc: now,
-            ),
-          );
 
       final document = EventColorPreferenceCodec.encodeDocument(
         events: const <String, EventColorPreference>{},
@@ -167,13 +170,27 @@ void main() {
       final rows = await contacts.readGroups(profileId);
       final family = rows.singleWhere((row) => row.name == 'Family');
       expect(family.id, familyId);
-      expect(family.colorValue, 0xFF111111, reason: 'real row is canonical');
+      expect(
+        family.colorValue,
+        ContactBuiltInGroupDefaults.family.colorArgb,
+        reason: 'the real canonical row is never rewritten from Store A',
+      );
     });
 
-    test('name collision with a different real group identity STOPS', () async {
+    test(
+        'a same-name collision is SKIPPED and REPORTED, never thrown — the '
+        'post-restore seeding path must not fail', () async {
       final (database, contacts, profileId) = await arrange();
       addTearDown(database.close);
 
+      // Simulate a real pre-existing custom row that owns a canonical name.
+      await (database.delete(database.contactGroups)..where(
+            (table) =>
+                table.id.equals(
+                  ContactBuiltInGroupIdentity.idForProfile(profileId, 'family'),
+                ),
+          ))
+          .go();
       final now = clock.nowUtc();
       await database
           .into(database.contactGroups)
@@ -190,14 +207,20 @@ void main() {
             ),
           );
 
-      expect(
-        () => contacts.ensureBuiltInGroups(profileId),
-        throwsA(isA<ContactValidationException>()),
-      );
-      // No mutation happened for the colliding name.
+      // STOP C2 replaced: never throw, never convert the custom identity.
+      await expectLater(contacts.ensureBuiltInGroups(profileId), completes);
       final rows = await contacts.readGroups(profileId);
-      expect(rows.singleWhere((row) => row.name == 'Family').id,
-          'custom-family-id');
+      expect(
+        rows.where((row) => row.name == 'Family').single.id,
+        'custom-family-id',
+      );
+
+      final outcome = await contacts.applyDefaultGroups(profileId);
+      expect(outcome.collidingNames, <String>['Family']);
+      expect(outcome.addedNames, isNot(contains('Family')));
+      final after = await contacts.readGroups(profileId);
+      expect(after.where((row) => row.name == 'Family').single.colorValue,
+          0xFF999999);
     });
 
     test('restore defaults touches built-ins only and leaves custom untouched',

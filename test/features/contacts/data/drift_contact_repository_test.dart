@@ -313,7 +313,17 @@ void main() {
       profileId,
       includeArchived: true,
     );
-    expect(remaining.single.id, group.id);
+    // A new profile now receives the five canonical defaults at creation, so
+    // assert the scoped deletion did not touch the created group (nor them).
+    expect(remaining.map((row) => row.id), contains(group.id));
+    for (final definition in ContactBuiltInGroupDefaults.ordered) {
+      expect(
+        remaining.map((row) => row.id),
+        contains(
+          ContactBuiltInGroupIdentity.idForProfile(profileId, definition.key),
+        ),
+      );
+    }
   });
 
   test(

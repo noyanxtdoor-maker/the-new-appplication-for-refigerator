@@ -947,62 +947,258 @@ final class ContactSummary {
   }
 }
 
+/// The single presentation colour for a Contact that has no primary Group.
+///
+/// Owner law (2026-09-17): "ungrouped" is a *visual state*. It is never a Group
+/// row, never a membership and never a stored identity, and this constant is
+/// the only place that state resolves — so the list dot and the detail
+/// surfaces can never disagree about it.
+///
+/// Owner lock (2026-09-18): the ungrouped state resolves to the exact PMG
+/// "Interested" yellow. This is the single source for that state — no Group
+/// row, membership or stored identity ever carries it.
+abstract final class ContactUngroupedColor {
+  /// PMG "Interested" yellow — exact owner-transcribed reference (dark swatch).
+  static const int argb = 0xFFEBC766;
+}
+
 /// Wraps an ARGB color value with a neutral fallback so presentation code
 /// never has to reason about absent group colors.
 final class ColorValue {
   const ColorValue(this.value) : isNeutral = false;
-  const ColorValue.neutral() : value = _neutral, isNeutral = true;
-
-  static const int _neutral = 0xFF9CA0A6;
+  const ColorValue.neutral()
+    : value = ContactUngroupedColor.argb,
+      isNeutral = true;
 
   final int value;
   final bool isNeutral;
 }
 
-/// Canonical built-in default group definitions (C2 owner lock).
+/// Canonical built-in default group definitions.
 ///
 /// The built-in identity is a deterministic UUIDv5 derived from a fixed
 /// namespace plus the owning profile id, so the globally-unique
 /// `contact_groups.id` primary key can never collide across profiles or sync,
 /// and the same built-in group always maps to the same real row for a profile.
+///
+/// Owner lock (2026-09-17): the canonical default set is exactly these five, in
+/// exactly this order —
+///
+///   0 Family
+///   1 Friends
+///   2 Ministering Assignments
+///   3 Members
+///   4 Avoid
+///
+/// `Other` is retired as a *default*: it is never seeded for a new profile. The
+/// constant is retained only because a real `other` row already exists for every
+/// profile that predates this change. That row is preserved untouched (including
+/// its memberships) and is displayed after the five canonical defaults, exactly
+/// like a user-created group.
+///
+/// A profile that predates this set is NOT migrated automatically: creating the
+/// two new rows is an explicit, user-initiated action
+/// (`ContactRepository.applyDefaultGroups`).
 final class ContactBuiltInGroupDefaults {
   const ContactBuiltInGroupDefaults({
     required this.key,
     required this.name,
     required this.colorArgb,
+    required this.canonicalOrder,
   });
 
   final String key;
   final String name;
   final int colorArgb;
 
+  /// Zero-based canonical position. Persisted as the row's `sortOrder` on
+  /// create and used as the ordering key by [canonicalFirst].
+  final int canonicalOrder;
+
+  /// The owner-transcribed PMG reference colours (2026-09-18 lock).
+  ///
+  /// These are written as literal ARGB, never via a [ContactGroupColorPalette]
+  /// name: several of the VS-11 palette constant *names* do not describe their
+  /// *values*, so a name-based mapping would silently store the wrong colour.
+  ///
+  /// PMG source per mapping (dark reference swatch):
+  ///   Family                 -> PMG "Being Taught"      #76B181
+  ///   Friends                -> owner-approved orange   #E89C72
+  ///   Ministering Assignments-> PMG "New Members"       #98CED8
+  ///   Members                -> PMG "Members"           #29646C
+  ///   Avoid                  -> PMG "Don't Contact"     #C7566A
+  static const int familyArgb = 0xFF76B181;
+  static const int friendsArgb = 0xFFE89C72;
+  static const int ministeringArgb = 0xFF98CED8;
+  static const int membersArgb = 0xFF29646C;
+  static const int avoidArgb = 0xFFC7566A;
+
   static const ContactBuiltInGroupDefaults family = ContactBuiltInGroupDefaults(
     key: 'family',
     name: 'Family',
-    colorArgb: ContactGroupColorPalette.warmAmberArgb,
+    colorArgb: familyArgb,
+    canonicalOrder: 0,
   );
   static const ContactBuiltInGroupDefaults friends =
       ContactBuiltInGroupDefaults(
         key: 'friends',
         name: 'Friends',
-        colorArgb: ContactGroupColorPalette.tealArgb,
+        colorArgb: friendsArgb,
+        canonicalOrder: 1,
+      );
+  static const ContactBuiltInGroupDefaults ministeringAssignments =
+      ContactBuiltInGroupDefaults(
+        key: 'ministering_assignments',
+        name: 'Ministering Assignments',
+        colorArgb: ministeringArgb,
+        canonicalOrder: 2,
+      );
+  static const ContactBuiltInGroupDefaults members =
+      ContactBuiltInGroupDefaults(
+        key: 'members',
+        name: 'Members',
+        colorArgb: membersArgb,
+        canonicalOrder: 3,
       );
   static const ContactBuiltInGroupDefaults avoid = ContactBuiltInGroupDefaults(
     key: 'avoid',
     name: 'Avoid',
-    colorArgb: ContactGroupColorPalette.mutedRoseArgb,
+    colorArgb: avoidArgb,
+    canonicalOrder: 4,
   );
+
+  /// Legacy pre-2026-09-17 built-in. NOT part of [ordered] and never seeded for
+  /// a new profile — retained for the real rows that already exist.
   static const ContactBuiltInGroupDefaults other = ContactBuiltInGroupDefaults(
     key: 'other',
     name: 'Other',
     colorArgb: ContactGroupColorPalette.neutralGrayArgb,
+    canonicalOrder: -1,
   );
 
+  /// The five canonical defaults, in canonical order.
   static const List<ContactBuiltInGroupDefaults> ordered =
-      <ContactBuiltInGroupDefaults>[family, friends, avoid, other];
+      <ContactBuiltInGroupDefaults>[
+        family,
+        friends,
+        ministeringAssignments,
+        members,
+        avoid,
+      ];
 
   static ContactBuiltInGroupDefaults byKey(String key) {
     return ordered.firstWhere((group) => group.key == key, orElse: () => other);
+  }
+
+  /// Applies the owner order law to a Group row list: the canonical built-ins
+  /// come first, in canonical order, and every other row follows preserving its
+  /// incoming relative order exactly.
+  ///
+  /// This is a partition, not a re-sort, so groups that share the historical
+  /// `sortOrder = 0` fallback keep the stable order they already had (the
+  /// repository query's `sortOrder, name` order) — nothing is reshuffled. The
+  /// legacy `other` row is deliberately NOT canonical here, so it follows the
+  /// five defaults like any custom group.
+  static List<ContactGroup> canonicalFirst(
+    List<ContactGroup> rows,
+    String profileId,
+  ) {
+    final byId = <String, ContactGroup>{
+      for (final row in rows) row.id: row,
+    };
+    final orderedRows = <ContactGroup>[];
+    final claimed = <String>{};
+    for (final definition in ordered) {
+      final row = byId[
+        ContactBuiltInGroupIdentity.idForProfile(profileId, definition.key)
+      ];
+      if (row != null && claimed.add(row.id)) {
+        orderedRows.add(row);
+      }
+    }
+    for (final row in rows) {
+      if (!claimed.contains(row.id)) {
+        orderedRows.add(row);
+      }
+    }
+    return List<ContactGroup>.unmodifiable(orderedRows);
+  }
+}
+
+/// Result of one explicit canonical-default-groups run
+/// (`ContactRepository.applyDefaultGroups`).
+///
+/// Truthful and user-facing: Manage Groups reports [collidingNames] verbatim so
+/// a same-name clash is never silent, and reports [addedNames] so the user can
+/// see exactly what the run did.
+final class ContactGroupDefaultsOutcome {
+  const ContactGroupDefaultsOutcome({
+    this.addedNames = const <String>[],
+    this.collidingNames = const <String>[],
+    this.reappliedNames = const <String>[],
+  });
+
+  /// Canonical groups newly created by this run.
+  final List<String> addedNames;
+
+  /// Canonical groups that were NOT created because a different real Group
+  /// already uses that exact name. That pre-existing row is left untouched.
+  final List<String> collidingNames;
+
+  /// Canonical rows whose name/order/colour were explicitly restored.
+  final List<String> reappliedNames;
+
+  bool get hasCollisions => collidingNames.isNotEmpty;
+
+  bool get changedAnything =>
+      addedNames.isNotEmpty || reappliedNames.isNotEmpty;
+}
+
+/// Read-only view of whether a profile already holds the canonical default set.
+///
+/// Computed from already-loaded rows — it never writes and never seeds, so a
+/// Group the user permanently deleted is never resurrected by a read.
+final class ContactDefaultGroupsStatus {
+  const ContactDefaultGroupsStatus({
+    required this.missingNames,
+    required this.collidingNames,
+  });
+
+  /// Canonical defaults whose stable id is absent from the profile.
+  final List<String> missingNames;
+
+  /// Canonical defaults that cannot be created because a *different* real row
+  /// already uses that exact name.
+  final List<String> collidingNames;
+
+  bool get needsAttention => missingNames.isNotEmpty;
+
+  static ContactDefaultGroupsStatus evaluate({
+    required List<ContactGroup> groups,
+    required String profileId,
+  }) {
+    final ids = <String>{for (final group in groups) group.id};
+    final names = <String>{for (final group in groups) group.name.trim().toLowerCase()};
+    final missing = <String>[];
+    final colliding = <String>[];
+    for (final definition in ContactBuiltInGroupDefaults.ordered) {
+      final expectedId = ContactBuiltInGroupIdentity.idForProfile(
+        profileId,
+        definition.key,
+      );
+      if (ids.contains(expectedId)) {
+        continue;
+      }
+      if (names.contains(definition.name.trim().toLowerCase())) {
+        colliding.add(definition.name);
+        continue;
+      }
+      missing.add(definition.name);
+    }
+    return ContactDefaultGroupsStatus(
+      missingNames: List<String>.unmodifiable(missing),
+      collidingNames: List<String>.unmodifiable(colliding),
+    );
   }
 }
 

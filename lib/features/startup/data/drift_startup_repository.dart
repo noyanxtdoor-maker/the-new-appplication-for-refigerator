@@ -5,6 +5,7 @@ import 'package:rmplanner/core/diagnostics/sanitized_diagnostics.dart';
 import 'package:rmplanner/core/ids/identifier_source.dart';
 import 'package:rmplanner/core/security/privacy_gate.dart';
 import 'package:rmplanner/core/time/app_clock.dart';
+import 'package:rmplanner/features/contacts/data/contact_group_seeding.dart';
 import 'package:rmplanner/features/startup/application/startup_repository.dart';
 import 'package:rmplanner/features/startup/domain/life_indicator_seed.dart';
 import 'package:rmplanner/features/startup/domain/local_profile.dart';
@@ -148,6 +149,14 @@ final class DriftStartupRepository implements StartupRepository {
             ),
           );
       await _ensureIndicatorSeeds(profileId);
+      // A brand-new profile receives the canonical default Contact Groups once,
+      // here, at creation. An existing profile is deliberately NOT seeded —
+      // adopting the new defaults stays an explicit user action.
+      await seedCanonicalContactGroups(
+        database,
+        profileId: profileId,
+        clock: clock,
+      );
       await (database.update(
         database.onboardingCheckpoints,
       )..where((table) => table.key.equals(_primaryKey))).write(

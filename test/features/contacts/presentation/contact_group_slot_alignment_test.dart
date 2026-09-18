@@ -181,7 +181,7 @@ void main() {
       );
 
       expect(groupedStar.color, const Color(0xFF2F9E44));
-      expect(ungroupedStar.color, const Color(0xFF9CA0A6));
+      expect(ungroupedStar.color, const Color(ContactUngroupedColor.argb));
     },
   );
 }

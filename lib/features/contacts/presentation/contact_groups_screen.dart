@@ -12,7 +12,7 @@ import 'package:rmplanner/features/contacts/domain/contact.dart';
 import 'package:rmplanner/features/contacts/presentation/contact_multi_select_screen.dart';
 import 'package:rmplanner/features/planner/application/planner_providers.dart';
 import 'package:rmplanner/features/planner/domain/event_color_math.dart';
-import 'package:rmplanner/features/planner/presentation/widgets/event_color_picker_components.dart';
+import 'package:rmplanner/features/settings/presentation/event_color_picker_dialog.dart';
 
 const List<String> _suggestedGroupNames = <String>[
   'Family',
@@ -60,10 +60,20 @@ final class _ContactGroupsScreenState
           final suggestions = _suggestedGroupNames
               .where((name) => !existingNames.contains(name.toLowerCase()))
               .toList(growable: false);
+          final profileId = ref.read(contactProfileIdProvider);
+          final defaultsStatus = ContactDefaultGroupsStatus.evaluate(
+            groups: groups,
+            profileId: profileId,
+          );
           return ListView(
             key: const Key('contact-groups-list'),
             padding: InternalScreen.pagePadding,
             children: <Widget>[
+              if (defaultsStatus.needsAttention)
+                _DefaultGroupsCard(
+                  collidingNames: defaultsStatus.collidingNames,
+                  onUseDefaults: () => unawaited(_useDefaultGroups()),
+                ),
               for (final group in active)
                 _GroupRow(
                   group: group,
@@ -123,6 +133,15 @@ final class _ContactGroupsScreenState
                     isLegacyArchived: true,
                   ),
               ],
+              const SizedBox(height: 24),
+              SizedBox(
+                height: 48,
+                child: OutlinedButton(
+                  key: const Key('restore-default-groups'),
+                  onPressed: () => unawaited(_restoreDefaultGroups()),
+                  child: const Text('Restore default groups'),
+                ),
+              ),
             ],
           );
         },
@@ -185,6 +204,113 @@ final class _ContactGroupsScreenState
         ).showSnackBar(SnackBar(content: Text(error.message)));
       }
     }
+  }
+
+  /// Owner law: adopting the new canonical defaults is OPT-IN for an existing
+  /// profile. This adds only what is missing and never touches any other row.
+  Future<void> _useDefaultGroups() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        key: const Key('use-default-groups-dialog'),
+        title: const Text('Use default groups?'),
+        content: const Text(
+          'Next Transfer will add or restore the recommended groups and their '
+          'default colors. Your existing custom groups and contact assignments '
+          'will stay intact.',
+        ),
+        actions: <Widget>[
+          TextButton(
+            key: const Key('use-default-groups-cancel'),
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            key: const Key('use-default-groups-confirm'),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Use defaults'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) {
+      return;
+    }
+    await _runDefaultGroups(restoreCanonicalValues: false);
+  }
+
+  /// The permanent, lower-prominence action. Uses the SAME engine; it may also
+  /// re-apply the canonical name, order and colour of the canonical ids because
+  /// the user explicitly asked for a restore.
+  Future<void> _restoreDefaultGroups() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        key: const Key('restore-default-groups-dialog'),
+        title: const Text('Restore default groups?'),
+        content: const Text(
+          'Next Transfer will add any missing recommended groups and restore '
+          'their default names, colors and order. Your existing custom groups '
+          'and contact assignments will stay intact.',
+        ),
+        actions: <Widget>[
+          TextButton(
+            key: const Key('restore-default-groups-cancel'),
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            key: const Key('restore-default-groups-confirm'),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Restore'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) {
+      return;
+    }
+    await _runDefaultGroups(restoreCanonicalValues: true);
+  }
+
+  Future<void> _runDefaultGroups({required bool restoreCanonicalValues}) async {
+    final repository = ref.read(contactRepositoryProvider);
+    final profileId = ref.read(contactProfileIdProvider);
+    final ContactGroupDefaultsOutcome outcome;
+    try {
+      outcome = await repository.applyDefaultGroups(
+        profileId,
+        restoreCanonicalValues: restoreCanonicalValues,
+      );
+    } on ContactValidationException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.message)));
+      }
+      return;
+    }
+    ref.invalidate(contactGroupsProvider);
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(_defaultGroupsMessage(outcome))),
+    );
+  }
+
+  static String _defaultGroupsMessage(ContactGroupDefaultsOutcome outcome) {
+    if (outcome.hasCollisions) {
+      return "Some default groups couldn't be added because groups with the "
+          'same names already exist: ${outcome.collidingNames.join(', ')}.';
+    }
+    if (outcome.addedNames.isNotEmpty) {
+      return 'Default groups added: ${outcome.addedNames.join(', ')}.';
+    }
+    if (outcome.reappliedNames.isNotEmpty) {
+      return 'Default groups restored.';
+    }
+    return 'Default groups are already set up.';
   }
 
   Future<void> _createSuggestedGroup(String name) async {
@@ -260,6 +386,67 @@ final class _ContactGroupsScreenState
         ).showSnackBar(SnackBar(content: Text(error.message)));
       }
     }
+  }
+}
+
+/// The opt-in migration card for a profile that predates the canonical default
+/// set. Non-blocking, shown inside Manage Groups only — never at startup.
+final class _DefaultGroupsCard extends StatelessWidget {
+  const _DefaultGroupsCard({
+    required this.collidingNames,
+    required this.onUseDefaults,
+  });
+
+  final List<String> collidingNames;
+  final VoidCallback onUseDefaults;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      key: const Key('default-groups-card'),
+      margin: const EdgeInsets.only(bottom: 16),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            const Text(
+              'Default groups available',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              "Use Next Transfer's recommended groups and colors. Your existing "
+              'custom groups and contact assignments will stay intact.',
+              style: TextStyle(
+                fontSize: 13,
+                color: AppTheme.secondaryTextOf(context),
+              ),
+            ),
+            if (collidingNames.isNotEmpty) ...<Widget>[
+              const SizedBox(height: 8),
+              Text(
+                "Some default groups couldn't be added because groups with the "
+                'same names already exist: ${collidingNames.join(', ')}.',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Theme.of(context).colorScheme.error,
+                ),
+              ),
+            ],
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerRight,
+              child: FilledButton(
+                key: const Key('use-default-groups'),
+                onPressed: onUseDefaults,
+                child: const Text('Use default groups'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -686,10 +873,18 @@ final class _GroupEditorState extends State<_GroupEditor> {
     );
   }
 
+  /// Owner law (2026-09-17): a custom Group colour uses the SAME visual picker
+  /// as Settings -> Colors. Typing a hex code is no longer required; the picker
+  /// still displays the exact hex read-out, and the existing draft preview,
+  /// near-duplicate warning, Cancel semantics and `updateGroup` write path are
+  /// all unchanged.
   Future<void> _chooseCustomColor(BuildContext context) async {
-    final chosen = await showCustomHexColorDialog(
-      context,
+    final chosen = await showPlannerEventColorPicker(
+      context: context,
+      eventTypeLabel: widget.group?.name ?? 'Group',
+      role: EventColorRole.accent,
       initialColor: Color(Vs11ColorSystem.opaqueRgb(_color)),
+      otherColor: Theme.of(context).scaffoldBackgroundColor,
     );
     if (chosen == null || !mounted) {
       return;

@@ -153,6 +153,22 @@ abstract interface class ContactRepository {
     required int colorValue,
   });
 
+  /// The explicit, user-initiated canonical defaults action behind both
+  /// "Use default groups" and "Restore default groups".
+  ///
+  /// Additive by default: creates any missing canonical built-in Group and
+  /// leaves every other row — custom names, custom colours, the legacy `Other`
+  /// row, and all Contact memberships — exactly as they are. When
+  /// [restoreCanonicalValues] is true the canonical rows' name, order and
+  /// colour are re-applied to their canonical ids (and only to those ids).
+  ///
+  /// Never throws on a same-name collision: the clash is reported in
+  /// [ContactGroupDefaultsOutcome.collidingNames] so the UI can explain it.
+  Future<ContactGroupDefaultsOutcome> applyDefaultGroups(
+    String profileId, {
+    bool restoreCanonicalValues = false,
+  });
+
   /// Permanently deletes a user-managed group and its Contact memberships.
   /// Contacts themselves are retained without that group.
   Future<void> hardDeleteGroup({

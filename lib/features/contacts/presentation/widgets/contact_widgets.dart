@@ -5,7 +5,11 @@ import 'package:rmplanner/features/contacts/presentation/c3_contact_primitives.d
 import 'package:rmplanner/features/planner/domain/planner_date.dart';
 
 Color colorFromValue(ColorValue value) {
-  return value.isNeutral ? const Color(0xFF9CA0A6) : Color(value.value);
+  // The neutral branch IS the ungrouped-contact state, so it resolves through
+  // the single canonical source rather than duplicating the literal.
+  return value.isNeutral
+      ? const Color(ContactUngroupedColor.argb)
+      : Color(value.value);
 }
 
 /// Neutral circle with initials; the ring/background uses the primary group

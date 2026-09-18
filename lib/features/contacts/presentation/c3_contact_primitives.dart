@@ -13,8 +13,10 @@ final class ContactGroupIdentityDot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // The ungrouped state resolves through one domain constant so this dot can
+    // never disagree with the Contact detail surfaces about "no group".
     final color = colorValue.isNeutral
-        ? const Color(0xFF9CA0A6)
+        ? const Color(ContactUngroupedColor.argb)
         : Color(colorValue.value);
     return SizedBox(
       width: kContactGroupIdentitySlotSize,

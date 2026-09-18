@@ -226,9 +226,15 @@ void main() {
       ),
       findsOneWidget,
     );
-    // C2: the four built-in default groups are seeded as real ContactGroup
-    // rows and rendered under Default Groups.
-    for (final key in <String>['family', 'friends', 'avoid', 'other']) {
+    // The five canonical default groups are seeded as real ContactGroup rows
+    // (at profile creation) and rendered under Default Groups in owner order.
+    for (final key in <String>[
+      'family',
+      'friends',
+      'ministering_assignments',
+      'members',
+      'avoid',
+    ]) {
       expect(
         find.byKey(Key('planner-group-color-row-$key')),
         findsOneWidget,

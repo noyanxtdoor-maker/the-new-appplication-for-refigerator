@@ -146,9 +146,10 @@ void main() {
       await tester.tap(find.byKey(const Key('group-picker-manage')));
       await tester.pumpAndSettle();
       expect(find.text('Manage Groups'), findsOneWidget);
+      // Family and Friends are canonical default groups now (seeded at profile
+      // creation), so they are no longer offered as suggestions — they are real
+      // rows instead. The remaining shortcuts are unchanged.
       for (final key in <Key>[
-        const Key('suggested-group-family'),
-        const Key('suggested-group-friends'),
         const Key('suggested-group-work'),
         const Key('suggested-group-school'),
         const Key('suggested-group-clients'),
@@ -156,6 +157,32 @@ void main() {
         const Key('suggested-group-other'),
       ]) {
         expect(find.byKey(key), findsOneWidget);
+      }
+      for (final key in <Key>[
+        const Key('suggested-group-family'),
+        const Key('suggested-group-friends'),
+      ]) {
+        expect(
+          find.byKey(key),
+          findsNothing,
+          reason: 'a canonical default group is a real row, not a suggestion',
+        );
+      }
+      for (final name in <String>[
+        'Family',
+        'Friends',
+        'Ministering Assignments',
+        'Members',
+        'Avoid',
+      ]) {
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('contact-groups-list')),
+            matching: find.text(name),
+          ),
+          findsOneWidget,
+          reason: 'canonical default $name is a real row',
+        );
       }
       for (final key in <Key>[
         const Key('suggested-group-household'),
@@ -166,14 +193,39 @@ void main() {
       }
       await tester.tap(find.byKey(const Key('suggested-group-work')));
       await tester.pumpAndSettle();
-      expect(find.byIcon(Icons.edit_outlined), findsOneWidget);
-      expect(find.byIcon(Icons.delete_outline), findsOneWidget);
+      final createdWorkRow = find.ancestor(
+        of: find.text('Work'),
+        matching: find.byWidgetPredicate((widget) {
+          final key = widget.key;
+          return key is ValueKey<String> && key.value.startsWith('group-row-');
+        }),
+      );
+      expect(
+        find.descendant(
+          of: createdWorkRow,
+          matching: find.byIcon(Icons.edit_outlined),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: createdWorkRow,
+          matching: find.byIcon(Icons.delete_outline),
+        ),
+        findsOneWidget,
+      );
       expect(find.byKey(const Key('group-archive')), findsNothing);
 
-      final createdGroupRow = find.byWidgetPredicate((widget) {
-        final key = widget.key;
-        return key is ValueKey<String> && key.value.startsWith('group-row-');
-      }, description: 'the created Group row');
+      // Scope to the group this test just created: the five canonical defaults
+      // are also rows now, so a bare `group-row-*` finder would no longer be
+      // unique.
+      final createdGroupRow = find.ancestor(
+        of: find.text('Work'),
+        matching: find.byWidgetPredicate((widget) {
+          final key = widget.key;
+          return key is ValueKey<String> && key.value.startsWith('group-row-');
+        }),
+      );
       expect(createdGroupRow, findsOneWidget);
       await tester.tapAt(tester.getCenter(createdGroupRow));
       await tester.pumpAndSettle();
@@ -181,6 +233,11 @@ void main() {
         find.text('Members (0)'),
         findsOneWidget,
         reason: 'touching the Group row opens Group Detail, not the editor',
+      );
+      expect(
+        find.text('Work'),
+        findsWidgets,
+        reason: 'the opened group is the one this test created',
       );
       expect(find.text('Add Contacts to Group'), findsOneWidget);
       await tester.pageBack();

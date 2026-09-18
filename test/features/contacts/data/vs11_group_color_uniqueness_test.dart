@@ -27,17 +27,20 @@ void main() {
   tearDown(() => database.close());
 
   test('active Group colors use opaque-RGB uniqueness while legacy duplicates remain readable', () async {
-    final family = await repository.createGroup(
+    // A new profile already holds the five canonical defaults (at creation), so
+    // this fixture must use a name and a colour that no canonical default owns —
+    // p22SteelBlue is outside the canonical default set.
+    final custom = await repository.createGroup(
       profileId: profileId,
-      name: 'Family',
-      colorValue: Vs11ColorSystem.p01RoseEmber,
+      name: 'Field Team',
+      colorValue: Vs11ColorSystem.p22SteelBlue,
     );
 
     await expectLater(
       repository.createGroup(
         profileId: profileId,
         name: 'Duplicate',
-        colorValue: 0x7F000000 | (Vs11ColorSystem.p01RoseEmber & 0x00FFFFFF),
+        colorValue: 0x7F000000 | (Vs11ColorSystem.p22SteelBlue & 0x00FFFFFF),
       ),
       throwsA(isA<ContactValidationException>()),
     );
@@ -49,18 +52,18 @@ void main() {
         id: 'legacy-duplicate',
         profileId: profileId,
         name: 'Legacy duplicate',
-        colorValue: Vs11ColorSystem.p01RoseEmber,
+        colorValue: Vs11ColorSystem.p22SteelBlue,
         createdAtUtc: DateTime.utc(2025, 1, 1),
         updatedAtUtc: DateTime.utc(2025, 1, 1),
       ),
     );
     final retained = await repository.updateGroup(
       profileId: profileId,
-      groupId: family.id,
-      name: 'Family renamed',
-      colorValue: family.colorValue,
+      groupId: custom.id,
+      name: 'Field Team renamed',
+      colorValue: custom.colorValue,
     );
-    expect(retained.colorValue, family.colorValue);
+    expect(retained.colorValue, custom.colorValue);
     expect((await repository.readGroups(profileId)).map((group) => group.id), contains('legacy-duplicate'));
   });
 

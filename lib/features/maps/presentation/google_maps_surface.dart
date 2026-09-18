@@ -1516,9 +1516,16 @@ final class _GoogleMapsSurfaceState extends ConsumerState<GoogleMapsSurface>
           initialChildSize: 0.44,
           minChildSize: 0.31,
           maxChildSize: 0.64,
-          builder: (context, scrollController) => ListView(
-            controller: scrollController,
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+          // Edge-to-edge: a modal bottom sheet extends to the very bottom of the
+          // screen in BOTH `useSafeArea` modes, so the system navigation area
+          // must be excluded by the sheet's own content. Without this the last
+          // row (and its taps) could sit under the system bar on gesture or
+          // three-button navigation.
+          builder: (context, scrollController) => SafeArea(
+            top: false,
+            child: ListView(
+              controller: scrollController,
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
             children: <Widget>[
               Text(
                 'Map Type',
@@ -1618,7 +1625,8 @@ final class _GoogleMapsSurfaceState extends ConsumerState<GoogleMapsSurface>
                   updateSheet(() {});
                 },
               ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

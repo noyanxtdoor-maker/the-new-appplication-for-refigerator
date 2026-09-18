@@ -34,7 +34,7 @@ void main() {
       await contacts.ensureBuiltInGroups(profile.id);
       final groups = await contacts.readGroups(profile.id);
       final family = groups.singleWhere((group) => group.name == 'Family');
-      final other = groups.singleWhere((group) => group.name == 'Other');
+      final other = groups.singleWhere((group) => group.name == 'Members');
       for (final draft in <ContactDraft>[
         const ContactDraft(
           id: '11111111-1111-4111-8111-111111111111',
@@ -240,14 +240,14 @@ void main() {
       await tester.tap(find.byKey(Key('group-add-members-${family.id}')));
       await tester.pumpAndSettle();
       expect(find.text('Already in Family'), findsNWidgets(2));
-      expect(find.text('Other'), findsOneWidget);
+      expect(find.text('Members'), findsOneWidget);
       await tester.tap(find.byKey(Key('multi-select-row-$reassignedId')));
       await tester.tap(find.byKey(Key('multi-select-row-$ungroupedId')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('multi-select-done')));
       await tester.pumpAndSettle();
       expect(find.text('Add 2 contacts to Family?'), findsOneWidget);
-      expect(find.text('Moving Contact — Other'), findsOneWidget);
+      expect(find.text('Moving Contact — Members'), findsOneWidget);
       expect(find.text('1 contact currently have no group.'), findsOneWidget);
       await tester.tap(find.byKey(const Key('group-reassignment-confirm')));
       await tester.pumpAndSettle();
