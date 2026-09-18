@@ -2,11 +2,21 @@ package com.nexttransfer.rmplanner
 
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.os.Bundle
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterFragmentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        // Preserve Android's required launch surface until Flutter draws its
+        // fully opaque, approved startup route. No timer or destination
+        // content is involved in this platform-owned handoff.
+        installSplashScreen()
+        super.onCreate(savedInstanceState)
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(

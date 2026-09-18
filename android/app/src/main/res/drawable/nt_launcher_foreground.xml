@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- The owner-approved square artwork has its own blue edge margin. Fill
+         the adaptive viewport without additional zoom or a second crop. -->
+    <item>
+        <bitmap
+            android:gravity="fill"
+            android:src="@drawable/nt_launcher_art" />
+    </item>
+</layer-list>

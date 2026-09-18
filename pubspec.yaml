@@ -47,6 +47,7 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
+    - assets/branding/
     - assets/icons/goals/
     - assets/icons/filter-svgrepo-com.svg
     - assets/icons/contacts/standard_filters/

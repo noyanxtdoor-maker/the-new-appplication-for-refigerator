@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 12+ owns the system launch stage. It is deliberately minimal:
+         the approved app icon sits on the same deep-blue field that the
+         Flutter-owned approved splash immediately continues. -->
+    <style name="LaunchTheme" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/nt_brand_deep_blue</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="windowSplashScreenAnimationDuration">0</item>
+        <item name="postSplashScreenTheme">@style/NormalTheme</item>
+    </style>
+</resources>

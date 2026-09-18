@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Drawn from the approved Next Transfer splash's dark outer field. -->
+    <color name="nt_brand_deep_blue">#002B73</color>
+</resources>

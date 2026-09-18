@@ -72,6 +72,9 @@ flutter {
 }
 
 dependencies {
+    // Android 12 system splash API, used only to make the required platform
+    // launch stage continuous with the approved Flutter intro artwork.
+    implementation("androidx.core:core-splashscreen:1.0.1")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
     // M4 recovery receiver enqueues one bounded canonical WorkManager task.
     // Same version the workmanager plugin itself compiles against; the merged

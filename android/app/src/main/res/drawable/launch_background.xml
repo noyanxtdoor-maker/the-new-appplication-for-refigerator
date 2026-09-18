@@ -1,12 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Modify this file to customize your launch splash screen -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="@android:color/white" />
-
-    <!-- You can insert your own image assets here -->
-    <!-- <item>
-        <bitmap
-            android:gravity="center"
-            android:src="@mipmap/launch_image" />
-    </item> -->
+    <!-- Pre-Android-12 launch surface: opaque and visually continuous with
+         the app-owned intro. The platform owns this short system stage. -->
+    <item android:drawable="@color/nt_brand_deep_blue" />
 </layer-list>
