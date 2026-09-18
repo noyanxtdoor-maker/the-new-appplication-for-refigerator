@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+  fill="none" stroke-linecap="round" stroke-linejoin="round"
+  role="img" aria-hidden="true">
+<title>Two people</title>
+<g stroke="#9DC8CF" stroke-width="1.8">
+    <circle cx="8" cy="8" r="2.5"/>
+    <circle cx="16" cy="8" r="2.5"/>
+    <path d="M3.5 19v-1.8A4.7 4.7 0 0 1 8.2 12.5h.1A4.7 4.7 0 0 1 13 17.2V19"/>
+    <path d="M11 17.2a4.7 4.7 0 0 1 4.7-4.7h.1a4.7 4.7 0 0 1 4.7 4.7V19"/>
+  </g>
+  <path d="M10.4 4.4 12 2.8l1.6 1.6" stroke="#D7A06E" stroke-width="1.8"/>
+</svg>

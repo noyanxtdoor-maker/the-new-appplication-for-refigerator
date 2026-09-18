@@ -1,0 +1,94 @@
+{
+  "schemaVersion": 1,
+  "palette": {
+    "primaryStroke": "#9DC8CF",
+    "accentStroke": "#D7A06E"
+  },
+  "defaults": {
+    "viewBox": "0 0 24 24",
+    "strokeWidth": 1.8,
+    "lineCap": "round",
+    "lineJoin": "round",
+    "background": "transparent"
+  },
+  "icons": [
+    {
+      "iconId": "work_briefcase",
+      "category": "work",
+      "keywords": [
+        "job",
+        "career",
+        "application",
+        "interview",
+        "employment",
+        "business"
+      ],
+      "assetPath": "assets/icons/goals/work_briefcase.svg"
+    },
+    {
+      "iconId": "learning_open_book",
+      "category": "learning",
+      "keywords": [
+        "school",
+        "study",
+        "learning",
+        "course",
+        "scripture",
+        "reading"
+      ],
+      "assetPath": "assets/icons/goals/learning_open_book.svg"
+    },
+    {
+      "iconId": "finance_wallet",
+      "category": "finance",
+      "keywords": [
+        "money",
+        "budget",
+        "saving",
+        "expense",
+        "income",
+        "wallet"
+      ],
+      "assetPath": "assets/icons/goals/finance_wallet.svg"
+    },
+    {
+      "iconId": "social_two_people",
+      "category": "social",
+      "keywords": [
+        "people",
+        "friend",
+        "connection",
+        "social",
+        "relationship",
+        "meet"
+      ],
+      "assetPath": "assets/icons/goals/social_two_people.svg"
+    },
+    {
+      "iconId": "spiritual_temple",
+      "category": "spiritual",
+      "keywords": [
+        "temple",
+        "church",
+        "worship",
+        "attendance",
+        "ordinance",
+        "faith"
+      ],
+      "assetPath": "assets/icons/goals/spiritual_temple.svg"
+    },
+    {
+      "iconId": "marriage_rings",
+      "category": "marriage",
+      "keywords": [
+        "marriage",
+        "wedding",
+        "rings",
+        "spouse",
+        "commitment",
+        "anniversary"
+      ],
+      "assetPath": "assets/icons/goals/marriage_rings.svg"
+    }
+  ]
+}

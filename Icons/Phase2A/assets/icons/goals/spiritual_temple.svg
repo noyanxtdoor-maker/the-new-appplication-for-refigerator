@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+  fill="none" stroke-linecap="round" stroke-linejoin="round"
+  role="img" aria-hidden="true">
+<title>Temple</title>
+<g stroke="#9DC8CF" stroke-width="1.8">
+    <path d="M4 20V11.5l3-1.7V8l2-1.2V5.2L12 2l3 3.2v1.6L17 8v1.8l3 1.7V20"/>
+    <path d="M2.5 20h19"/>
+    <path d="M7 20v-4.5M17 20v-4.5"/>
+    <path d="M9.2 20v-6.2a2.8 2.8 0 0 1 5.6 0V20"/>
+  </g>
+  <path d="M12 2v3.2M12 10.8v2.5"
+        stroke="#D7A06E" stroke-width="1.8"/>
+</svg>
