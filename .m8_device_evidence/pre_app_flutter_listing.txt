@@ -1,9 +1,0 @@
-total 5073
-drwxrwx--x  3 u0_a477 u0_a477    3452 2026-09-13 16:29 .
-drwx------ 11 u0_a477 u0_a477    3452 2026-08-31 22:21 ..
-drwx------  2 u0_a477 u0_a477    3452 2026-09-13 16:29 flutter_assets
--rw-------  1 u0_a477 u0_a477 1748992 2026-09-09 12:02 next_transfer.pre_b2_backup.sqlite
--rw-------  1 u0_a477 u0_a477 1748992 2026-09-13 16:32 next_transfer.sqlite
--rw-------  1 u0_a477 u0_a477  843776 2026-08-08 08:25 nt_copy.sqlite
--rw-------  1 u0_a477 u0_a477  843776 2026-08-08 08:27 nt_copy2.sqlite
--rw-------  1 u0_a477 u0_a477       0 2026-09-13 16:29 res_timestamp-1-1789288183124

@@ -1,7 +1,0 @@
-    codePath=/data/app/~~CfY4to--Suqg5aPM1EPwdA==/com.nexttransfer.rmplanner-gVJaPZXWBJmkhC40E_jR2A==
-    primaryCpuAbi=arm64-v8a
-    versionCode=1 minSdk=24 targetSdk=36
-    versionName=0.1.0
-    dataDir=/data/user/0/com.nexttransfer.rmplanner
-    lastUpdateTime=2026-09-13 11:52:04
-      firstInstallTime=2026-07-27 15:42:22
