@@ -73,7 +73,7 @@ final checkpointDirectoryProvider = Provider<Future<Directory> Function()>(
   },
 );
 
-/// Full app version string used in the manifest (`0.1.0+1`).
+/// Full app version string used in the manifest (`0.1.1+2`).
 final backupAppVersionProvider = Provider<String>(
   (ref) => '${AppInfo.version}+${AppInfo.buildNumber}',
 );
