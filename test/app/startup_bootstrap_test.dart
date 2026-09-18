@@ -78,6 +78,10 @@ void main() {
       expect(find.byType(NextTransferApp), findsOneWidget);
       expect(find.text('Home'), findsNothing);
 
+      // M5 keeps an opaque app-owned splash above the existing startup route
+      // briefly. Wait for that deliberate launch transition before exercising
+      // the already-established Recovery action.
+      await tester.pump(const Duration(milliseconds: 750));
       await tester.tap(find.text('Retry local startup'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));

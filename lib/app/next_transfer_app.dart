@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:rmplanner/app/m5_app_splash.dart';
 import 'package:rmplanner/app/notification_open_presentation.dart';
 import 'package:rmplanner/app/router/app_router.dart';
 import 'package:rmplanner/app/router/route_names.dart';
@@ -380,7 +381,7 @@ final class _NextTransferAppState extends ConsumerState<NextTransferApp>
                 systemNavigationBarIconBrightness: Brightness.dark,
                 systemNavigationBarContrastEnforced: false,
               ),
-        child: child!,
+        child: M5AppSplashGate(child: child!),
       ),
       routerConfig: router,
     );
