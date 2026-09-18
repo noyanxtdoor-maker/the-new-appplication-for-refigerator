@@ -25,7 +25,7 @@ void main() {
     updatedAtUtc: DateTime.utc(2026, 8, 24),
   );
 
-  testWidgets('A3 exposes only No group and current Groups as radios', (
+  testWidgets('A3 exposes only No Group and current Groups as radios', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -37,8 +37,25 @@ void main() {
       ),
     );
 
-    expect(find.text('No group'), findsOneWidget);
+    // The ungrouped state is a real, named choice with its canonical colour.
+    expect(find.text('No Group'), findsOneWidget);
     expect(find.text('Family'), findsOneWidget);
+    expect(
+      tester
+          .widgetList<Container>(
+            find.descendant(
+              of: find.byKey(const Key('groups-editor-none')),
+              matching: find.byType(Container),
+            ),
+          )
+          .any(
+            (container) =>
+                (container.decoration as BoxDecoration?)?.color ==
+                const Color(ContactUngroupedColor.argb),
+          ),
+      isTrue,
+      reason: 'the ungrouped row carries the canonical #EBC766 swatch',
+    );
     expect(find.text('Friends'), findsOneWidget);
     expect(find.byType(RadioListTile<String?>), findsNWidgets(3));
     expect(find.text('Address'), findsNothing);
@@ -48,7 +65,7 @@ void main() {
   });
 
   testWidgets(
-    'A3 legacy no-primary state selects No group and cancel writes no result',
+    'A3 legacy no-primary state selects No Group and cancel writes no result',
     (tester) async {
       ContactGroupsEditResult? result;
       await tester.pumpWidget(

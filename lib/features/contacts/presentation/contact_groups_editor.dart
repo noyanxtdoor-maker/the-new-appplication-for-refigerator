@@ -90,10 +90,21 @@ final class _ContactGroupsEditorState extends State<ContactGroupsEditor> {
           onChanged: (value) => setState(() => _primaryGroupId = value),
           child: ListView(
             children: <Widget>[
+              // The ungrouped state is a first-class choice here, not a
+              // missing one, and it carries the single canonical ungrouped
+              // colour so it reads like any other row.
               RadioListTile<String?>(
                 key: const Key('groups-editor-none'),
                 value: null,
-                title: const Text('No group'),
+                secondary: Container(
+                  width: 15,
+                  height: 15,
+                  decoration: const BoxDecoration(
+                    color: Color(ContactUngroupedColor.argb),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                title: const Text(ContactUngroupedColor.displayName),
               ),
               for (final group in widget.groups)
                 RadioListTile<String?>(

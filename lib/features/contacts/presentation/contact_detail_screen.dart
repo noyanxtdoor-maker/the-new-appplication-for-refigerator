@@ -1350,7 +1350,7 @@ final class _GroupsSection extends StatelessWidget {
             ),
           if (primary == null)
             Text(
-              'No group',
+              ContactUngroupedColor.displayName,
               style: TextStyle(color: AppTheme.secondaryTextOf(context)),
             ),
         ],

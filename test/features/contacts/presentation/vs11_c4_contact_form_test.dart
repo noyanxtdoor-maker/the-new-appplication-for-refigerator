@@ -227,6 +227,11 @@ void main() {
         }),
       );
       expect(createdGroupRow, findsOneWidget);
+      // The Groups list now leads with the five canonical defaults and ends with
+      // the virtual No Group row, so a shortcut-created group can sit below the
+      // fold; bring it into view before touching it.
+      await tester.ensureVisible(createdGroupRow);
+      await tester.pumpAndSettle();
       await tester.tapAt(tester.getCenter(createdGroupRow));
       await tester.pumpAndSettle();
       expect(

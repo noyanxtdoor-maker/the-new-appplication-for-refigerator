@@ -252,25 +252,6 @@ final class FullWidthSectionDivider extends StatelessWidget {
   }
 }
 
-/// Major edge-to-edge section band that separates the sort block from the
-/// category table and the category table from the lower event toggles.
-/// Slightly thicker than a row divider using the SAME neutral section-divider
-/// family as the Filter's other structural dividers (never Theme Color).
-final class MajorSectionBand extends StatelessWidget {
-  const MajorSectionBand({super.key, this.height = 12});
-
-  final double height;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: height,
-      width: double.infinity,
-      color: AppTheme.sectionDividerOf(context),
-    );
-  }
-}
-
 final class PmgStyleSortField extends StatelessWidget {
   const PmgStyleSortField({
     required this.value,

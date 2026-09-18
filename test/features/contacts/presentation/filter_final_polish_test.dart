@@ -98,6 +98,18 @@ void main() {
     );
   }
 
+  /// [scrollTo] stops as soon as the target is *visible*, which can leave a row
+  /// flush against the leading edge where the AppBar swallows the tap. A row
+  /// that is about to be tapped must be fully inside the viewport instead —
+  /// this matters more now that the section bands are hairline dividers, so the
+  /// leading-edge landing lands a few pixels higher than it used to.
+  Future<void> scrollToTappable(WidgetTester tester, Finder finder) async {
+    await scrollTo(tester, finder);
+    await tester.pumpAndSettle();
+    await Scrollable.ensureVisible(tester.element(finder), alignment: 0.5);
+    await tester.pumpAndSettle();
+  }
+
   testWidgets(
     'sort opens an anchored dropdown with the final eleven options and no New badges',
     (tester) async {
@@ -168,7 +180,7 @@ void main() {
       ) async {
         final rowKey = Key('filter-category-main-${category.name}');
         final labelLower = contactFilterCategoryLabel(category).toLowerCase();
-        await scrollTo(tester, find.byKey(rowKey));
+        await scrollToTappable(tester, find.byKey(rowKey));
         await tester.tap(find.byKey(rowKey));
         await tester.pumpAndSettle();
         for (final key in optionKeys) {
@@ -524,35 +536,47 @@ void main() {
   );
 
   testWidgets(
-    'R2 dividers: neutral section bands after Save, after Sort, and before toggles',
+    // OWNER LAW (2026-09-18): the Filter screen separates its sections with the
+    // same restrained hairline the rest of Contacts uses. The former 12px
+    // filled band read as a heavy grey slab and is gone.
+    'R2 dividers: neutral hairline dividers after Save, after Sort, and before toggles',
     (tester) async {
       await pumpFilter(tester);
 
-      // Band after Save as Contact Filter and band after Contact List Sort are
+      // Divider after Save as Contact Filter and after Contact List Sort are
       // near the top of the list and visible immediately.
       expect(find.byKey(const Key('filter-band-after-save')), findsOneWidget);
       expect(find.byKey(const Key('filter-band-after-sort')), findsOneWidget);
 
-      // Band before the lower event toggles (bottom of the list).
+      // Divider before the lower event toggles (bottom of the list).
       await scrollTo(tester, find.byKey(const Key('filter-toggle-today')));
       expect(
         find.byKey(const Key('filter-band-before-toggles')),
         findsOneWidget,
       );
 
-      // The bands use the neutral section-divider token, never theme primary.
-      final context = tester.element(find.byType(MajorSectionBand).first);
-      final bandContainer = tester.widget<Container>(
-        find
-            .descendant(
-              of: find.byType(MajorSectionBand).first,
-              matching: find.byType(Container),
-            )
-            .first,
-      );
-      final neutral = AppTheme.sectionDividerOf(context);
-      expect(bandContainer.color, neutral);
-      expect(neutral, isNot(Theme.of(context).colorScheme.primary));
+      // Every one of them is a hairline, and every one uses the neutral
+      // section-divider token rather than theme primary.
+      for (final key in <Key>[
+        const Key('filter-band-after-save'),
+        const Key('filter-band-after-sort'),
+        const Key('filter-band-before-toggles'),
+      ]) {
+        final finder = find.byKey(key);
+        final divider = tester.widget<Divider>(finder);
+        final context = tester.element(finder);
+        expect(divider.height, 1, reason: '$key must be a hairline, not a band');
+        expect(divider.color, AppTheme.sectionDividerOf(context));
+        expect(
+          AppTheme.sectionDividerOf(context),
+          isNot(Theme.of(context).colorScheme.primary),
+        );
+        expect(
+          tester.getSize(finder).height,
+          lessThanOrEqualTo(1),
+          reason: '$key must not paint a thick slab',
+        );
+      }
     },
   );
 

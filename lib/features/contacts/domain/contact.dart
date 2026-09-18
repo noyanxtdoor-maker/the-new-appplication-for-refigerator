@@ -472,6 +472,7 @@ final class ContactAvailability {
 final class ContactFilterCriteria {
   const ContactFilterCriteria({
     this.groupIds = const <String>[],
+    this.ungroupedOnly = false,
     this.tagIds = const <String>[],
     this.favoritesOnly = false,
     this.availabilityWeekdays = const <int>[],
@@ -502,6 +503,15 @@ final class ContactFilterCriteria {
   });
 
   final List<String> groupIds;
+
+  /// The virtual "No Group" view state (owner law, 2026-09-18).
+  ///
+  /// It is a real criterion rather than a fake Group id: no Group row, no
+  /// membership and no deterministic identity is created for it. It matches
+  /// Contacts that hold no ACTIVE (primary) Group membership — the same single
+  /// fact the Contacts list dot and the Group manager already agree on.
+  final bool ungroupedOnly;
+
   final List<String> tagIds;
   final bool favoritesOnly;
   final List<int> availabilityWeekdays;
@@ -544,6 +554,7 @@ final class ContactFilterCriteria {
 
   bool get isEmpty =>
       groupIds.isEmpty &&
+      !ungroupedOnly &&
       tagIds.isEmpty &&
       !favoritesOnly &&
       availabilityWeekdays.isEmpty &&
@@ -575,6 +586,7 @@ final class ContactFilterCriteria {
   Map<String, Object?> toJson() {
     return <String, Object?>{
       'groupIds': groupIds,
+      'ungroupedOnly': ungroupedOnly,
       'tagIds': tagIds,
       'favoritesOnly': favoritesOnly,
       'availabilityWeekdays': availabilityWeekdays,
@@ -613,6 +625,7 @@ final class ContactFilterCriteria {
     final rawSource = json['source'] as String?;
     return ContactFilterCriteria(
       groupIds: _stringList(json['groupIds']),
+      ungroupedOnly: json['ungroupedOnly'] == true,
       tagIds: _stringList(json['tagIds']),
       favoritesOnly: json['favoritesOnly'] == true,
       availabilityWeekdays:
@@ -682,6 +695,7 @@ final class ContactFilterCriteria {
   /// keep the current value; [replaceSource] lets callers clear [source].
   ContactFilterCriteria copyWith({
     List<String>? groupIds,
+    bool? ungroupedOnly,
     List<String>? tagIds,
     bool? favoritesOnly,
     List<int>? availabilityWeekdays,
@@ -713,6 +727,7 @@ final class ContactFilterCriteria {
   }) {
     return ContactFilterCriteria(
       groupIds: groupIds ?? this.groupIds,
+      ungroupedOnly: ungroupedOnly ?? this.ungroupedOnly,
       tagIds: tagIds ?? this.tagIds,
       favoritesOnly: favoritesOnly ?? this.favoritesOnly,
       availabilityWeekdays: availabilityWeekdays ?? this.availabilityWeekdays,
@@ -960,6 +975,11 @@ final class ContactSummary {
 abstract final class ContactUngroupedColor {
   /// PMG "Interested" yellow — exact owner-transcribed reference (dark swatch).
   static const int argb = 0xFFEBC766;
+
+  /// The owner-facing label for that state. It is a *state*, never a Group, so
+  /// the label lives beside the colour instead of being re-typed by each
+  /// surface that presents it.
+  static const String displayName = 'No Group';
 }
 
 /// Wraps an ARGB color value with a neutral fallback so presentation code
@@ -1033,6 +1053,22 @@ final class ContactBuiltInGroupDefaults {
   static const int membersArgb = 0xFF29646C;
   static const int avoidArgb = 0xFFC7566A;
 
+  /// The retired built-in `Other` row's muted slate identity (owner-approved
+  /// 2026-09-18). `Other` is not a default any more, so this value is used in
+  /// exactly two places: the explicit restore of the real legacy row, and the
+  /// creation default for a brand-new Group a user deliberately names Other.
+  static const int otherArgb = 0xFF7D8B8C;
+
+  /// The documented historical seeded colours of the retired `Other` built-in
+  /// (the C2-canonicalised value, and the older Store A default that a
+  /// pre-C2 override could leave on the row). A stored colour equal to either
+  /// one is *provably* untouched, which is what makes the muted-slate move
+  /// safe; any other value is a user customization and is never rewritten.
+  static const List<int> otherHistoricalDefaultArgbs = <int>[
+    0xFFB373A2,
+    0xFF969B9E,
+  ];
+
   static const ContactBuiltInGroupDefaults family = ContactBuiltInGroupDefaults(
     key: 'family',
     name: 'Family',
@@ -1072,7 +1108,7 @@ final class ContactBuiltInGroupDefaults {
   static const ContactBuiltInGroupDefaults other = ContactBuiltInGroupDefaults(
     key: 'other',
     name: 'Other',
-    colorArgb: ContactGroupColorPalette.neutralGrayArgb,
+    colorArgb: otherArgb,
     canonicalOrder: -1,
   );
 
@@ -1125,6 +1161,37 @@ final class ContactBuiltInGroupDefaults {
   }
 }
 
+/// One same-name collision found by a canonical-default run.
+///
+/// It is reported as data rather than only as a sentence because the owner's
+/// law offers the user a real choice for exactly these rows: the conflict is
+/// "your Group already owns this default name", never "your Group is wrong".
+final class ContactGroupNameCollision {
+  const ContactGroupNameCollision({
+    required this.definition,
+    required this.groupId,
+    required this.groupName,
+    required this.currentColorArgb,
+    required this.isUnambiguous,
+  });
+
+  final ContactBuiltInGroupDefaults definition;
+
+  /// The pre-existing real row that owns the canonical name. Untouched by the
+  /// run: its id, memberships and colour are its own.
+  final String groupId;
+  final String groupName;
+  final int currentColorArgb;
+
+  /// True when exactly one row owns this canonical name, so it may also stand
+  /// in the canonical display slot and be offered the default colour. When
+  /// several rows share the name the app never guesses which one is meant.
+  final bool isUnambiguous;
+
+  String get canonicalName => definition.name;
+  int get defaultColorArgb => definition.colorArgb;
+}
+
 /// Result of one explicit canonical-default-groups run
 /// (`ContactRepository.applyDefaultGroups`).
 ///
@@ -1134,24 +1201,42 @@ final class ContactBuiltInGroupDefaults {
 final class ContactGroupDefaultsOutcome {
   const ContactGroupDefaultsOutcome({
     this.addedNames = const <String>[],
-    this.collidingNames = const <String>[],
+    this.collisions = const <ContactGroupNameCollision>[],
     this.reappliedNames = const <String>[],
+    this.migratedColorNames = const <String>[],
   });
 
   /// Canonical groups newly created by this run.
   final List<String> addedNames;
 
-  /// Canonical groups that were NOT created because a different real Group
-  /// already uses that exact name. That pre-existing row is left untouched.
-  final List<String> collidingNames;
+  /// Canonical defaults that were NOT created because a different real Group
+  /// already uses that exact name. Those pre-existing rows are left untouched.
+  final List<ContactGroupNameCollision> collisions;
 
   /// Canonical rows whose name/order/colour were explicitly restored.
   final List<String> reappliedNames;
 
-  bool get hasCollisions => collidingNames.isNotEmpty;
+  /// Rows whose *untouched* historical default colour was migrated to the
+  /// current approved value (the retired `Other` built-in, and nothing else).
+  /// A row whose colour was customized is never listed here or written.
+  final List<String> migratedColorNames;
+
+  List<String> get collidingNames => List<String>.unmodifiable(<String>[
+    for (final collision in collisions) collision.canonicalName,
+  ]);
+
+  /// The collisions the user may be offered the default colour for.
+  List<ContactGroupNameCollision> get adoptableCollisions =>
+      List<ContactGroupNameCollision>.unmodifiable(
+        collisions.where((collision) => collision.isUnambiguous),
+      );
+
+  bool get hasCollisions => collisions.isNotEmpty;
 
   bool get changedAnything =>
-      addedNames.isNotEmpty || reappliedNames.isNotEmpty;
+      addedNames.isNotEmpty ||
+      reappliedNames.isNotEmpty ||
+      migratedColorNames.isNotEmpty;
 }
 
 /// Read-only view of whether a profile already holds the canonical default set.
@@ -1199,6 +1284,163 @@ final class ContactDefaultGroupsStatus {
       missingNames: List<String>.unmodifiable(missing),
       collidingNames: List<String>.unmodifiable(colliding),
     );
+  }
+}
+
+/// One canonical presentation slot in Manage Groups.
+///
+/// A slot always exists for each of the five canonical defaults, in canonical
+/// order, whether or not a real row can fill it. An empty slot is rendered as
+/// nothing: a Group the user permanently deleted must stay deleted, so the
+/// presentation never invents a phantom row.
+final class ContactGroupSlot {
+  const ContactGroupSlot({
+    required this.definition,
+    this.row,
+    this.isDisplaySubstitute = false,
+  });
+
+  final ContactBuiltInGroupDefaults definition;
+
+  /// The real row occupying this slot: the canonical row, or — when the
+  /// canonical row is absent and exactly one row owns the canonical name —
+  /// that row as a DISPLAY SUBSTITUTE. Null when the slot is empty.
+  final ContactGroup? row;
+
+  /// True when [row] merely *shares* the canonical name. Its id, name,
+  /// memberships and colour stay entirely its own; only its position on this
+  /// screen comes from the slot.
+  final bool isDisplaySubstitute;
+}
+
+/// The owner's Manage Groups presentation law (2026-09-18): the five canonical
+/// defaults first, then "Your Other Groups" when any exist, then the virtual
+/// "No Group" state last.
+///
+/// This is a PURE projection of the rows the repository already returns (which
+/// are themselves canonical-first). It writes nothing, seeds nothing and never
+/// changes an identity.
+final class ContactGroupsPresentation {
+  const ContactGroupsPresentation({
+    required this.slots,
+    required this.otherGroups,
+    required this.ambiguousNames,
+  });
+
+  /// The five canonical slots, in canonical order.
+  final List<ContactGroupSlot> slots;
+
+  /// Every active row that does not occupy a canonical slot, in the incoming
+  /// (already stable) order. Rows whose canonical name is ambiguous are kept
+  /// here rather than guessed into a slot.
+  final List<ContactGroup> otherGroups;
+
+  /// Canonical names owned by more than one active row.
+  final List<String> ambiguousNames;
+
+  bool get hasOtherGroups => otherGroups.isNotEmpty;
+
+  /// The active rows that occupy a canonical slot, in canonical order.
+  List<ContactGroup> get slottedGroups => <ContactGroup>[
+    for (final slot in slots)
+      if (slot.row != null) slot.row!,
+  ];
+
+  static ContactGroupsPresentation resolve({
+    required List<ContactGroup> groups,
+    required String profileId,
+  }) {
+    final active = groups
+        .where((group) => !group.isArchived)
+        .toList(growable: false);
+    final byId = <String, ContactGroup>{
+      for (final row in active) row.id: row,
+    };
+    final byName = <String, List<ContactGroup>>{};
+    for (final row in active) {
+      byName
+          .putIfAbsent(row.name.trim().toLowerCase(), () => <ContactGroup>[])
+          .add(row);
+    }
+    final claimed = <String>{};
+    final slots = <ContactGroupSlot>[];
+    final ambiguous = <String>[];
+    for (final definition in ContactBuiltInGroupDefaults.ordered) {
+      final canonical =
+          byId[ContactBuiltInGroupIdentity.idForProfile(
+            profileId,
+            definition.key,
+          )];
+      if (canonical != null && claimed.add(canonical.id)) {
+        slots.add(ContactGroupSlot(definition: definition, row: canonical));
+        continue;
+      }
+      final unclaimed =
+          (byName[definition.name.trim().toLowerCase()] ?? const <ContactGroup>[])
+              .where((row) => !claimed.contains(row.id))
+              .toList(growable: false);
+      if (unclaimed.length == 1) {
+        final substitute = unclaimed.single;
+        claimed.add(substitute.id);
+        slots.add(
+          ContactGroupSlot(
+            definition: definition,
+            row: substitute,
+            isDisplaySubstitute: true,
+          ),
+        );
+        continue;
+      }
+      if (unclaimed.length > 1) {
+        // Never guess which of several same-name rows is "the" canonical one.
+        ambiguous.add(definition.name);
+      }
+      slots.add(ContactGroupSlot(definition: definition));
+    }
+    return ContactGroupsPresentation(
+      slots: List<ContactGroupSlot>.unmodifiable(slots),
+      otherGroups: List<ContactGroup>.unmodifiable(<ContactGroup>[
+        for (final row in active)
+          if (!claimed.contains(row.id)) row,
+      ]),
+      ambiguousNames: List<String>.unmodifiable(ambiguous),
+    );
+  }
+}
+
+/// Owner-approved muted palette for the Manage Groups creation shortcuts
+/// (2026-09-18).
+///
+/// These are *creation* defaults for a brand-new Group, and the restore target
+/// for the retired `Other` built-in. They deliberately never rewrite an
+/// existing row: the repository cannot prove that, say, an existing "Clients"
+/// group was never recoloured by hand, so an existing row is reported instead
+/// of being silently changed.
+///
+/// The palette stays inside the existing restrained Next Transfer family while
+/// pulling the widely-used shortcuts far enough apart to be told apart at a
+/// glance.
+abstract final class ContactGroupSuggestedDefaults {
+  static const int familyArgb = ContactBuiltInGroupDefaults.familyArgb;
+  static const int friendsArgb = ContactBuiltInGroupDefaults.friendsArgb;
+  static const int workArgb = 0xFF9C8068;
+  static const int schoolArgb = 0xFF6789A8;
+  static const int clientsArgb = 0xFF8E7CB3;
+  static const int teamArgb = 0xFFA77B9B;
+  static const int otherArgb = ContactBuiltInGroupDefaults.otherArgb;
+
+  /// The approved colour for a shortcut name, or null for an unknown name.
+  static int? colorFor(String name) {
+    return switch (name.trim().toLowerCase()) {
+      'family' => familyArgb,
+      'friends' => friendsArgb,
+      'work' => workArgb,
+      'school' => schoolArgb,
+      'clients' => clientsArgb,
+      'team' => teamArgb,
+      'other' => otherArgb,
+      _ => null,
+    };
   }
 }
 

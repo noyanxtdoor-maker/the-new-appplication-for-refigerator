@@ -584,4 +584,273 @@ void main() {
       expect(groupedSummary.colorValue.isNeutral, isFalse);
     });
   });
+
+  // OWNER LAW (2026-09-18) — a same-name collision is DATA.
+  //
+  // The app never converts, renames, merges or deletes the pre-existing row.
+  // It may show that row in the canonical slot (a DISPLAY substitute) and may
+  // OFFER it the canonical colour, but only when the user chooses it and only
+  // when exactly one row owns the name.
+  group('same-name collision — reporting and the display substitute', () {
+    Future<(AppDatabase, DriftContactRepository, String)> withCustomMembers()
+        async {
+      final (database, contacts, profileId) = await arrange();
+      await deleteGroup(database, builtInId(profileId, 'members'));
+      await insertGroup(
+        database,
+        id: 'custom-members',
+        profileId: profileId,
+        name: 'Members',
+        colorValue: 0xFF444444,
+      );
+      return (database, contacts, profileId);
+    }
+
+    test('reports the real row, its colour and the default it may adopt',
+        () async {
+      final (database, contacts, profileId) = await withCustomMembers();
+      addTearDown(database.close);
+
+      final outcome = await contacts.applyDefaultGroups(profileId);
+
+      expect(outcome.collisions, hasLength(1));
+      final collision = outcome.collisions.single;
+      expect(collision.canonicalName, 'Members');
+      expect(collision.groupId, 'custom-members');
+      expect(collision.groupName, 'Members');
+      expect(collision.currentColorArgb, 0xFF444444);
+      expect(collision.defaultColorArgb, 0xFF29646C);
+      expect(collision.isUnambiguous, isTrue);
+      expect(outcome.adoptableCollisions, hasLength(1));
+      // Nothing was written to the user's row by the run itself.
+      final rows = await contacts.readGroups(profileId);
+      expect(
+        rows.singleWhere((row) => row.id == 'custom-members').colorValue,
+        0xFF444444,
+      );
+    });
+
+    test('the single owner of a canonical name stands in that canonical slot',
+        () async {
+      final (database, contacts, profileId) = await withCustomMembers();
+      addTearDown(database.close);
+
+      final presentation = ContactGroupsPresentation.resolve(
+        groups: await contacts.readGroups(profileId),
+        profileId: profileId,
+      );
+
+      expect(
+        presentation.slots.map((slot) => slot.definition.name).toList(),
+        <String>[
+          'Family',
+          'Friends',
+          'Ministering Assignments',
+          'Members',
+          'Avoid',
+        ],
+        reason: 'the five slots always exist, in canonical order',
+      );
+      final membersSlot = presentation.slots.lastWhere(
+        (slot) => slot.definition.key == 'members',
+      );
+      expect(membersSlot.row?.id, 'custom-members');
+      expect(
+        membersSlot.isDisplaySubstitute,
+        isTrue,
+        reason: 'a same-name row is a display substitute, never a real default',
+      );
+      expect(
+        presentation.otherGroups.any((row) => row.id == 'custom-members'),
+        isFalse,
+        reason: 'it occupies the slot instead of "Your Other Groups"',
+      );
+    });
+
+    test('two owners of one canonical name are never guessed', () async {
+      final (database, contacts, profileId) = await arrange();
+      addTearDown(database.close);
+      await deleteGroup(database, builtInId(profileId, 'avoid'));
+      await insertGroup(
+        database,
+        id: 'custom-avoid-1',
+        profileId: profileId,
+        name: 'Avoid',
+        colorValue: 0xFF111111,
+      );
+      await insertGroup(
+        database,
+        id: 'custom-avoid-2',
+        profileId: profileId,
+        name: 'avoid',
+        colorValue: 0xFF222222,
+      );
+
+      final outcome = await contacts.applyDefaultGroups(profileId);
+      expect(outcome.collisions.single.isUnambiguous, isFalse);
+      expect(
+        outcome.adoptableCollisions,
+        isEmpty,
+        reason: 'no colour may be offered for an ambiguous name',
+      );
+
+      final presentation = ContactGroupsPresentation.resolve(
+        groups: await contacts.readGroups(profileId),
+        profileId: profileId,
+      );
+      final avoidSlot = presentation.slots.lastWhere(
+        (slot) => slot.definition.key == 'avoid',
+      );
+      expect(avoidSlot.row, isNull);
+      expect(avoidSlot.isDisplaySubstitute, isFalse);
+      expect(presentation.ambiguousNames, <String>['Avoid']);
+      expect(
+        presentation.otherGroups.map((row) => row.id).toSet(),
+        containsAll(<String>{'custom-avoid-1', 'custom-avoid-2'}),
+        reason: 'both real rows stay visible under "Your Other Groups"',
+      );
+      // Neither row was touched.
+      final rows = await contacts.readGroups(profileId);
+      expect(rows.singleWhere((row) => row.id == 'custom-avoid-1').colorValue,
+          0xFF111111);
+      expect(rows.singleWhere((row) => row.id == 'custom-avoid-2').colorValue,
+          0xFF222222);
+    });
+  });
+
+  // OWNER LAW (2026-09-18) — the retired `Other` built-in keeps its identity,
+  // its name and its memberships. Only its PALETTE moved, and only when the
+  // stored colour is provably still one of its historical seeded defaults.
+  group('retired Other built-in — provable palette move', () {
+    const legacySeededColors = <int>[0xFFB373A2, 0xFF969B9E];
+
+    Future<void> seedOther(
+      AppDatabase database,
+      String profileId,
+      int colorValue,
+    ) => insertGroup(
+      database,
+      id: builtInId(profileId, 'other'),
+      profileId: profileId,
+      name: 'Other',
+      colorValue: colorValue,
+    );
+
+    test('an UNTOUCHED historical Other default adopts the muted slate only on '
+        'an explicit restore', () async {
+      final (database, contacts, profileId) = await arrange();
+      addTearDown(database.close);
+      await seedOther(database, profileId, legacySeededColors.first);
+
+      final additive = await contacts.applyDefaultGroups(profileId);
+      expect(
+        additive.migratedColorNames,
+        isEmpty,
+        reason: 'the additive run never recolours anything',
+      );
+      expect(
+        (await contacts.readGroups(profileId))
+            .singleWhere((row) => row.id == builtInId(profileId, 'other'))
+            .colorValue,
+        legacySeededColors.first,
+      );
+
+      final restored = await contacts.applyDefaultGroups(
+        profileId,
+        restoreCanonicalValues: true,
+      );
+      expect(restored.migratedColorNames, <String>['Other']);
+      final other = (await contacts.readGroups(profileId)).singleWhere(
+        (row) => row.id == builtInId(profileId, 'other'),
+      );
+      expect(other.colorValue, 0xFF7D8B8C);
+      expect(other.name, 'Other', reason: 'the name is never changed');
+      expect(
+        other.id,
+        builtInId(profileId, 'other'),
+        reason: 'the identity is never converted',
+      );
+    });
+
+    test('both documented historical defaults are recognized', () async {
+      for (final seeded in legacySeededColors) {
+        final (database, contacts, profileId) = await arrange();
+        addTearDown(database.close);
+        await seedOther(database, profileId, seeded);
+
+        await contacts.applyDefaultGroups(
+          profileId,
+          restoreCanonicalValues: true,
+        );
+        expect(
+          (await contacts.readGroups(profileId))
+              .singleWhere((row) => row.id == builtInId(profileId, 'other'))
+              .colorValue,
+          0xFF7D8B8C,
+          reason: 'seeded ${seeded.toRadixString(16)} is a recognized default',
+        );
+      }
+    });
+
+    test('a CUSTOMIZED Other colour is never rewritten', () async {
+      final (database, contacts, profileId) = await arrange();
+      addTearDown(database.close);
+      await seedOther(database, profileId, 0xFF0C0D0E);
+
+      final outcome = await contacts.applyDefaultGroups(
+        profileId,
+        restoreCanonicalValues: true,
+      );
+
+      expect(outcome.migratedColorNames, isEmpty);
+      expect(
+        (await contacts.readGroups(profileId))
+            .singleWhere((row) => row.id == builtInId(profileId, 'other'))
+            .colorValue,
+        0xFF0C0D0E,
+        reason: 'a user-chosen colour is evidence, never a migration input',
+      );
+    });
+
+    test('a user-created group that merely happens to be named Other is not '
+        'touched', () async {
+      final (database, contacts, profileId) = await arrange();
+      addTearDown(database.close);
+      // NOT the deterministic built-in id: an ordinary user row.
+      await insertGroup(
+        database,
+        id: 'custom-other',
+        profileId: profileId,
+        name: 'Other',
+        colorValue: legacySeededColors.first,
+      );
+
+      final outcome = await contacts.applyDefaultGroups(
+        profileId,
+        restoreCanonicalValues: true,
+      );
+
+      expect(outcome.migratedColorNames, isEmpty);
+      expect(
+        (await contacts.readGroups(profileId))
+            .singleWhere((row) => row.id == 'custom-other')
+            .colorValue,
+        legacySeededColors.first,
+        reason: 'only the deterministic legacy id may be migrated',
+      );
+    });
+  });
+
+  group('creation shortcuts', () {
+    test('each shortcut name carries its own approved muted colour', () {
+      expect(ContactGroupSuggestedDefaults.colorFor('Clients'), 0xFF8E7CB3);
+      expect(ContactGroupSuggestedDefaults.colorFor('School'), 0xFF6789A8);
+      expect(ContactGroupSuggestedDefaults.colorFor('Team'), 0xFFA77B9B);
+      expect(ContactGroupSuggestedDefaults.colorFor('Work'), 0xFF9C8068);
+      expect(ContactGroupSuggestedDefaults.colorFor('Other'), 0xFF7D8B8C);
+      expect(ContactGroupSuggestedDefaults.colorFor('Friends'), 0xFFE89C72);
+      expect(ContactGroupSuggestedDefaults.colorFor('Family'), 0xFF76B181);
+      expect(ContactGroupSuggestedDefaults.colorFor('Nonsense'), isNull);
+    });
+  });
 }

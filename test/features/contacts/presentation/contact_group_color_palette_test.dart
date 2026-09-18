@@ -56,9 +56,16 @@ void main() {
     expect(ContactBuiltInGroupDefaults.members.colorArgb, 0xFF29646C);
     expect(ContactBuiltInGroupDefaults.avoid.colorArgb, 0xFFC7566A);
     expect(ContactUngroupedColor.argb, 0xFFEBC766);
-    // Legacy Other keeps the colour its already-existing rows were created
-    // with; it is preserved, never re-coloured by the canonical defaults.
-    expect(ContactBuiltInGroupDefaults.other.colorArgb, 0xFFB373A2);
+    // The retired Other built-in moved to the owner-approved muted slate
+    // (2026-09-18). Its already-existing rows are preserved: only the
+    // deterministic legacy id may adopt the new value, and only when the
+    // stored colour is provably still one of the two documented historical
+    // seeds below — so a user-chosen Other colour is never rewritten.
+    expect(ContactBuiltInGroupDefaults.other.colorArgb, 0xFF7D8B8C);
+    expect(
+      ContactBuiltInGroupDefaults.otherHistoricalDefaultArgbs,
+      <int>[0xFFB373A2, 0xFF969B9E],
+    );
   });
 
   testWidgets(

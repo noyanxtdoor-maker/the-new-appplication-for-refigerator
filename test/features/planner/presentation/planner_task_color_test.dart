@@ -92,24 +92,131 @@ void main() {
     expect(PlannerEventColorDefaults.meal.surfaceArgb, 0xFF4B4744);
   });
 
-  test('Task carries the owner-approved muted cool slate identity', () {
-    expect(PlannerEventColorDefaults.task.accentArgb, 0xFF8FAFC2);
+  test('Task carries the restored original warm accent on the safe surface', () {
+    // Owner law (2026-09-18): the ORIGINAL Task accent returns, while the
+    // surface keeps the muted slate that fixed the original Meal collision.
+    // The retired pair was #F2E9E0 / #494844 — that surface collapsed onto
+    // Meal's own #4B4744 in Dark (ΔRGB 2,1,0) and in the Light render.
+    expect(PlannerEventColorDefaults.task.accentArgb, 0xFFF2E9E0);
     expect(PlannerEventColorDefaults.task.surfaceArgb, 0xFF3D4F59);
   });
 
-  test('the raw configured Meal and Task accents stay clearly apart', () {
-    final distance = rgbDistance(
-      PlannerEventColorDefaults.meal.accentArgb,
-      PlannerEventColorDefaults.task.accentArgb,
-    );
-    expect(
-      distance,
-      greaterThanOrEqualTo(rawAccentFloor),
-      reason:
-          'The configured Meal(#E1CFB9) and Task(#8FAFC2) accents must differ '
-          'by at least $rawAccentFloor RGB units.',
-    );
+  test('the raw configured Task accent stays clearly apart from Meal and '
+      'Shopping', () {
+    final neighbours = <String, EventColorPreference>{
+      'Meal': PlannerEventColorDefaults.meal,
+      // "Shopping" is the presented label of the stable Work identity.
+      'Shopping': PlannerEventColorDefaults.work,
+    };
+    for (final entry in neighbours.entries) {
+      expect(
+        rgbDistance(
+          entry.value.accentArgb,
+          PlannerEventColorDefaults.task.accentArgb,
+        ),
+        greaterThanOrEqualTo(rawAccentFloor),
+        reason:
+            'The configured ${entry.key} and Task accents must differ by at '
+            'least $rawAccentFloor RGB units.',
+      );
+      expect(
+        rgbDistance(
+          entry.value.surfaceArgb,
+          PlannerEventColorDefaults.task.surfaceArgb,
+        ),
+        greaterThanOrEqualTo(darkBlockFloor),
+        reason:
+            'The configured ${entry.key} and Task block bodies must differ by '
+            'at least $darkBlockFloor RGB units.',
+      );
+    }
   });
+
+  testWidgets(
+    'the rendered Task block stays distinguishable from Shopping in dark AND light',
+    (tester) async {
+      final preferences = <String, EventColorPreference>{
+        SystemEventTypeKeys.work: PlannerEventColorDefaults.work,
+        PlannerEventColorResolver.taskStableKey: PlannerEventColorDefaults.task,
+      };
+      final shoppingItem = itemFor(
+        activityTypeId: SystemEventTypeKeys.work,
+        activityTypeColorValue: PlannerEventColorDefaults.work.accentArgb,
+      );
+      final taskItem = itemFor(
+        activityTypeId: PlannerEventColorResolver.taskStableKey,
+        activityTypeColorValue: PlannerEventColorDefaults.task.accentArgb,
+      );
+
+      Future<({Color shopping, Color task, Color accentShopping, Color accentTask})>
+      capture({required bool dark}) async {
+        late Color shopping;
+        late Color task;
+        late Color accentShopping;
+        late Color accentTask;
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: dark ? AppTheme.dark() : AppTheme.light(),
+            home: Builder(
+              builder: (context) {
+                shopping = PlannerEventColorResolver.surfaceColor(
+                  context,
+                  shoppingItem,
+                  preferences,
+                );
+                task = PlannerEventColorResolver.surfaceColor(
+                  context,
+                  taskItem,
+                  preferences,
+                );
+                accentShopping = PlannerEventColorResolver.accentColor(
+                  context,
+                  shoppingItem,
+                  preferences,
+                );
+                accentTask = PlannerEventColorResolver.accentColor(
+                  context,
+                  taskItem,
+                  preferences,
+                );
+                return const SizedBox.shrink();
+              },
+            ),
+          ),
+        );
+        return (
+          shopping: shopping,
+          task: task,
+          accentShopping: accentShopping,
+          accentTask: accentTask,
+        );
+      }
+
+      final dark = await capture(dark: true);
+      expect(
+        colorDistance(dark.shopping, dark.task),
+        greaterThanOrEqualTo(darkBlockFloor),
+        reason: 'Dark rendered Shopping and Task bodies must stay apart.',
+      );
+      expect(
+        colorDistance(dark.accentShopping, dark.accentTask),
+        greaterThanOrEqualTo(darkBlockFloor),
+        reason: 'Dark rendered Shopping and Task accents must stay apart.',
+      );
+
+      final light = await capture(dark: false);
+      expect(
+        colorDistance(light.shopping, light.task),
+        greaterThanOrEqualTo(lightBlockFloor),
+        reason: 'Light rendered Shopping and Task bodies must stay apart.',
+      );
+      expect(
+        colorDistance(light.accentShopping, light.accentTask),
+        greaterThanOrEqualTo(lightBlockFloor),
+        reason: 'Light rendered Shopping and Task accents must stay apart.',
+      );
+    },
+  );
 
   testWidgets(
     'the rendered Planner block bodies stay distinguishable in dark AND light',

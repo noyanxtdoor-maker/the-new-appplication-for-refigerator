@@ -1,4 +1,5 @@
 import 'package:drift/drift.dart';
+import 'package:rmplanner/core/colors/vs11_color_system.dart';
 import 'package:rmplanner/core/database/app_database.dart';
 import 'package:rmplanner/core/time/app_clock.dart';
 import 'package:rmplanner/features/contacts/domain/contact.dart';
@@ -13,10 +14,11 @@ import 'package:rmplanner/features/planner/domain/event_color_preferences.dart';
 ///
 ///   1. IDENTITY, NOT NAME. A canonical row is recognised by its deterministic
 ///      UUIDv5 id. A different row that merely *shares the name* is never
-///      overwritten, renamed, merged or deleted.
+///      overwritten, renamed, merged or deleted — it is reported as a
+///      [ContactGroupNameCollision] instead.
 ///   2. NEVER THROW. A same-name collision used to abort the whole run — which
-///      also broke the post-restore seeding path. It is now skipped and
-///      reported in [ContactGroupDefaultsOutcome.collidingNames].
+///      also broke the post-restore seeding path. It is now skipped, reported
+///      as data, and the run continues.
 ///   3. ADDITIVE ONLY by default. A run creates missing canonical rows and
 ///      touches nothing else: no custom row, no colour, no membership, and no
 ///      legacy `Other` row is modified.
@@ -47,9 +49,12 @@ Future<ContactGroupDefaultsOutcome> seedCanonicalContactGroups(
   final byId = <String, ContactGroupRow>{
     for (final row in existing) row.id: row,
   };
-  final reservedNames = <String>{
-    for (final row in existing) _normalizeName(row.name),
-  };
+  final byNormalizedName = <String, List<ContactGroupRow>>{};
+  for (final row in existing) {
+    byNormalizedName
+        .putIfAbsent(_normalizeName(row.name), () => <ContactGroupRow>[])
+        .add(row);
+  }
   // Legacy Store A colour overrides (dormant after C2 canonicalisation) are
   // imported ONLY when a missing canonical row is being created, so a saved
   // pre-C2 override is never lost and never re-applied to an existing row.
@@ -60,8 +65,9 @@ Future<ContactGroupDefaultsOutcome> seedCanonicalContactGroups(
 
   final now = clock.nowUtc();
   final added = <String>[];
-  final colliding = <String>[];
+  final collisions = <ContactGroupNameCollision>[];
   final reapplied = <String>[];
+  final migratedColors = <String>[];
 
   for (final definition in ContactBuiltInGroupDefaults.ordered) {
     final expectedId = ContactBuiltInGroupIdentity.idForProfile(
@@ -75,7 +81,7 @@ Future<ContactGroupDefaultsOutcome> seedCanonicalContactGroups(
       }
       // The user explicitly asked to restore defaults, so the canonical row's
       // name, order and colour are re-applied. This is the only path that
-      // writes an already-existing row.
+      // writes an already-existing canonical row.
       await (database.update(database.contactGroups)..where(
             (table) =>
                 table.profileId.equals(profileId) &
@@ -94,10 +100,20 @@ Future<ContactGroupDefaultsOutcome> seedCanonicalContactGroups(
       continue;
     }
 
-    if (reservedNames.contains(_normalizeName(definition.name))) {
+    final owners = byNormalizedName[_normalizeName(definition.name)];
+    if (owners != null && owners.isNotEmpty) {
       // A real row (custom, or an older built-in under a different identity)
       // already owns this name. Skip and report; never convert its identity.
-      colliding.add(definition.name);
+      final owner = owners.first;
+      collisions.add(
+        ContactGroupNameCollision(
+          definition: definition,
+          groupId: owner.id,
+          groupName: owner.name,
+          currentColorArgb: owner.colorValue,
+          isUnambiguous: owners.length == 1,
+        ),
+      );
       continue;
     }
 
@@ -115,14 +131,45 @@ Future<ContactGroupDefaultsOutcome> seedCanonicalContactGroups(
         .into(database.contactGroups)
         .insert(companion, mode: InsertMode.insertOrIgnore);
     added.add(definition.name);
-    // Keep the collision gate truthful if the same run is replayed in-process.
-    reservedNames.add(_normalizeName(definition.name));
+    // No in-run bookkeeping is needed: the five canonical names are distinct,
+    // so the collision gate cannot see a duplicate produced by this same run.
+  }
+
+  if (restoreCanonicalValues) {
+    // The retired `Other` built-in keeps its id, its name and every membership.
+    // Only its *palette* moved (owner-approved 2026-09-18), and only when the
+    // stored value is provably still one of its documented historical seeded
+    // defaults — i.e. the user never chose this colour. A customized row is
+    // left exactly as the user left it.
+    final legacyOtherId = ContactBuiltInGroupIdentity.idForProfile(
+      profileId,
+      ContactBuiltInGroupDefaults.other.key,
+    );
+    final legacyOther = byId[legacyOtherId];
+    if (legacyOther != null &&
+        ContactBuiltInGroupDefaults.otherHistoricalDefaultArgbs.any(
+          (argb) => Vs11ColorSystem.sameOpaqueRgb(argb, legacyOther.colorValue),
+        )) {
+      await (database.update(database.contactGroups)..where(
+            (table) =>
+                table.profileId.equals(profileId) &
+                table.id.equals(legacyOtherId),
+          ))
+          .write(
+            ContactGroupsCompanion(
+              colorValue: Value<int>(ContactBuiltInGroupDefaults.otherArgb),
+              updatedAtUtc: Value<DateTime>(now),
+            ),
+          );
+      migratedColors.add(ContactBuiltInGroupDefaults.other.name);
+    }
   }
 
   return ContactGroupDefaultsOutcome(
     addedNames: List<String>.unmodifiable(added),
-    collidingNames: List<String>.unmodifiable(colliding),
+    collisions: List<ContactGroupNameCollision>.unmodifiable(collisions),
     reappliedNames: List<String>.unmodifiable(reapplied),
+    migratedColorNames: List<String>.unmodifiable(migratedColors),
   );
 }
 

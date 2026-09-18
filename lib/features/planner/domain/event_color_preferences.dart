@@ -408,19 +408,22 @@ abstract final class PlannerEventColorDefaults {
     surfaceArgb: 0xFF4B4744,
   );
 
-  /// Closed-beta V2 (owner decision AG-1, 2026-09-17).
+  /// Closed-beta V2 Task identity (owner decision, 2026-09-18).
   ///
-  /// Meal keeps its accepted warm beige/tan identity. Task moves to an
-  /// approved muted cool slate identity so the two can never be mistaken for
-  /// one another on the Planner timeline: the former Task pair
-  /// (#F2E9E0 / #494844) collapsed onto Meal's surfaces in Dark
-  /// (ΔRGB 2,1,0) and in the locked Light render transform.
+  /// The owner wants the ORIGINAL warm Task accent back, while keeping the
+  /// safer surface that fixed the original collision: the retired pair
+  /// (#F2E9E0 / #494844) collapsed onto Meal's own surface in Dark
+  /// (ΔRGB 2,1,0) and in the locked Light render transform. So the accent
+  /// returns to the original #F2E9E0 and the surface stays the muted slate
+  /// #3D4F59 that is measurably distinct from Meal's #4B4744.
   ///
   /// The canonical Task identity, its stable key, its preference storage and
   /// the user's ability to customize it through Settings > Colors are all
-  /// unchanged; only the default pair moves. Meal is deliberately untouched.
+  /// unchanged; only the default pair moves. Meal and Shopping are deliberately
+  /// untouched, and a SAVED Task preference is never rewritten — the repository
+  /// reads legacy saved colours as evidence, never as a migration input.
   static const EventColorPreference task = EventColorPreference(
-    accentArgb: 0xFF8FAFC2,
+    accentArgb: 0xFFF2E9E0,
     surfaceArgb: 0xFF3D4F59,
   );
 

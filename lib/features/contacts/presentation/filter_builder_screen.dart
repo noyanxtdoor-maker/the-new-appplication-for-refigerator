@@ -187,8 +187,15 @@ final class _FilterBuilderScreenState
                         ),
                       ),
                     ],
-                    // Neutral section divider after Save as Contact Filter.
-                    const MajorSectionBand(key: Key('filter-band-after-save')),
+                    // Neutral hairline after Save as Contact Filter. Owner law
+                    // (2026-09-18): the Filter screen uses the same restrained
+                    // 1px section divider as the rest of Contacts — the former
+                    // thick filled band read as a heavy grey slab.
+                    Divider(
+                      key: const Key('filter-band-after-save'),
+                      height: 1,
+                      color: AppTheme.sectionDividerOf(context),
+                    ),
                     Padding(
                       padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
                       child: PmgStyleSortField(
@@ -198,7 +205,11 @@ final class _FilterBuilderScreenState
                         onTap: _chooseSort,
                       ),
                     ),
-                    const MajorSectionBand(key: Key('filter-band-after-sort')),
+                    Divider(
+                      key: const Key('filter-band-after-sort'),
+                      height: 1,
+                      color: AppTheme.sectionDividerOf(context),
+                    ),
                     _buildDisplayedFieldsSection(),
                     for (final category in filterBuilderCategories)
                       _buildCategorySection(
@@ -207,8 +218,10 @@ final class _FilterBuilderScreenState
                         tags: tags,
                       ),
                     const SizedBox(height: 8),
-                    const MajorSectionBand(
-                      key: Key('filter-band-before-toggles'),
+                    Divider(
+                      key: const Key('filter-band-before-toggles'),
+                      height: 1,
+                      color: AppTheme.sectionDividerOf(context),
                     ),
                     _buildEventToggleSection(),
                     const SizedBox(height: 16),

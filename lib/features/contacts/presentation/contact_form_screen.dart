@@ -1092,6 +1092,11 @@ final class _GroupPickerState extends State<_GroupPicker> {
               child: ListView(
                 shrinkWrap: true,
                 children: <Widget>[
+                  // Owner law (2026-09-18): the ungrouped state is a visible,
+                  // selectable option in the picker, painted with the single
+                  // canonical ungrouped colour. Choosing it only clears the
+                  // draft: nothing is persisted until Save, and Cancel leaves
+                  // the stored memberships exactly as they were.
                   ListTile(
                     key: const Key('group-option-none'),
                     leading: Icon(
@@ -1102,7 +1107,22 @@ final class _GroupPickerState extends State<_GroupPicker> {
                           ? Theme.of(context).colorScheme.primary
                           : AppTheme.secondaryTextOf(context),
                     ),
-                    title: const Text('No group'),
+                    title: Row(
+                      children: <Widget>[
+                        Container(
+                          width: 13,
+                          height: 13,
+                          decoration: const BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Color(ContactUngroupedColor.argb),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        const Expanded(
+                          child: Text(ContactUngroupedColor.displayName),
+                        ),
+                      ],
+                    ),
                     onTap: () => setState(() => _primary = null),
                   ),
                   for (final group in widget.groups)

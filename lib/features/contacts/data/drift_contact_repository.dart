@@ -1452,6 +1452,14 @@ final class DriftContactRepository
           !criteria.groupIds.contains(primaryGroupId)) {
         continue;
       }
+      // The virtual "No Group" view (owner law, 2026-09-18) is the same single
+      // fact the Contacts dot and the Group manager already agree on: the
+      // Contact holds no ACTIVE (primary) Group membership. A dormant legacy
+      // secondary row is historical data and never makes a Contact look
+      // grouped here — exactly as for the group filter above.
+      if (criteria.ungroupedOnly && primaryGroupId != null) {
+        continue;
+      }
       // Tag membership remains loaded for dormant data compatibility, but Tags
       // no longer restrict active Contacts results after the C5 UX retirement.
       final weekdays = weekdaysByContact[contactId] ?? const <int>{};

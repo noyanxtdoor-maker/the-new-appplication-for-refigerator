@@ -279,14 +279,18 @@ void main() {
     await tester.tap(find.byKey(const Key('use-default-groups-confirm')));
     await tester.pumpAndSettle();
 
+    // Owner law (2026-09-18): a same-name collision is no longer only a
+    // sentence — the user is offered the default COLOUR for their own row,
+    // with every choice starting OFF.
     expect(
-      find.textContaining(
-        "Some default groups couldn't be added because groups with the same "
-        'names already exist: Members.',
-      ),
-      findsWidgets,
-      reason: 'the collision is explained, not hidden',
+      find.byKey(const Key('default-colors-dialog')),
+      findsOneWidget,
+      reason: 'the collision is explained and actionably offered',
     );
+    expect(find.text('Use default colors?'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('default-colors-cancel')));
+    await tester.pumpAndSettle();
+
     // Nothing was overwritten: the user's own "Members" row survives intact
     // and no duplicate was invented.
     final rows = await contacts.readGroups(profileId);

@@ -47,11 +47,12 @@ final class _ContactGroupsScreenState
         error: (error, stack) =>
             const Center(child: Text('Groups could not be opened.')),
         data: (groups) {
-          final memberCountsAsync = ref.watch(contactGroupMemberCountsProvider);
-          final memberCounts = memberCountsAsync.maybeWhen(
-            data: (counts) => counts,
-            orElse: () => const <String, int>{},
-          );
+          final counts = ref
+              .watch(contactGroupCountsProvider)
+              .maybeWhen(
+                data: (value) => value,
+                orElse: () => ContactGroupCounts.empty,
+              );
           final active = groups.where((g) => !g.isArchived).toList();
           final archived = groups.where((g) => g.isArchived).toList();
           final existingNames = groups
@@ -65,6 +66,12 @@ final class _ContactGroupsScreenState
             groups: groups,
             profileId: profileId,
           );
+          // Owner presentation law (2026-09-18): canonical defaults first, then
+          // "Your Other Groups" when any exist, then the virtual No Group row.
+          final presentation = ContactGroupsPresentation.resolve(
+            groups: groups,
+            profileId: profileId,
+          );
           return ListView(
             key: const Key('contact-groups-list'),
             padding: InternalScreen.pagePadding,
@@ -74,15 +81,52 @@ final class _ContactGroupsScreenState
                   collidingNames: defaultsStatus.collidingNames,
                   onUseDefaults: () => unawaited(_useDefaultGroups()),
                 ),
-              for (final group in active)
-                _GroupRow(
-                  group: group,
-                  memberCount: memberCounts[group.id] ?? 0,
-                  onOpen: () => unawaited(
-                    context.push(RoutePaths.contactGroupDetail(group.id)),
+              const Text(
+                'Official default groups',
+                style: InternalScreen.sectionHeading,
+              ),
+              const SizedBox(height: 4),
+              for (final slot in presentation.slots)
+                if (slot.row case final row?)
+                  _GroupRow(
+                    group: row,
+                    memberCount: counts.byGroupId[row.id] ?? 0,
+                    onOpen: () => unawaited(
+                      context.push(RoutePaths.contactGroupDetail(row.id)),
+                    ),
+                    onEdit: () => _editGroup(row),
+                    onDelete: () => _confirmHardDelete(row),
                   ),
-                  onEdit: () => _editGroup(group),
-                  onDelete: () => _confirmHardDelete(group),
+              if (presentation.hasOtherGroups) ...<Widget>[
+                const SizedBox(height: 24),
+                const Text(
+                  'Your Other Groups',
+                  style: InternalScreen.sectionHeading,
+                ),
+                const SizedBox(height: 4),
+                for (final group in presentation.otherGroups)
+                  _GroupRow(
+                    group: group,
+                    memberCount: counts.byGroupId[group.id] ?? 0,
+                    onOpen: () => unawaited(
+                      context.push(RoutePaths.contactGroupDetail(group.id)),
+                    ),
+                    onEdit: () => _editGroup(group),
+                    onDelete: () => _confirmHardDelete(group),
+                  ),
+              ],
+              if (presentation.ambiguousNames.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: Text(
+                    'More than one group uses these default names, so Next '
+                    'Transfer did not choose one for you: '
+                    '${presentation.ambiguousNames.join(', ')}.',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: AppTheme.secondaryTextOf(context),
+                    ),
+                  ),
                 ),
               if (active.isEmpty)
                 Padding(
@@ -94,6 +138,10 @@ final class _ContactGroupsScreenState
                     style: TextStyle(color: AppTheme.secondaryTextOf(context)),
                   ),
                 ),
+              _NoGroupRow(
+                contactCount: counts.ungrouped,
+                onOpen: _openUngroupedContacts,
+              ),
               if (suggestions.isNotEmpty) ...<Widget>[
                 const SizedBox(height: 8),
                 const Text(
@@ -124,7 +172,7 @@ final class _ContactGroupsScreenState
                 for (final group in archived)
                   _GroupRow(
                     group: group,
-                    memberCount: memberCounts[group.id] ?? 0,
+                    memberCount: counts.byGroupId[group.id] ?? 0,
                     onOpen: () => unawaited(
                       context.push(RoutePaths.contactGroupDetail(group.id)),
                     ),
@@ -297,17 +345,89 @@ final class _ContactGroupsScreenState
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(_defaultGroupsMessage(outcome))),
     );
+    final adoptable = outcome.adoptableCollisions;
+    if (adoptable.isNotEmpty) {
+      await _offerDefaultColors(adoptable);
+    }
+  }
+
+  /// Owner law (2026-09-18): a Group that already owns a default *name* may
+  /// adopt the default *colour*, but only when the user chooses it. Nothing is
+  /// recoloured by default, and only `color_value` is ever written.
+  Future<void> _offerDefaultColors(
+    List<ContactGroupNameCollision> collisions,
+  ) async {
+    final selected = await showDialog<Set<String>>(
+      context: context,
+      builder: (dialogContext) =>
+          _DefaultColorChoiceDialog(collisions: collisions),
+    );
+    if (selected == null || selected.isEmpty || !mounted) {
+      return;
+    }
+    final repository = ref.read(contactRepositoryProvider);
+    final profileId = ref.read(contactProfileIdProvider);
+    final refused = <String>[];
+    for (final collision in collisions) {
+      if (!selected.contains(collision.groupId)) {
+        continue;
+      }
+      try {
+        await repository.updateGroup(
+          profileId: profileId,
+          groupId: collision.groupId,
+          name: collision.groupName,
+          colorValue: collision.defaultColorArgb,
+        );
+      } on ContactValidationException {
+        // Truthful, non-destructive: the saved colour most likely already
+        // belongs to another active Group, which the existing uniqueness law
+        // refuses. The user's row keeps the colour it had.
+        refused.add(collision.groupName);
+      }
+    }
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          refused.isEmpty
+              ? 'Default colors applied.'
+              : 'Another group already uses the default color, so '
+                    '${refused.join(', ')} kept the color it had.',
+        ),
+      ),
+    );
+  }
+
+  /// Opens the virtual "No Group" view: Contacts without an active Group
+  /// membership. No Group row, membership or filter id is ever created — the
+  /// Contacts controller carries the state.
+  void _openUngroupedContacts() {
+    ref
+        .read(contactsControllerProvider.notifier)
+        .applyFilter(
+          const ContactFilterCriteria(ungroupedOnly: true),
+          clearAppliedFilter: true,
+        );
+    context.go(RoutePaths.contacts);
   }
 
   static String _defaultGroupsMessage(ContactGroupDefaultsOutcome outcome) {
-    if (outcome.hasCollisions) {
-      return "Some default groups couldn't be added because groups with the "
-          'same names already exist: ${outcome.collidingNames.join(', ')}.';
+    final ambiguous = <String>[
+      for (final collision in outcome.collisions)
+        if (!collision.isUnambiguous) collision.canonicalName,
+    ];
+    if (ambiguous.isNotEmpty) {
+      return "Some default groups couldn't be added because more than one "
+          'group already uses the same name: ${ambiguous.join(', ')}.';
     }
     if (outcome.addedNames.isNotEmpty) {
       return 'Default groups added: ${outcome.addedNames.join(', ')}.';
     }
-    if (outcome.reappliedNames.isNotEmpty) {
+    if (outcome.reappliedNames.isNotEmpty ||
+        outcome.migratedColorNames.isNotEmpty) {
       return 'Default groups restored.';
     }
     return 'Default groups are already set up.';
@@ -317,11 +437,23 @@ final class _ContactGroupsScreenState
     final repository = ref.read(contactRepositoryProvider);
     final profileId = ref.read(contactProfileIdProvider);
     final active = await repository.readGroups(profileId);
-    final color = Vs11ColorSystem.nextUnused(
-      active
-          .where((group) => !group.isArchived)
-          .map((group) => group.colorValue),
-    );
+    final usedColors = active
+        .where((group) => !group.isArchived)
+        .map((group) => group.colorValue)
+        .toList(growable: false);
+    // Owner-approved (2026-09-18): each creation shortcut carries its own
+    // restrained colour so the widely-used groups stop looking alike. If that
+    // colour is already taken the shortcut still works and falls back to the
+    // next unused palette entry, exactly as before.
+    final preferred = ContactGroupSuggestedDefaults.colorFor(name);
+    final preferredIsFree =
+        preferred != null &&
+        !usedColors.any(
+          (used) => Vs11ColorSystem.sameOpaqueRgb(used, preferred),
+        );
+    final color = preferredIsFree
+        ? preferred
+        : Vs11ColorSystem.nextUnused(usedColors);
     if (color == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -450,6 +582,134 @@ final class _DefaultGroupsCard extends StatelessWidget {
   }
 }
 
+/// The optional follow-up to a same-name collision.
+///
+/// Each row starts OFF: adopting a default colour is always an explicit user
+/// choice, and choosing nothing keeps every existing colour exactly as it is.
+/// Only the colour is ever offered — never the name, the id, the memberships or
+/// the Contact assignments.
+final class _DefaultColorChoiceDialog extends StatefulWidget {
+  const _DefaultColorChoiceDialog({required this.collisions});
+
+  final List<ContactGroupNameCollision> collisions;
+
+  @override
+  State<_DefaultColorChoiceDialog> createState() =>
+      _DefaultColorChoiceDialogState();
+}
+
+final class _DefaultColorChoiceDialogState
+    extends State<_DefaultColorChoiceDialog> {
+  late final Set<String> _selected = <String>{};
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      key: const Key('default-colors-dialog'),
+      title: const Text('Use default colors?'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            const Text(
+              'Some of your groups already use Next Transfer\u2019s default '
+              'group names. You can keep their current colors or use the Next '
+              'Transfer default colors. Your contacts and group assignments '
+              "won't change.",
+            ),
+            const SizedBox(height: 12),
+            for (final collision in widget.collisions)
+              ListTile(
+                key: Key('default-color-row-${collision.groupId}'),
+                contentPadding: EdgeInsets.zero,
+                title: Text(collision.canonicalName),
+                subtitle: Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Row(
+                    children: <Widget>[
+                      _ColorSwatch(
+                        colorValue: collision.currentColorArgb,
+                        label: 'Current',
+                      ),
+                      const SizedBox(width: 16),
+                      _ColorSwatch(
+                        colorValue: collision.defaultColorArgb,
+                        label: 'Default',
+                      ),
+                    ],
+                  ),
+                ),
+                trailing: Switch(
+                  key: Key('default-color-toggle-${collision.groupId}'),
+                  value: _selected.contains(collision.groupId),
+                  onChanged: (value) => setState(() {
+                    if (value) {
+                      _selected.add(collision.groupId);
+                    } else {
+                      _selected.remove(collision.groupId);
+                    }
+                  }),
+                ),
+                onTap: () => setState(() {
+                  if (!_selected.add(collision.groupId)) {
+                    _selected.remove(collision.groupId);
+                  }
+                }),
+              ),
+          ],
+        ),
+      ),
+      actions: <Widget>[
+        TextButton(
+          key: const Key('default-colors-cancel'),
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Not now'),
+        ),
+        FilledButton(
+          key: const Key('default-colors-apply'),
+          onPressed: () => Navigator.of(
+            context,
+          ).pop(Set<String>.of(_selected)),
+          child: const Text('Apply selected'),
+        ),
+      ],
+    );
+  }
+}
+
+final class _ColorSwatch extends StatelessWidget {
+  const _ColorSwatch({required this.colorValue, required this.label});
+
+  final int colorValue;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        Container(
+          width: 16,
+          height: 16,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: Color(colorValue),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color: AppTheme.secondaryTextOf(context),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 sealed class _GroupEditorResult {
   const _GroupEditorResult();
 }
@@ -550,6 +810,75 @@ final class _GroupRow extends StatelessWidget {
                 child: Icon(
                   Icons.chevron_right,
                   key: Key('group-open-${group.id}'),
+                  color: AppTheme.secondaryTextOf(context),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The ALWAYS-LAST row of the Group list: the virtual "No Group" state.
+///
+/// It is deliberately not a Group. There is no row, no deterministic id, no
+/// membership and no backup record behind it — only the count of Contacts that
+/// currently hold no active Group membership, painted with the single canonical
+/// ungrouped colour. It therefore exposes no edit and no delete control.
+final class _NoGroupRow extends StatelessWidget {
+  const _NoGroupRow({required this.contactCount, required this.onOpen});
+
+  final int contactCount;
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        key: const Key('group-row-no-group'),
+        onTap: onOpen,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Row(
+            children: <Widget>[
+              Container(
+                width: 21,
+                height: 21,
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Color(ContactUngroupedColor.argb),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    const Text(
+                      ContactUngroupedColor.displayName,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    Text(
+                      '$contactCount contact${contactCount == 1 ? '' : 's'}',
+                      key: const Key('no-group-contact-count'),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppTheme.secondaryTextOf(context),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              ExcludeSemantics(
+                child: Icon(
+                  Icons.chevron_right,
+                  key: const Key('group-open-no-group'),
                   color: AppTheme.secondaryTextOf(context),
                 ),
               ),

@@ -292,7 +292,30 @@ final contactGroupMembersProvider =
       .toList(growable: false);
 });
 
-final contactGroupMemberCountsProvider = FutureProvider<Map<String, int>>((ref) async {
+/// The Group manager's two counts, from ONE contacts read so the numbers the
+/// screen shows can never describe different states of the data.
+final class ContactGroupCounts {
+  const ContactGroupCounts({
+    required this.byGroupId,
+    required this.ungrouped,
+  });
+
+  /// Active (primary) member count per Group id.
+  final Map<String, int> byGroupId;
+
+  /// Contacts that hold no active Group membership at all — the virtual
+  /// "No Group" state. It is counted, never stored.
+  final int ungrouped;
+
+  static const ContactGroupCounts empty = ContactGroupCounts(
+    byGroupId: <String, int>{},
+    ungrouped: 0,
+  );
+}
+
+final contactGroupCountsProvider = FutureProvider<ContactGroupCounts>((
+  ref,
+) async {
   final profileId = ref.read(contactProfileIdProvider);
   ref.watch(contactChangesProvider(profileId));
   final summaries = await ref.read(contactRepositoryProvider).readContacts(
@@ -302,13 +325,16 @@ final contactGroupMemberCountsProvider = FutureProvider<Map<String, int>>((ref) 
     today: ref.read(plannerDateSourceProvider).today(),
   );
   final counts = <String, int>{};
+  var ungrouped = 0;
   for (final summary in summaries) {
     final groupId = summary.primaryGroup?.id;
     if (groupId != null) {
       counts.update(groupId, (count) => count + 1, ifAbsent: () => 1);
+    } else {
+      ungrouped++;
     }
   }
-  return counts;
+  return ContactGroupCounts(byGroupId: counts, ungrouped: ungrouped);
 });
 
 final contactTagsProvider = FutureProvider<List<ContactTag>>((ref) {
