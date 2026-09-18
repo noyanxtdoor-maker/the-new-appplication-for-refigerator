@@ -1,7 +1,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:rmplanner/features/notifications/application/notification_foundation_repository.dart';
 import 'package:rmplanner/features/notifications/application/notification_providers.dart';
 import 'package:rmplanner/features/notifications/domain/notification_preferences.dart';
 import 'package:rmplanner/features/planner/application/event_type_providers.dart';
+import 'package:rmplanner/features/startup/application/startup_providers.dart';
+import 'package:rmplanner/features/startup/domain/startup_state.dart';
 
 /// OWNER REVIEW #4 — first-ever notification setup.
 ///
@@ -11,12 +14,17 @@ import 'package:rmplanner/features/planner/application/event_type_providers.dart
 /// made, because the two cases are distinguished by durable state rather than
 /// by a mutable "seen it" flag.
 ///
-/// The sentinel is the ABSENCE of the profile's `notification_preferences` row:
-/// [NotificationFoundationRepository.readPreferences] is documented to answer
-/// with [NotificationPreferences.defaults] and never to create a row, so an
-/// absent row means nothing has ever been configured on this profile. The row
-/// is written by the first real save. No new column, no flag table and no
-/// schema change are involved.
+/// The sentinel is SEMANTIC, not a raw row check. OWNER REVIEW #4's first
+/// implementation asked only whether a `notification_preferences` row existed,
+/// which is unsafe: the Detailed content store INSERTS that same row to hold its
+/// five columns (leaving every delivery field at its compiled default), and a
+/// master toggle on an already-granted permission writes a row over untouched
+/// defaults too. Both would have marked a never-configured profile as
+/// configured, permanently suppressing the owner-approved defaults.
+///
+/// [NotificationFoundationRepository.readSetupState] therefore classifies the
+/// row's own delivery fields. See [NotificationSetupState] for the exact law.
+/// No new column, no flag table and no schema change are involved (schema 47).
 ///
 /// This was the single largest real cause of a beta user receiving nothing.
 /// Before this change a new profile had `defaultTaskReminderMinutes == null`
@@ -34,16 +42,44 @@ final notificationFirstRunSetupProvider = Provider<NotificationFirstRunSetup>(
 /// is written through the canonical Event Type controller. It is exposed as one
 /// injectable function so the first-run behaviour can be proven without standing
 /// up the whole Planner graph, and so there is exactly one place that decides it.
+///
+/// OWNER REVIEW #4 STRAIGHTFIX — it reads PERSISTED truth and writes exactly one
+/// field.
+///
+/// `savePlannerSettings` writes the whole settings object, so seeding from a
+/// controller that was still showing its loading placeholder would have written
+/// the compiled defaults over a real user's Planner settings (week start, visible
+/// hours, presentation) on a profile that merely happened to have never touched
+/// notifications. Reading the persisted settings first means the only field this
+/// seam can ever change is the one it was asked to change.
 final eventDefaultReminderSeederProvider =
     Provider<Future<void> Function(int minutes)>((ref) {
       return (int minutes) async {
-        final eventTypes = ref.read(eventTypeControllerProvider);
-        if (eventTypes.settings.defaultReminderMinutes != null) return;
-        await ref
-            .read(eventTypeControllerProvider.notifier)
-            .saveSettings(
-              eventTypes.settings.copyWith(defaultReminderMinutes: minutes),
-            );
+        final startup = ref.read(startupControllerProvider);
+        if (startup is! StartupReady) return;
+        final profileId = startup.profile.id;
+        // Writes through the repository, NOT through
+        // `EventTypeController.saveSettings`. That controller AWAITS a reminder
+        // reconcile whenever the reminder changes, and the enable path holds the
+        // reconcile gate across this entire operation — so an awaited reconcile
+        // here would wait for a release that can only happen after this returns.
+        // The deadlock is real, not theoretical: with a real Planner graph the
+        // enable never reached its own master write at all, which is the most
+        // likely reason a brand-new profile's System notifications could never
+        // be turned on. The enable path reconciles once for itself, after it
+        // releases the gate.
+        final repository = ref.read(eventTypeRepositoryProvider);
+        final current = await repository.readPlannerSettings(
+          profileId: profileId,
+        );
+        if (current.defaultReminderMinutes != null) return;
+        await repository.savePlannerSettings(
+          profileId: profileId,
+          settings: current.copyWith(defaultReminderMinutes: minutes),
+        );
+        // Make the new value visible to any open Planner surface without
+        // triggering a reconcile or a second read set here.
+        ref.invalidate(eventTypeControllerProvider);
       };
     });
 
@@ -79,8 +115,20 @@ final class NotificationFirstRunSetup {
         quietHours: QuietHoursSettings.disabled(),
       );
 
-  /// Seeds the owner-approved defaults when, and only when, this profile has
-  /// never had notification preferences written.
+  /// The profile's semantic notification-setup state.
+  Future<NotificationSetupState> readSetupState({required String profileId}) {
+    return _ref
+        .read(notificationFoundationRepositoryProvider)
+        .readSetupState(profileId: profileId);
+  }
+
+  /// Seeds the owner-approved defaults when, and only when, this profile is
+  /// still [NotificationSetupState.neverConfigured].
+  ///
+  /// A `configured` OR `partiallyInitialized` profile is preserved exactly: the
+  /// owner's law is that an established or restored configuration — including a
+  /// deliberately unset default reminder — is never overwritten, and that the
+  /// ambiguous Review #4 partial row is reported rather than guessed at.
   ///
   /// Returns true when it seeded, false when an existing configuration was
   /// preserved. Failure is reported by rethrowing; the caller decides, and the
@@ -88,7 +136,8 @@ final class NotificationFirstRunSetup {
   /// user's explicit action is to enable notifications.
   Future<bool> seedIfNeverConfigured({required String profileId}) async {
     final repository = _ref.read(notificationFoundationRepositoryProvider);
-    if (await repository.hasPreferences(profileId: profileId)) {
+    final setupState = await repository.readSetupState(profileId: profileId);
+    if (setupState != NotificationSetupState.neverConfigured) {
       return false;
     }
     await repository.savePreferences(

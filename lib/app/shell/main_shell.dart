@@ -128,10 +128,18 @@ final class _MainShellState extends State<MainShell> {
     // Evaluating before that load completed would silently skip the education
     // for exactly the user who needs it, so the decision is made on real
     // permission truth instead.
+    //
+    // OWNER REVIEW #4 STRAIGHTFIX: this awaits `refreshWhenIdle`, not `load`.
+    // `load` used to return WITHOUT publishing whenever a master operation or a
+    // preference write was in flight, so the gate could then decide on a known
+    // stale snapshot and re-offer the education to a user whose setup was in
+    // fact complete. `refreshWhenIdle` waits for that work and then publishes
+    // fresh truth, which is what makes "hidden after a valid setup" hold for the
+    // Settings path and for a grant made in Android App Settings.
     final settingsController = container.read(
       notificationSettingsControllerProvider.notifier,
     );
-    await settingsController.load();
+    await settingsController.refreshWhenIdle();
     if (!context.mounted) return;
     final kind = container.read(plannerNotificationInvitationProvider);
     var wantsEnable = false;
@@ -156,9 +164,11 @@ final class _MainShellState extends State<MainShell> {
     // behind a modal in any case.
     context.go(routePath);
     if (wantsEnable) {
-      // The same serialized path the Notifications settings screen uses. It
-      // requests at most once, seeds the first-run defaults on a grant, and
-      // opens App Settings when Android will no longer show its dialog.
+      // The same serialized path the Notifications settings screen uses — one
+      // path, so the Planner and Settings setups cannot diverge. It requests at
+      // most once, seeds the first-run defaults on a successful enable whatever
+      // produced the grant, and opens App Settings when Android will no longer
+      // show its dialog.
       unawaited(settingsController.setSystemNotificationsEnabled(true));
     }
   }

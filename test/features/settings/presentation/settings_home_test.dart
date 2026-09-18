@@ -390,27 +390,51 @@ void main() {
       final master = find.byKey(const Key('notifications-system-toggle'));
       final event = find.byKey(const Key('notifications-event-reminders'));
       final task = find.byKey(const Key('notifications-task-reminders'));
+      // OWNER REVIEW #4 STRAIGHTFIX: enabling notifications on a profile that
+      // has never been configured now seeds the owner-approved defaults, so a
+      // fresh enable legitimately arrives with every category already ON. The
+      // independence law this test exists for is unchanged; it is asserted
+      // RELATIVE to that seeded state, and it now also proves the reversible
+      // gating that the master gate promises.
       await tester.tap(master);
       await tester.pumpAndSettle();
       expect(tester.widget<Switch>(master).value, isTrue);
       expect(tester.widget<SwitchListTile>(event).onChanged, isNotNull);
       expect(tester.widget<SwitchListTile>(task).onChanged, isNotNull);
-      await tester.tap(event);
-      await tester.pumpAndSettle();
       expect(tester.widget<SwitchListTile>(event).value, isTrue);
-      expect(tester.widget<SwitchListTile>(task).value, isFalse);
-      await tester.tap(task);
-      await tester.pumpAndSettle();
       expect(tester.widget<SwitchListTile>(task).value, isTrue);
+
+      // One category off never moves its sibling.
       await tester.tap(event);
       await tester.pumpAndSettle();
       expect(tester.widget<SwitchListTile>(event).value, isFalse);
       expect(tester.widget<SwitchListTile>(task).value, isTrue);
+      await tester.tap(task);
+      await tester.pumpAndSettle();
+      expect(tester.widget<SwitchListTile>(task).value, isFalse);
+      expect(tester.widget<SwitchListTile>(event).value, isFalse);
+      // ...and one back on never moves its sibling either.
+      await tester.tap(event);
+      await tester.pumpAndSettle();
+      expect(tester.widget<SwitchListTile>(event).value, isTrue);
+      expect(tester.widget<SwitchListTile>(task).value, isFalse);
+
+      // The master gates presentation only: it never rewrites child values, so
+      // both children read OFF and non-interactive while it is off.
       await tester.tap(master);
       await tester.pumpAndSettle();
       expect(tester.widget<Switch>(master).value, isFalse);
       expect(tester.widget<SwitchListTile>(event).onChanged, isNull);
       expect(tester.widget<SwitchListTile>(task).onChanged, isNull);
+      expect(tester.widget<SwitchListTile>(event).value, isFalse);
+      expect(tester.widget<SwitchListTile>(task).value, isFalse);
+
+      // Turning the master back on returns the user's own stored choices.
+      await tester.tap(master);
+      await tester.pumpAndSettle();
+      expect(tester.widget<Switch>(master).value, isTrue);
+      expect(tester.widget<SwitchListTile>(event).value, isTrue);
+      expect(tester.widget<SwitchListTile>(task).value, isFalse);
       expect(tester.takeException(), isNull);
     },
   );

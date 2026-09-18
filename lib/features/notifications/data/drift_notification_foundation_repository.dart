@@ -64,17 +64,56 @@ final class DriftNotificationFoundationRepository
   }
 
   /// True when a `notification_preferences` row already exists for
-  /// [profileId].  This is the durable "has this profile ever been configured"
-  /// sentinel; [readPreferences] deliberately answers with defaults (and never
-  /// creates a row) when it is false.
+  /// [profileId].  A raw storage fact, not the first-run decision.
   @override
   Future<bool> hasPreferences({required String profileId}) async {
-    final row =
-        await (database.select(database.notificationPreferences)
-              ..where((table) => table.profileId.equals(profileId))
-              ..limit(1))
-            .getSingleOrNull();
-    return row != null;
+    return await _readRowOrNull(profileId) != null;
+  }
+
+  @override
+  Future<NotificationSetupState> readSetupState({
+    required String profileId,
+  }) async {
+    final row = await _readRowOrNull(profileId);
+    if (row == null) return NotificationSetupState.neverConfigured;
+    return _classifySetup(row);
+  }
+
+  Future<NotificationPreferenceRow?> _readRowOrNull(String profileId) {
+    return (database.select(database.notificationPreferences)
+          ..where((table) => table.profileId.equals(profileId))
+          ..limit(1))
+        .getSingleOrNull();
+  }
+
+  /// OWNER REVIEW #4 STRAIGHTFIX — the first-run classification law.
+  ///
+  /// The predicate is derived from the row's own delivery fields, so it needs no
+  /// new column and no schema change. It is deliberately conservative: it only
+  /// answers "still unconfigured" for a row whose delivery configuration is
+  /// indistinguishable from the compiled default that the Detailed content
+  /// store's INSERT produces.
+  ///
+  /// `partiallyInitialized` is the Review #4 fingerprint (master on over
+  /// untouched defaults). It is reported, never auto-repaired: the durable
+  /// record cannot distinguish it from a user who deliberately turned every
+  /// category off, and silently switching those back on would be a real
+  /// violation. See [NotificationSetupState].
+  static NotificationSetupState _classifySetup(NotificationPreferenceRow row) {
+    final categoriesUntouched =
+        !row.eventRemindersEnabled &&
+        !row.taskRemindersEnabled &&
+        !row.weeklyReviewRemindersEnabled &&
+        !row.awaitingReportRemindersEnabled &&
+        !row.goalCompletionNotificationsEnabled;
+    final selectorsUntouched =
+        row.defaultTaskReminderMinutes == null && !row.quietHoursEnabled;
+    if (categoriesUntouched && selectorsUntouched) {
+      return row.systemNotificationsEnabled
+          ? NotificationSetupState.partiallyInitialized
+          : NotificationSetupState.neverConfigured;
+    }
+    return NotificationSetupState.configured;
   }
 
   DetailedContentPreferencesStore get _detailedStore =>

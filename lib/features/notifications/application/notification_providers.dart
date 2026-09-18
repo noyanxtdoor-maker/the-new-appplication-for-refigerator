@@ -283,6 +283,7 @@ final class NotificationSettingsController
   bool _changingMaster = false;
   Future<void>? _masterOperation;
   bool _enableAfterSettings = false;
+  bool _refreshQueued = false;
   NotificationPreferences _persisted = const NotificationPreferences.defaults();
 
   String get _profileId {
@@ -300,7 +301,18 @@ final class NotificationSettingsController
   }
 
   Future<void> load() async {
-    if (_changingMaster || _pendingWrites != 0) return;
+    // OWNER REVIEW #4 STRAIGHTFIX: this guard used to return SILENTLY while a
+    // master operation or a preference write was in flight, which made `await
+    // load()` a lie — a caller that needed fresh truth unknowingly kept the old
+    // snapshot, and the Notifications screen could show OFF while both SQLite
+    // and Android said ON. Nothing may be published mid-flight, but the refresh
+    // is now QUEUED instead of dropped: exactly one fresh read runs once the
+    // controller goes idle ([_drainQueuedRefresh]), and callers that must not act
+    // on a stale snapshot use [refreshWhenIdle].
+    if (_changingMaster || _pendingWrites != 0) {
+      _refreshQueued = true;
+      return;
+    }
     final revision = _revision;
     try {
       final results = await Future.wait<Object>(<Future<Object>>[
@@ -339,6 +351,51 @@ final class NotificationSettingsController
     }
   }
 
+  /// Runs the one refresh a busy period had to defer, if any.
+  ///
+  /// Safe from any context: it never publishes mid-flight (it delegates to
+  /// [load], which re-checks), it never awaits the operation that is finishing,
+  /// and it clears the flag before scheduling, so a refresh cannot recurse into
+  /// itself. Scheduled — never inline — because it is called from the `finally`
+  /// of the very operation that is still clearing its own bookkeeping.
+  void _drainQueuedRefresh() {
+    if (!_refreshQueued) return;
+    if (_changingMaster || _pendingWrites != 0) return;
+    _refreshQueued = false;
+    unawaited(Future<void>.microtask(load));
+  }
+
+  /// Waits for in-flight notification work, then publishes fresh truth.
+  ///
+  /// This is the caller-facing form for decisions that must not be made on a
+  /// stale snapshot: the shell's Planner-education gate and the Notifications
+  /// screen's entry read. It never awaits the caller and is never invoked from
+  /// inside the controller's own operations, so it cannot deadlock against the
+  /// operation that would satisfy it. If a refresh is deferred again while this
+  /// drains, [load] has queued it and one more read is taken here rather than
+  /// being left to a later caller.
+  Future<void> refreshWhenIdle() async {
+    final master = _masterOperation;
+    if (master != null) {
+      try {
+        await master;
+      } on Object {
+        // The operation reports its own failure through `state.message`.
+      }
+    }
+    try {
+      await _writes;
+    } on Object {
+      // Preference writes report their own failure through `state.message`.
+    }
+    _refreshQueued = false;
+    await load();
+    if (_refreshQueued) {
+      _refreshQueued = false;
+      await load();
+    }
+  }
+
   Future<void> requestPermission({bool refreshReminders = true}) async {
     // OWNER REVIEW #4 race guard.  The OS dialog can suspend and resume the
     // app, so a permission answer can arrive after this controller was
@@ -362,12 +419,12 @@ final class NotificationSettingsController
         clearMessage: true,
       );
       ref.invalidate(permissionSummariesProvider);
-      if (result == OperatingSystemPermissionState.granted) {
-        // First-ever setup only: a profile that has never had notification
-        // preferences written receives the owner-approved defaults here, which
-        // is the moment the app first knows Android will actually deliver.
-        await _seedFirstRunDefaultsIfEligible();
-      }
+      // OWNER REVIEW #4 STRAIGHTFIX: first-run initialization moved OUT of
+      // here and onto the enable edge. Seeding used to happen only when this
+      // method obtained a NEW grant, but the enable path skips this method
+      // entirely whenever Android permission is already granted — so those
+      // profiles could never be initialized. `_setSystemNotificationsEnabled`
+      // now owns the single seeding site, which every successful enable reaches.
       if (refreshReminders) unawaited(_refreshReminders());
     } on Object {
       if (!ref.mounted) return;
@@ -379,9 +436,14 @@ final class NotificationSettingsController
 
   /// Seeds the owner-approved new-user defaults exactly once per profile.
   ///
+  /// Called from the enable edge only (see `_setSystemNotificationsEnabled`):
+  /// Planner and Settings therefore share one initialization path, and a profile
+  /// whose Android permission was already granted is initialized too.
+  ///
   /// Deliberately non-fatal: the user's action was to enable notifications, and
   /// a seeding failure must not be reported as if enabling failed. The next
-  /// explicit enable retries, because the sentinel is still absent.
+  /// explicit enable retries, because the semantic sentinel still reads
+  /// `neverConfigured`.
   Future<void> _seedFirstRunDefaultsIfEligible() async {
     try {
       final seeded = await ref
@@ -413,10 +475,27 @@ final class NotificationSettingsController
     _revision++;
     final release = ref.read(reconcileRemindersProvider).hold();
     try {
+      // OFF is answered in THIS frame. The switch reflecting the tap immediately
+      // is accepted product behaviour with its own regression test, so the
+      // optimistic publish happens synchronously, before the first await.
       if (!enabled) {
         _enableAfterSettings = false;
+        state = state.copyWith(
+          preferences: _persisted.copyWith(systemNotificationsEnabled: false),
+          clearMessage: true,
+        );
+        // The WRITE, however, is composed from PERSISTED truth. OWNER REVIEW #4
+        // STRAIGHTFIX: `state.preferences` (and `_persisted` before the first
+        // read) is the compiled DEFAULT while the controller is loading, so
+        // writing it would commit an all-false, NULL-defaults row over a real
+        // one — a silent erase of the user's categories, both defaults and Quiet
+        // Hours.
+        final persisted = await _repository.readPreferences(
+          profileId: _profileId,
+        );
+        if (!ref.mounted) return;
         await savePreferences(
-          state.preferences.copyWith(systemNotificationsEnabled: false),
+          persisted.copyWith(systemNotificationsEnabled: false),
         );
         return;
       }
@@ -429,7 +508,8 @@ final class NotificationSettingsController
         if (permission == OperatingSystemPermissionState.permanentlyDenied ||
             permission == OperatingSystemPermissionState.restricted) {
           await savePreferences(
-            state.preferences.copyWith(systemNotificationsEnabled: false),
+            (await _repository.readPreferences(profileId: _profileId))
+                .copyWith(systemNotificationsEnabled: false),
           );
           _enableAfterSettings = true;
           await openSystemSettings();
@@ -437,13 +517,32 @@ final class NotificationSettingsController
         }
         await requestPermission(refreshReminders: false);
       }
-      // OWNER REVIEW #4: the first-run defaults are seeded on the GRANT itself
-      // (`requestPermission`), which is the one moment the app learns Android
-      // will actually deliver. Doing it here as well would seed on every master
-      // toggle for a profile that merely happens to be already granted, which is
-      // not "first-ever setup" and would fight the user's own master write.
+      // OWNER REVIEW #4 STRAIGHTFIX — the single first-run initialization site.
+      //
+      // Initialization belongs to a SUCCESSFUL SYSTEM-NOTIFICATIONS ENABLE, not
+      // to the Android request. It used to live inside `requestPermission`,
+      // which this method skips whenever permission is already granted; a
+      // profile in that state enabled the master over an uninitialized snapshot
+      // and kept all-false categories plus NULL defaults permanently. This runs
+      // for EVERY successful enable, whatever produced the grant, and
+      // `seedIfNeverConfigured` itself decides whether the profile is still
+      // unconfigured — so an established or restored user is never touched.
+      if (state.permission == OperatingSystemPermissionState.granted) {
+        await _seedFirstRunDefaultsIfEligible();
+      }
+      // Drain the serialized write chain first, so a category the user tapped a
+      // moment ago is not dropped by the re-read below.
+      try {
+        await _writes;
+      } on Object {
+        // A failed write reports itself through `state.message`.
+      }
+      // Re-read so the master write carries the SEEDED values when seeding just
+      // happened, and the user's own values when it deliberately did not.
+      final current = await _repository.readPreferences(profileId: _profileId);
+      if (!ref.mounted) return;
       await savePreferences(
-        state.preferences.copyWith(
+        current.copyWith(
           systemNotificationsEnabled:
               state.permission == OperatingSystemPermissionState.granted,
         ),
@@ -461,6 +560,7 @@ final class NotificationSettingsController
     } finally {
       _changingMaster = false;
       release();
+      _drainQueuedRefresh();
     }
   }
 
@@ -510,6 +610,7 @@ final class NotificationSettingsController
         }
       } finally {
         _pendingWrites--;
+        _drainQueuedRefresh();
       }
     });
     _writes = write;

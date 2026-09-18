@@ -31,6 +31,19 @@ final class _NotificationsSettingsScreenState
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // OWNER REVIEW #4 STRAIGHTFIX: the screen used to render whatever snapshot
+    // the controller last published — from Home, from the Planner gate, or from
+    // an earlier visit — so opening Notifications could present stale state as
+    // authoritative. Opening the screen is an explicit request to see current
+    // truth, so it now reconciles SQLite, the Android permission and the
+    // permission audit on entry. `refreshWhenIdle` waits for any in-flight
+    // master operation or preference write rather than silently keeping the old
+    // values (the old `load()` returned without publishing).
+    unawaited(
+      ref
+          .read(notificationSettingsControllerProvider.notifier)
+          .refreshWhenIdle(),
+    );
   }
 
   @override
@@ -221,7 +234,7 @@ final class _NotificationsSettingsScreenState
                   ),
                   const SizedBox(height: 18),
                   const _SectionLabel('DETAILED CONTENT'),
-                  _DetailedContentCard(),
+                  _DetailedContentCard(systemEnabled: systemEnabled),
                   const SizedBox(height: 18),
                   const _SectionLabel('PRIVACY'),
                   _Card(
@@ -409,7 +422,16 @@ final class _NotificationsSettingsScreenState
 }
 
 final class _DetailedContentCard extends ConsumerWidget {
-  const _DetailedContentCard();
+  const _DetailedContentCard({required this.systemEnabled});
+
+  /// The EFFECTIVE master state: the stored master AND the Android permission.
+  ///
+  /// OWNER REVIEW #4 STRAIGHTFIX: this card used to take no signal at all, so
+  /// its five switches kept rendering their stored ON values and stayed tappable
+  /// while nothing could be delivered — the only card in the screen that ignored
+  /// the master. It now follows the same reversible-gating law as every category
+  /// row: it READS off and is disabled, and the stored values are preserved.
+  final bool systemEnabled;
 
   /// Representative sample used by the live preview.
   ///
@@ -443,6 +465,7 @@ final class _DetailedContentCard extends ConsumerWidget {
           _DetailedToggle(
             key: const Key('notifications-detailed-title'),
             title: 'Show title',
+            enabled: systemEnabled,
             value: stored.showTitle,
             onChanged: (value) => ref
                 .read(detailedContentControllerProvider)
@@ -452,6 +475,7 @@ final class _DetailedContentCard extends ConsumerWidget {
           _DetailedToggle(
             key: const Key('notifications-detailed-description'),
             title: 'Show description',
+            enabled: systemEnabled,
             value: stored.showDescription,
             onChanged: (value) => ref
                 .read(detailedContentControllerProvider)
@@ -461,6 +485,7 @@ final class _DetailedContentCard extends ConsumerWidget {
           _DetailedToggle(
             key: const Key('notifications-detailed-time'),
             title: 'Show time',
+            enabled: systemEnabled,
             value: stored.showTime,
             onChanged: (value) => ref
                 .read(detailedContentControllerProvider)
@@ -470,6 +495,7 @@ final class _DetailedContentCard extends ConsumerWidget {
           _DetailedToggle(
             key: const Key('notifications-detailed-contacts'),
             title: 'Show contacts',
+            enabled: systemEnabled,
             value: stored.showContacts,
             onChanged: (value) => ref
                 .read(detailedContentControllerProvider)
@@ -479,6 +505,7 @@ final class _DetailedContentCard extends ConsumerWidget {
           _DetailedToggle(
             key: const Key('notifications-detailed-location'),
             title: 'Show location',
+            enabled: systemEnabled,
             value: stored.showLocation,
             onChanged: (value) => ref
                 .read(detailedContentControllerProvider)
@@ -500,9 +527,15 @@ final class _DetailedContentCard extends ConsumerWidget {
                   ),
                 ),
                 const SizedBox(height: 8),
-                _DetailedPreview(
-                  key: const Key('notifications-detailed-preview'),
-                  options: options,
+                // Dimmed rather than hidden while notifications cannot be
+                // delivered: the preview must not present content as actively
+                // deliverable, but the owner's law is that the Preview stays.
+                Opacity(
+                  opacity: systemEnabled ? 1 : 0.45,
+                  child: _DetailedPreview(
+                    key: const Key('notifications-detailed-preview'),
+                    options: options,
+                  ),
                 ),
                 const SizedBox(height: 10),
                 Text(
@@ -524,11 +557,15 @@ final class _DetailedToggle extends StatelessWidget {
   const _DetailedToggle({
     super.key,
     required this.title,
+    required this.enabled,
     required this.value,
     required this.onChanged,
   });
 
   final String title;
+
+  /// Whether the effective master allows this option to be changed.
+  final bool enabled;
   final bool value;
   final ValueChanged<bool> onChanged;
 
@@ -541,8 +578,13 @@ final class _DetailedToggle extends StatelessWidget {
   @override
   Widget build(BuildContext context) => SwitchListTile(
     title: Text(title),
-    value: value,
-    onChanged: onChanged,
+    // OWNER LAW: while the master is not effective the child READS as off and
+    // cannot be changed, while the stored value is left untouched so that
+    // turning the master back on restores the user's own choices.
+    // `onChanged: null` is the screen's established disabled presentation (the
+    // category rows use exactly this), so the three states cannot drift.
+    value: enabled && value,
+    onChanged: enabled ? onChanged : null,
   );
 }
 

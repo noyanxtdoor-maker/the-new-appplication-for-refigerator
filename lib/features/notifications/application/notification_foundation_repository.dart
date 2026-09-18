@@ -3,22 +3,56 @@ import 'package:rmplanner/features/notifications/data/detailed_content_preferenc
 import 'package:rmplanner/features/notifications/domain/notification_preferences.dart';
 import 'package:rmplanner/features/notifications/domain/reminder_policy.dart';
 
+/// OWNER REVIEW #4 STRAIGHTFIX — the SEMANTIC notification-setup state.
+///
+/// Row existence alone is not a safe sentinel. The shared
+/// `notification_preferences` row is also written by the Detailed content store
+/// (which INSERTS it just to hold its five columns, leaving every delivery field
+/// at its compiled default) and by a master toggle on a profile that never ran
+/// first-run setup. "A row exists" can therefore mean "nothing about
+/// notification DELIVERY was ever configured".
+///
+/// The classification is derived from the row's own delivery fields, so it needs
+/// no new column, no sentinel table and no schema change (schema stays 47).
+enum NotificationSetupState {
+  /// Nothing about notification delivery has ever been configured: either no
+  /// row exists, or the only thing ever written was Detailed content. This is
+  /// the ONLY state in which the owner-approved new-user defaults may be
+  /// seeded.
+  neverConfigured,
+
+  /// The Review #4 fingerprint: the master is on while EVERY delivery category,
+  /// both defaults and Quiet Hours were all left at their untouched defaults, so
+  /// the app can deliver nothing. It is deliberately NOT repaired automatically:
+  /// "master on with every category turned off on purpose" is a configuration a
+  /// real user could have chosen, and the durable record does not distinguish
+  /// the two. It is classified and reported so a future owner-approved migration
+  /// can target it precisely instead of guessing.
+  partiallyInitialized,
+
+  /// A meaningful delivery configuration exists and must never be overwritten by
+  /// first-run seeding. This includes a restored profile: its own choices, and
+  /// its deliberately unset default reminders, are the user's.
+  configured,
+}
+
 abstract interface class NotificationFoundationRepository {
   Future<NotificationPreferences> readPreferences({required String profileId});
 
-  /// Whether this profile has EVER had notification preferences written.
+  /// Whether a `notification_preferences` row physically exists.
   ///
-  /// OWNER REVIEW #4 — the first-ever-setup sentinel.
-  ///
-  /// [readPreferences] is documented never to create a row and to answer with
-  /// [NotificationPreferences.defaults] when none exists, so "the row is
-  /// absent" is a durable, already-existing record that nothing has ever been
-  /// configured on this profile. That is the only state in which the app may
-  /// seed the owner-approved new-user defaults. A returning user who revoked
-  /// and re-granted the Android permission keeps their deliberate choices,
-  /// because their row exists. No new column, no sentinel table and no schema
-  /// change are needed.
+  /// This is a raw storage fact and NOT the first-run decision: the row can
+  /// exist because only Detailed content was ever written, or because the master
+  /// was switched on over delivery fields that were never initialized. Use
+  /// [readSetupState] to decide whether first-run setup is still required.
   Future<bool> hasPreferences({required String profileId});
+
+  /// The semantic first-run sentinel (OWNER REVIEW #4 STRAIGHTFIX).
+  ///
+  /// Decides whether this profile still needs the owner-approved new-user
+  /// notification defaults. See [NotificationSetupState] for the exact law.
+  /// Reading never creates or mutates a row.
+  Future<NotificationSetupState> readSetupState({required String profileId});
 
   /// VS16 M7 corrective persistence repair — the five per-field Detailed
   /// notification content options.
