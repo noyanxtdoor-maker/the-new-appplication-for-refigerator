@@ -1258,6 +1258,46 @@ final class ContactDefaultGroupsStatus {
 
   bool get needsAttention => missingNames.isNotEmpty;
 
+  /// Owner law (2026-09-18): whether the profile already holds the canonical
+  /// five, so an explicit "Restore default groups" run must be a pure no-op.
+  ///
+  /// The check reuses the very projection Manage Groups displays, so what counts
+  /// as restored is exactly what the user already sees as restored: a row that
+  /// fills an official slot by exact name — a display SUBSTITUTE — is accepted,
+  /// and the deterministic canonical id is deliberately NOT required. Every
+  /// official slot must carry the canonical name, the canonical colour and the
+  /// canonical effective position, or the slot is not restored.
+  ///
+  /// This reads rows the caller already loaded; it never writes and never
+  /// seeds, so a Group the user permanently deleted is never resurrected here.
+  static bool isFullyRestored({
+    required List<ContactGroup> groups,
+    required String profileId,
+  }) {
+    final presentation = ContactGroupsPresentation.resolve(
+      groups: groups,
+      profileId: profileId,
+    );
+    // More than one row owning an official name is never automatically
+    // restored: the app must not guess which row is meant.
+    if (presentation.ambiguousNames.isNotEmpty) {
+      return false;
+    }
+    for (final slot in presentation.slots) {
+      final row = slot.row;
+      if (row == null ||
+          row.name.trim().toLowerCase() !=
+              slot.definition.name.trim().toLowerCase() ||
+          !Vs11ColorSystem.sameOpaqueRgb(
+            row.colorValue,
+            slot.definition.colorArgb,
+          )) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   static ContactDefaultGroupsStatus evaluate({
     required List<ContactGroup> groups,
     required String profileId,

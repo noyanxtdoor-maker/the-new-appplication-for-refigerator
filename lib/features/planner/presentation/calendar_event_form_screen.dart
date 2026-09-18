@@ -2487,17 +2487,23 @@ final class _CalendarEventFormScreenState
       ),
     );
     final controller = ref.read(calendarEventControllerProvider.notifier);
-    final saved = switch (widget.mode) {
+    // The create path reports a three-state truth outcome (saved /
+    // saved-with-auxiliary-warning / not saved) so a committed Event is never
+    // presented as a failure. The remaining paths report bool and are
+    // normalized to the same outcome here.
+    final saveOutcome = switch (widget.mode) {
       CalendarEventFormMode.create when widget.sourceTaskId != null =>
         await ref
-            .read(taskEventLinkControllerProvider.notifier)
-            .createEventFromTask(
-              taskId: widget.sourceTaskId!,
-              event: draft,
-              linkId: _linkId!,
-              operationId: _operationId,
-              canonicalSource: _canonicalSource,
-            ),
+                .read(taskEventLinkControllerProvider.notifier)
+                .createEventFromTask(
+                  taskId: widget.sourceTaskId!,
+                  event: draft,
+                  linkId: _linkId!,
+                  operationId: _operationId,
+                  canonicalSource: _canonicalSource,
+                )
+            ? CalendarEventSaveResult.saved
+            : CalendarEventSaveResult.notSaved,
       CalendarEventFormMode.create => await controller.saveEvent(
         draft,
         awaitPlannerRefresh: false,
@@ -2507,22 +2513,45 @@ final class _CalendarEventFormScreenState
         // controller's early scheduling until People + purpose have committed.
         deferReminderReconciliation: widget.followUpContactId != null,
       ),
-      CalendarEventFormMode.edit => await _saveEdit(draft, controller),
+      CalendarEventFormMode.edit => await _saveEdit(draft, controller)
+          ? CalendarEventSaveResult.saved
+          : CalendarEventSaveResult.notSaved,
       CalendarEventFormMode.reschedule => await controller.rescheduleEvent(
-        eventId: widget.eventId!,
-        originalDate: widget.originalDate!,
-        scope: widget.scope!,
-        replacement: draft,
-        operationId: _operationId,
-        reminderMode: _reminderMode,
-        reminderOffsetMinutes: _reminderOffsetMinutes,
-      ),
+            eventId: widget.eventId!,
+            originalDate: widget.originalDate!,
+            scope: widget.scope!,
+            replacement: draft,
+            operationId: _operationId,
+            reminderMode: _reminderMode,
+            reminderOffsetMinutes: _reminderOffsetMinutes,
+          )
+          ? CalendarEventSaveResult.saved
+          : CalendarEventSaveResult.notSaved,
     };
     if (!mounted) {
       return;
     }
     setState(() => _saving = false);
-    if (saved) {
+    if (saveOutcome == CalendarEventSaveResult.notSaved) {
+      return;
+    }
+    if (saveOutcome == CalendarEventSaveResult.savedAwaitingAuxiliary &&
+        mounted) {
+      // The Event is committed; surface the auxiliary warning once without
+      // keeping the form open (which would invite a duplicate re-save).
+      final warning =
+          ref.read(calendarEventControllerProvider) ??
+          'Event saved, but its reminder needs attention.';
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(warning)));
+      // One-shot truth (2026-09-18): the warning belongs to THIS save. The
+      // form's own banner and the Event detail screen read the same controller
+      // state, so leaving it set would show a stale "saved, but..." message on
+      // the next Event form about an Event the user is no longer editing.
+      controller.clearMessage();
+    }
+    if (saveOutcome.closesForm) {
       if (!mounted) {
         return;
       }

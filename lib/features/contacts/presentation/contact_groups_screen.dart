@@ -81,11 +81,10 @@ final class _ContactGroupsScreenState
                   collidingNames: defaultsStatus.collidingNames,
                   onUseDefaults: () => unawaited(_useDefaultGroups()),
                 ),
-              const Text(
-                'Official default groups',
-                style: InternalScreen.sectionHeading,
+              const _GroupSectionHeading(
+                title: 'Official default groups',
+                dividerKey: Key('official-default-groups-divider'),
               ),
-              const SizedBox(height: 4),
               for (final slot in presentation.slots)
                 if (slot.row case final row?)
                   _GroupRow(
@@ -99,11 +98,10 @@ final class _ContactGroupsScreenState
                   ),
               if (presentation.hasOtherGroups) ...<Widget>[
                 const SizedBox(height: 24),
-                const Text(
-                  'Your Other Groups',
-                  style: InternalScreen.sectionHeading,
+                const _GroupSectionHeading(
+                  title: 'Your Other Groups',
+                  dividerKey: Key('other-groups-divider'),
                 ),
-                const SizedBox(height: 4),
                 for (final group in presentation.otherGroups)
                   _GroupRow(
                     group: group,
@@ -138,6 +136,13 @@ final class _ContactGroupsScreenState
                     style: TextStyle(color: AppTheme.secondaryTextOf(context)),
                   ),
                 ),
+              const SizedBox(height: 16),
+              Divider(
+                key: const Key('no-group-separator'),
+                height: 1,
+                color: AppTheme.sectionDividerOf(context),
+              ),
+              const SizedBox(height: 4),
               _NoGroupRow(
                 contactCount: counts.ungrouped,
                 onOpen: _openUngroupedContacts,
@@ -291,6 +296,27 @@ final class _ContactGroupsScreenState
   /// re-apply the canonical name, order and colour of the canonical ids because
   /// the user explicitly asked for a restore.
   Future<void> _restoreDefaultGroups() async {
+    final repository = ref.read(contactRepositoryProvider);
+    final profileId = ref.read(contactProfileIdProvider);
+    final groups = await repository.readGroups(
+      profileId,
+      includeArchived: true,
+    );
+    if (!mounted) {
+      return;
+    }
+    // Owner law (2026-09-18): an already-restored profile gets a truthful
+    // no-op. Nothing is written, no membership moves and no collision offer is
+    // raised, because there is provably nothing left to restore.
+    if (ContactDefaultGroupsStatus.isFullyRestored(
+      groups: groups,
+      profileId: profileId,
+    )) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Default groups are already restored.')),
+      );
+      return;
+    }
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -405,12 +431,11 @@ final class _ContactGroupsScreenState
   /// membership. No Group row, membership or filter id is ever created — the
   /// Contacts controller carries the state.
   void _openUngroupedContacts() {
-    ref
-        .read(contactsControllerProvider.notifier)
-        .applyFilter(
-          const ContactFilterCriteria(ungroupedOnly: true),
-          clearAppliedFilter: true,
-        );
+    // Owner law (2026-09-18): No Group is a real canonical filter criterion,
+    // applied as an ad-hoc view over the default baseline — it is never the
+    // retained current view. Clear All therefore resets it and the full,
+    // default Contacts list returns without a restart or a navigation trick.
+    ref.read(contactsControllerProvider.notifier).showUngroupedContacts();
     context.go(RoutePaths.contacts);
   }
 
@@ -817,6 +842,34 @@ final class _GroupRow extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// The restrained, theme-aware section heading used by Manage Groups.
+///
+/// Owner law (2026-09-18): the same thin 1px hairline the rest of Contacts
+/// already uses sits under the section label. It is deliberately not a filled
+/// band, slab or thick grey rule — only a subtle separator between sections.
+final class _GroupSectionHeading extends StatelessWidget {
+  const _GroupSectionHeading({required this.title, required this.dividerKey});
+
+  final String title;
+  final Key dividerKey;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Text(title, style: InternalScreen.sectionHeading),
+        const SizedBox(height: 8),
+        Divider(
+          key: dividerKey,
+          height: 1,
+          color: AppTheme.sectionDividerOf(context),
+        ),
+      ],
     );
   }
 }

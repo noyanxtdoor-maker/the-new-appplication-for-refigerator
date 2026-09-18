@@ -408,14 +408,28 @@ abstract final class PlannerEventColorDefaults {
     surfaceArgb: 0xFF4B4744,
   );
 
-  /// Closed-beta V2 Task identity (owner decision, 2026-09-18).
+  /// Closed-beta V2 Task identity (owner decision, 2026-09-18; corrected on the
+  /// same day after owner physical review #3).
   ///
-  /// The owner wants the ORIGINAL warm Task accent back, while keeping the
-  /// safer surface that fixed the original collision: the retired pair
-  /// (#F2E9E0 / #494844) collapsed onto Meal's own surface in Dark
-  /// (ΔRGB 2,1,0) and in the locked Light render transform. So the accent
-  /// returns to the original #F2E9E0 and the surface stays the muted slate
-  /// #3D4F59 that is measurably distinct from Meal's #4B4744.
+  /// The owner wants the ORIGINAL warm Task accent AND a dark block body that
+  /// belongs to the same warm Task family. The previously shipped body
+  /// #3D4F59 (hue 201) was physically rejected on the device: it reads BLUE,
+  /// not Task. The retired pair before it (#F2E9E0 / #494844) was worse in the
+  /// other direction — that body collapsed onto Meal's own #4B4744.
+  ///
+  /// The body below is deliberately NOT a Task-only magic hex. It is Task's own
+  /// accent hue carried into the dark band the accepted system blocks already
+  /// occupy: hue 30 at low chroma and a medium-dark lightness, i.e.
+  ///
+  ///   EventColorMath.fromHsl(h: 30, s: 0.04, l: 0.35)  ->  #5D5956
+  ///
+  /// `planner_task_color_test.dart` recomputes that derivation on every run, so
+  /// this constant can never silently drift away from the family it documents.
+  ///
+  /// Measured against the accepted neighbours: warm neutral (h 26, s 0.039,
+  /// l 0.351), white-text contrast 6.93:1, and an OKLab distance of 0.066 from
+  /// Meal's #4B4744 — sixteen times the retired #494844 collision that forced
+  /// the original blue detour in the first place.
   ///
   /// The canonical Task identity, its stable key, its preference storage and
   /// the user's ability to customize it through Settings > Colors are all
@@ -424,7 +438,7 @@ abstract final class PlannerEventColorDefaults {
   /// reads legacy saved colours as evidence, never as a migration input.
   static const EventColorPreference task = EventColorPreference(
     accentArgb: 0xFFF2E9E0,
-    surfaceArgb: 0xFF3D4F59,
+    surfaceArgb: 0xFF5D5956,
   );
 
   // Locked system-type pairs. The six fixed Goal-linked Event Types resolve

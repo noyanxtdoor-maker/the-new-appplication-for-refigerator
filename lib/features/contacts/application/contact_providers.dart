@@ -246,6 +246,27 @@ final class ContactsController extends Notifier<ContactsState> {
     unawaited(_requestLoad());
   }
 
+  /// Opens the canonical, VIRTUAL "No Group" view.
+  ///
+  /// Owner law (2026-09-18): No Group is a state, never a Group row, but it
+  /// MUST participate in the canonical filter state so Clear All resets it.
+  /// The criterion therefore lives in the live [ContactsState.criteria] while
+  /// the retained baseline [ContactsState.viewCriteria] is reset to the default
+  /// Contacts list — so [clearAdHocFilters] restores the full/default list
+  /// instead of re-applying No Group. The current Status/All base view is kept,
+  /// so clearing also restores the normal default status sections. Nothing is
+  /// written: no Group row, membership, filter id or database row is created.
+  void showUngroupedContacts() {
+    state = state.copyWith(
+      criteria: const ContactFilterCriteria(ungroupedOnly: true),
+      viewCriteria: const ContactFilterCriteria(),
+      replaceViewCriteria: true,
+      clearAppliedFilter: true,
+      clearDisplayedFieldsOverride: true,
+    );
+    unawaited(_requestLoad());
+  }
+
   void clearMessage() {
     state = state.copyWith(clearMessage: true);
   }

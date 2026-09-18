@@ -38,6 +38,23 @@ typedef EventReminderHorizonOverride =
 final eventReminderHorizonOverrideProvider =
     Provider<EventReminderHorizonOverride?>((ref) => null);
 
+/// Distinguishes a durable Event save from the separate auxiliary work that
+/// follows it. The canonical database commit is the truth boundary: once the
+/// Event row is durable the operation is never reported as "not saved" merely
+/// because reminder reconciliation or Planner refresh had trouble (false-save
+/// defect 2026-09-18: commit succeeded, UI reported failure, restart revealed
+/// the row, retry risked duplicates). Callers close the form on both [saved]
+/// and [savedAwaitingAuxiliary]; the latter carries a one-shot warning in
+/// [Notifier.state] for a snackbar. Only [notSaved] keeps the form open with
+/// the error banner.
+enum CalendarEventSaveResult {
+  saved,
+  savedAwaitingAuxiliary,
+  notSaved;
+
+  bool get closesForm => this != notSaved;
+}
+
 /// Distinguishes a durable Event cancellation from the separate Planner
 /// refresh confirmation.  A committed cancellation is never retried merely
 /// because the visible Planner projection is temporarily stale.
@@ -86,7 +103,7 @@ final class CalendarEventController extends Notifier<String?> {
     );
   }
 
-  Future<bool> saveEvent(
+  Future<CalendarEventSaveResult> saveEvent(
     CalendarEventDraft draft, {
     bool awaitPlannerRefresh = true,
     ReminderPolicyMode? reminderMode,
@@ -94,11 +111,29 @@ final class CalendarEventController extends Notifier<String?> {
     String reminderOccurrenceId = ReminderPolicy.seriesOccurrenceId,
     bool deferReminderReconciliation = false,
   }) async {
+    // Phase 1 — canonical commit is the truth boundary. Only failures here
+    // mean "not saved" (nothing is durable).
+    final CalendarEventDraft saved;
     try {
-      final saved = await _repository.saveEvent(
+      saved = await _repository.saveEvent(
         profileId: _profileId,
         draft: draft,
       );
+    } on CalendarEventValidationException catch (error) {
+      state = error.message;
+      return CalendarEventSaveResult.notSaved;
+    } on Object {
+      state =
+          'Calendar Event could not be saved. Your input remains available '
+          'to retry.';
+      return CalendarEventSaveResult.notSaved;
+    }
+    // Phase 2 — auxiliary work after the durable commit. Failures here must
+    // never rewrite the outcome to "not saved".
+    var auxiliaryWarning =
+        'Event saved, but its reminder needs attention.';
+    var auxiliaryFailed = false;
+    try {
       // Persist the requested policy after the Event itself commits but before
       // scheduling.  This makes Custom/Off take effect on the save that chose
       // it, without ever creating policy for an Event whose save failed.
@@ -118,22 +153,26 @@ final class CalendarEventController extends Notifier<String?> {
         await reconcileEventHorizon(eventId: saved.id);
       }
       await _refreshLauncherBadge();
+      auxiliaryWarning =
+          'Event saved, but the Planner could not refresh immediately.';
       if (awaitPlannerRefresh) {
         await _refreshPlanner();
       } else {
         _refreshPlannerInBackground();
       }
-      state = null;
-      return true;
-    } on CalendarEventValidationException catch (error) {
-      state = error.message;
-      return false;
     } on Object {
-      state =
-          'Calendar Event could not be saved. Your input remains available '
-          'to retry.';
-      return false;
+      // The Event is saved. Kick a background Planner re-read so the day
+      // heals without an app restart, then report success-with-warning so the
+      // caller never prompts a duplicate re-save.
+      auxiliaryFailed = true;
+      _refreshPlannerInBackground();
+      state = auxiliaryWarning;
     }
+    if (auxiliaryFailed) {
+      return CalendarEventSaveResult.savedAwaitingAuxiliary;
+    }
+    state = null;
+    return CalendarEventSaveResult.saved;
   }
 
   /// VS16 M7 corrective — renderer convergence.
@@ -324,17 +363,24 @@ final class CalendarEventController extends Notifier<String?> {
               originalDate: originalDate,
             )
           : ReminderPolicy.seriesOccurrenceId;
-      if (reminderMode != null) {
-        await _saveReminderPolicy(
-          sourceId: policySourceId,
-          occurrenceId: policyOccurrenceId,
-          mode: reminderMode,
-          offsetMinutes: reminderOffsetMinutes,
-        );
-      }
-      await reconcileEventHorizon(eventId: eventId);
-      if (splitSource) {
-        await reconcileEventHorizon(eventId: draft.id);
+      // Post-commit auxiliary work: reminder failures must never surface as an
+      // edit failure (same truth law as save). The detail screen surfaces the
+      // warning banner on reload while the edit still closes.
+      try {
+        if (reminderMode != null) {
+          await _saveReminderPolicy(
+            sourceId: policySourceId,
+            occurrenceId: policyOccurrenceId,
+            mode: reminderMode,
+            offsetMinutes: reminderOffsetMinutes,
+          );
+        }
+        await reconcileEventHorizon(eventId: eventId);
+        if (splitSource) {
+          await reconcileEventHorizon(eventId: draft.id);
+        }
+      } on Object {
+        state = 'Event saved, but its reminder needs attention.';
       }
       await _refreshLauncherBadge();
     }
@@ -477,8 +523,6 @@ final class CalendarEventController extends Notifier<String?> {
         scope: scope,
         operationId: operationId,
       );
-      await reconcileEventHorizon(eventId: eventId);
-      await _refreshLauncherBadge();
     } on CalendarEventValidationException catch (error) {
       if (managePendingDeletion) {
         planner.rollbackPendingEventDeletion(targets);
@@ -492,6 +536,17 @@ final class CalendarEventController extends Notifier<String?> {
       state = 'Event was not deleted. Try again.';
       return CalendarEventCancellationResult.notDeleted;
     }
+    // Post-commit auxiliary work: the cancellation is durable from here, so a
+    // reminder-reconciliation failure must never report "not deleted" (same
+    // false-failure class as save 2026-09-18). It degrades to the
+    // awaiting-refresh tier below.
+    var reminderSyncFailed = false;
+    try {
+      await reconcileEventHorizon(eventId: eventId);
+    } on Object {
+      reminderSyncFailed = true;
+    }
+    await _refreshLauncherBadge();
 
     if (managePendingDeletion) {
       final confirmed = await planner.confirmPendingEventDeletion(targets);
@@ -519,6 +574,13 @@ final class CalendarEventController extends Notifier<String?> {
         state = null;
         return CalendarEventCancellationResult.deletedAwaitingPlannerRefresh;
       }
+    }
+    if (reminderSyncFailed) {
+      // The Event is cancelled; only its reminder re-sync failed. Report the
+      // committed tier so the detail closes instead of claiming "not
+      // deleted". The next reconciliation heals the orphaned schedule.
+      state = null;
+      return CalendarEventCancellationResult.deletedAwaitingPlannerRefresh;
     }
     state = null;
     return CalendarEventCancellationResult.deleted;
@@ -579,17 +641,23 @@ final class CalendarEventController extends Notifier<String?> {
               originalDate: originalDate,
             )
           : ReminderPolicy.seriesOccurrenceId;
-      if (reminderMode != null) {
-        await _saveReminderPolicy(
-          sourceId: policySourceId,
-          occurrenceId: policyOccurrenceId,
-          mode: reminderMode,
-          offsetMinutes: reminderOffsetMinutes,
-        );
-      }
-      await reconcileEventHorizon(eventId: eventId);
-      if (!occurrenceStaysInSource) {
-        await reconcileEventHorizon(eventId: replacement.id);
+      // Post-commit auxiliary work: reminder failures must never surface as a
+      // reschedule failure (same truth law as save).
+      try {
+        if (reminderMode != null) {
+          await _saveReminderPolicy(
+            sourceId: policySourceId,
+            occurrenceId: policyOccurrenceId,
+            mode: reminderMode,
+            offsetMinutes: reminderOffsetMinutes,
+          );
+        }
+        await reconcileEventHorizon(eventId: eventId);
+        if (!occurrenceStaysInSource) {
+          await reconcileEventHorizon(eventId: replacement.id);
+        }
+      } on Object {
+        state = 'Event saved, but its reminder needs attention.';
       }
       await _refreshLauncherBadge();
     }
@@ -611,7 +679,15 @@ final class CalendarEventController extends Notifier<String?> {
         operationId: operationId,
       ),
     );
-    if (changed) await reconcileEventHorizon(eventId: duplicateId);
+    // Post-commit auxiliary work: reminder failures must never surface as a
+    // duplicate failure (same truth law as save).
+    if (changed) {
+      try {
+        await reconcileEventHorizon(eventId: duplicateId);
+      } on Object {
+        state = 'Event saved, but its reminder needs attention.';
+      }
+    }
     if (changed) await _refreshLauncherBadge();
     return changed;
   }

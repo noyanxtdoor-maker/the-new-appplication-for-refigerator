@@ -20,7 +20,7 @@ void main() {
       final controller = await _pumpController(tester, calls);
       final single = _draft(id: _singleId, date: _start);
 
-      expect(await controller.saveEvent(single), isTrue);
+      expect(await controller.saveEvent(single), CalendarEventSaveResult.saved);
       expect(calls, <String?>[_singleId]);
 
       calls.clear();
@@ -46,7 +46,7 @@ void main() {
         ),
       );
       calls.clear();
-      expect(await controller.saveEvent(series), isTrue);
+      expect(await controller.saveEvent(series), CalendarEventSaveResult.saved);
       expect(calls, <String?>[_seriesId]);
 
       calls.clear();
@@ -224,7 +224,7 @@ void main() {
 
     expect(
       await controller.saveEvent(_draft(id: _singleId, date: _start)),
-      isTrue,
+      CalendarEventSaveResult.saved,
     );
     expect(calls, <String?>[_singleId]);
     expect(await controller.readEventDraft(_singleId), isNotNull);

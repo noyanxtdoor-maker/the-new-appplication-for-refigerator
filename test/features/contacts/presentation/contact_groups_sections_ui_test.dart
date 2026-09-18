@@ -13,6 +13,7 @@
 // only a SnackBar sentence with no colour choice.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:rmplanner/app/theme/app_theme.dart';
 import 'package:rmplanner/core/database/app_database.dart';
 import 'package:rmplanner/core/diagnostics/sanitized_diagnostics.dart';
 import 'package:rmplanner/core/ids/identifier_source.dart';
@@ -367,6 +368,183 @@ void main() {
           .where((row) => row.name == 'Members'),
       hasLength(1),
       reason: 'no duplicate default row was created',
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // OWNER REVIEW #3 corrections (2026-09-18).
+  // -------------------------------------------------------------------------
+
+  testWidgets('every Manage Groups section uses the restrained 1px hairline — '
+      'never a thick grey band', (tester) async {
+    await openManageGroups(tester, customGroupName: 'Clients');
+    final context = tester.element(
+      find.byKey(const Key('contact-groups-list')),
+    );
+
+    for (final key in <Key>[
+      const Key('official-default-groups-divider'),
+      const Key('other-groups-divider'),
+      const Key('no-group-separator'),
+    ]) {
+      final divider = find.byKey(key);
+      expect(divider, findsOneWidget, reason: '$key must exist');
+      final widget = tester.widget<Divider>(divider);
+      expect(
+        widget.height,
+        1,
+        reason: '$key is a hairline separator, never a filled slab',
+      );
+      expect(
+        widget.color,
+        AppTheme.sectionDividerOf(context),
+        reason: '$key must use the shared theme-aware divider colour',
+      );
+    }
+
+    // No Group keeps its own subtle separator and still gets NO section title.
+    expect(
+      find.text(ContactUngroupedColor.displayName),
+      findsOneWidget,
+      reason: 'No Group stays the single final row, with no duplicate heading',
+    );
+  });
+
+  testWidgets('No Group participates in canonical filter state: Clear All '
+      'restores the full default Contacts list', (tester) async {
+    await openManageGroups(
+      tester,
+      customGroupName: 'Clients',
+      seed: seedGroupedAndLooseContact,
+    );
+
+    await tester.tap(find.byKey(const Key('group-row-no-group')));
+    await tester.pumpAndSettle();
+    expect(find.text('Ben Cruz'), findsOneWidget);
+    expect(
+      find.text('Ada Reyes'),
+      findsNothing,
+      reason: 'the No Group view shows unassigned Contacts only',
+    );
+    expect(
+      find.byKey(const Key('active-filter-clear-all')),
+      findsOneWidget,
+      reason: 'No Group is a real criterion, so Clear All is offered',
+    );
+
+    await tester.tap(find.byKey(const Key('active-filter-clear-all')));
+    await tester.pumpAndSettle();
+
+    // The owner-observed bug: Clear All appeared to do nothing because the
+    // No Group criterion had become the retained baseline view.
+    expect(
+      find.text('Ben Cruz'),
+      findsOneWidget,
+      reason: 'the full list returns without a restart or a navigation trick',
+    );
+    expect(
+      find.text('Ada Reyes'),
+      findsOneWidget,
+      reason: 'a grouped Contact must reappear once No Group is cleared',
+    );
+    expect(
+      find.byKey(const Key('active-filter-clear-all')),
+      findsNothing,
+      reason: 'Clear All must not remain solely because of No Group',
+    );
+  });
+
+  testWidgets('Restore default groups on an already-restored profile is a '
+      'truthful no-op', (tester) async {
+    final (_, contacts, profileId) = await openManageGroups(tester);
+    final before = await contacts.readGroups(profileId, includeArchived: true);
+    expect(
+      ContactDefaultGroupsStatus.isFullyRestored(
+        groups: before,
+        profileId: profileId,
+      ),
+      isTrue,
+      reason: 'a freshly onboarded profile already holds the canonical five',
+    );
+
+    await revealRestoreAction(tester);
+    await tester.tap(find.byKey(const Key('restore-default-groups')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Default groups are already restored.'), findsOneWidget);
+    expect(
+      find.byKey(const Key('restore-default-groups-dialog')),
+      findsNothing,
+      reason: 'with nothing to restore the user is never asked to confirm',
+    );
+    expect(
+      find.byKey(const Key('default-colors-dialog')),
+      findsNothing,
+      reason: 'no collision flow runs when everything is already restored',
+    );
+
+    String fingerprint(List<ContactGroup> rows) => rows
+        .map(
+          (row) =>
+              '${row.id}|${row.name}|${row.colorValue}|${row.sortOrder}|'
+              '${row.isArchived}|${row.updatedAtUtc.toIso8601String()}',
+        )
+        .join(',');
+    final after = await contacts.readGroups(profileId, includeArchived: true);
+    expect(
+      fingerprint(after),
+      fingerprint(before),
+      reason:
+          'id, name, colour, position, archive state and write timestamp must '
+          'all be untouched — a redundant restore run would have rewritten them',
+    );
+  });
+
+  test('isFullyRestored is false the moment one canonical colour is '
+      'customized', () async {
+    final database = openMemoryDatabase();
+    addTearDown(database.close);
+    final startup = buildTestRepository(database: database);
+    final profile = await startup.completeOnboarding();
+    final contacts = DriftContactRepository(
+      database: database,
+      clock: FixedClock(DateTime.utc(2026, 9, 18, 12)),
+      identifiers: UuidIdentifierSource(),
+    );
+
+    final canonical = await contacts.readGroups(
+      profile.id,
+      includeArchived: true,
+    );
+    expect(
+      ContactDefaultGroupsStatus.isFullyRestored(
+        groups: canonical,
+        profileId: profile.id,
+      ),
+      isTrue,
+    );
+
+    final members = canonical.singleWhere((row) => row.name == 'Members');
+    await contacts.updateGroup(
+      profileId: profile.id,
+      groupId: members.id,
+      name: members.name,
+      colorValue: 0xFF0A0B0C,
+    );
+
+    final customized = await contacts.readGroups(
+      profile.id,
+      includeArchived: true,
+    );
+    expect(
+      ContactDefaultGroupsStatus.isFullyRestored(
+        groups: customized,
+        profileId: profile.id,
+      ),
+      isFalse,
+      reason:
+          'a customized colour means a restore would genuinely change something, '
+          'so the run (and its collision flow) must still be reachable',
     );
   });
 }

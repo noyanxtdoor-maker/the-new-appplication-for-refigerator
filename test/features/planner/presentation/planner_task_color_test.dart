@@ -8,6 +8,7 @@ import 'package:rmplanner/core/diagnostics/sanitized_diagnostics.dart';
 import 'package:rmplanner/core/platform/app_environment.dart';
 import 'package:rmplanner/features/planner/data/drift_event_type_repository.dart';
 import 'package:rmplanner/features/planner/data/drift_planner_repository.dart';
+import 'package:rmplanner/features/planner/domain/event_color_math.dart';
 import 'package:rmplanner/features/planner/domain/event_color_preferences.dart';
 import 'package:rmplanner/features/planner/domain/event_type.dart';
 import 'package:rmplanner/features/planner/domain/planner_date.dart';
@@ -23,7 +24,10 @@ import '../../../support/test_dependencies.dart';
 /// The owner observed that Meal and Task are visibly different in the Event
 /// Type selector and in Settings > Colors, yet their Planner timeline blocks
 /// look effectively identical. The canonical Meal defaults are unchanged; the
-/// Task default is retuned to the owner-approved cool slate identity.
+/// Task default is retuned to a body that belongs to the Task's OWN warm
+/// family. The interim cool-slate body #3D4F59 was physically rejected in owner
+/// review #3 because on the device it reads BLUE, so the body is now the accent
+/// hue carried into the accepted dark band (`#5D5956`).
 ///
 /// These are REGRESSION FLOORS, not a palette-generation algorithm: a small
 /// test-local RGB distance helper proves the two identities stay visually
@@ -92,13 +96,75 @@ void main() {
     expect(PlannerEventColorDefaults.meal.surfaceArgb, 0xFF4B4744);
   });
 
-  test('Task carries the restored original warm accent on the safe surface', () {
-    // Owner law (2026-09-18): the ORIGINAL Task accent returns, while the
-    // surface keeps the muted slate that fixed the original Meal collision.
-    // The retired pair was #F2E9E0 / #494844 — that surface collapsed onto
-    // Meal's own #4B4744 in Dark (ΔRGB 2,1,0) and in the Light render.
+  test('Task carries the restored original warm accent on a warm dark body', () {
+    // Owner law (2026-09-18, corrected after owner physical review #3): the
+    // ORIGINAL Task accent returns AND the dark body belongs to the same warm
+    // family. The retired pair was #F2E9E0 / #494844 — that body collapsed onto
+    // Meal's own #4B4744 in Dark (ΔRGB 2,1,0) and in the Light render — and the
+    // interim #3D4F59 detour was rejected as visibly BLUE on the device.
     expect(PlannerEventColorDefaults.task.accentArgb, 0xFFF2E9E0);
-    expect(PlannerEventColorDefaults.task.surfaceArgb, 0xFF3D4F59);
+    expect(PlannerEventColorDefaults.task.surfaceArgb, 0xFF5D5956);
+  });
+
+  test('the Task dark body is the accent hue carried into the accepted band', () {
+    // Owner law (2026-09-18): the dark body must NOT be a Task-only magic hex.
+    // `PlannerEventColorDefaults.task` documents this exact derivation, so
+    // recompute it here and fail the moment the two drift apart.
+    final derived = EventColorMath.fromHsl(h: 30, s: 0.04, l: 0.35);
+    expect(
+      PlannerEventColorDefaults.task.surfaceArgb,
+      derived,
+      reason:
+          'The Task dark body must stay the documented Task-hue derivation '
+          '(${EventColorMath.formatHex(derived)}).',
+    );
+    expect(EventColorMath.formatHex(derived), '#5D5956');
+  });
+
+  test('the Task dark body is warm and subdued — never blue, never bright', () {
+    final argb = PlannerEventColorDefaults.task.surfaceArgb;
+    final hsl = EventColorMath.toHsl(argb);
+    final red = (argb >> 16) & 0xFF;
+    final green = (argb >> 8) & 0xFF;
+    final blue = argb & 0xFF;
+    // Warm family: a warm hue with a warm channel ordering.
+    expect(hsl.h, lessThanOrEqualTo(60));
+    expect(red, greaterThanOrEqualTo(green));
+    expect(green, greaterThanOrEqualTo(blue));
+    // Subdued: a low-chroma neutral, so it can never read as slate blue.
+    expect(hsl.s, lessThan(0.10));
+    // Not bright: it belongs to the dark block band, so white text keeps its
+    // contrast (the generic light-muted derivation would only reach 3.83:1).
+    expect(EventColorMath.relativeLuminance(argb), lessThan(0.20));
+    expect(
+      EventColorMath.contrastRatio(argb, 0xFFFFFFFF),
+      greaterThanOrEqualTo(4.5),
+    );
+    // The physically rejected blue is gone for good.
+    expect(argb, isNot(0xFF3D4F59));
+  });
+
+  test('the Task dark body stays perceptually clear of Meal and Shopping', () {
+    for (final entry in <String, int>{
+      'Meal': PlannerEventColorDefaults.meal.surfaceArgb,
+      'Shopping': PlannerEventColorDefaults.work.surfaceArgb,
+    }.entries) {
+      final distance = EventColorMath.okLabDistance(
+        PlannerEventColorDefaults.task.surfaceArgb,
+        entry.value,
+      );
+      expect(
+        EventColorMath.isNearDuplicate(
+          PlannerEventColorDefaults.task.surfaceArgb,
+          entry.value,
+        ),
+        isFalse,
+        reason:
+            'The Task dark body must not collapse onto ${entry.key} '
+            '(OKLab distance $distance). The retired #494844 scored 0.004 '
+            'against Meal, which is exactly the collision this body avoids.',
+      );
+    }
   });
 
   test('the raw configured Task accent stays clearly apart from Meal and '
@@ -190,13 +256,11 @@ void main() {
         );
       }
 
-      // The Task/Shopping pair differs from the Meal pair in one honest way:
-      // every system surface is a dark charcoal veil from the same PMG band, so
-      // the BODY distance for this pair is smaller than Meal's, and the owner
-      // fixed Task's surface at #3D4F59. The identity separation for Shopping
-      // therefore lives in the ACCENT (the colour a user actually reads as the
-      // Task colour), and the body floors here only have to prove that the two
-      // bodies have not collapsed onto one another.
+      // Every system body is a dark veil from the same accepted band, and the
+      // Task body now sits in that band too (warm neutral #5D5956 instead of the
+      // rejected slate blue). The identity separation a user actually reads
+      // lives in the ACCENT, so the body floors here only have to prove that the
+      // two bodies have not collapsed onto one another.
       const double shoppingDarkBodyFloor = 10;
       const double shoppingLightBodyFloor = 8;
 
