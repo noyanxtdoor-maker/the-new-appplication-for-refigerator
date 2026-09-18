@@ -1,3 +1,4 @@
+import 'package:rmplanner/core/background/background_work_gateway.dart';
 import 'package:rmplanner/core/background/background_work_request.dart';
 import 'package:rmplanner/core/notifications/canonical_reminder_delivery_gateway.dart';
 import 'package:rmplanner/core/notifications/notification_gateway.dart';
@@ -23,6 +24,7 @@ final class ReminderReconciler {
     this.snoozeIntent,
     this.actionAtUtc,
     this.deviceLocation,
+    this.backgroundWorkGateway,
   });
 
   final NotificationFoundationRepository repository;
@@ -32,6 +34,14 @@ final class ReminderReconciler {
   final DateTime? deliveryScheduledAtUtc;
   final NotificationResponseIntent? snoozeIntent;
   final DateTime? actionAtUtc;
+
+  /// M7 WorkManager transport seam.  When null (tests, non-Android surfaces)
+  /// enriched sources fall back to the ordinary native contract; production
+  /// always injects it so Contact/location-enriched reminders are delivered by
+  /// the targeted worker with a fresh source reread.
+  final BackgroundWorkGateway? backgroundWorkGateway;
+
+  static const String workerTransportMarker = 'm7w_';
 
   /// Canonical device zone for Quiet Hours arithmetic.  The device default
   /// local zone is only correct inside the main isolate binding; a headless
@@ -64,6 +74,10 @@ final class ReminderReconciler {
     occurrenceId: occurrenceId,
   );
 
+  /// Timing-only writes MUST preserve an existing explicit purpose/contact
+  /// (F02).  Omitting [purpose] preserves; passing [ReminderPurpose.standard]
+  /// clears the Contact identity; passing [ReminderPurpose.contactFollowUp]
+  /// requires the existing or supplied [purposeContactId].
   Future<ReminderPolicy> savePolicy({
     required String profileId,
     required ReminderSourceKind sourceKind,
@@ -71,13 +85,35 @@ final class ReminderReconciler {
     required String occurrenceId,
     required ReminderPolicyMode mode,
     int? offsetMinutes,
+    ReminderPurpose? purpose,
+    String? purposeContactId,
   }) async {
     final now = clock.nowUtc();
-    final existing = (await repository.readPolicies(
+    final policies = await repository.readPolicies(
       profileId: profileId,
       sourceKind: sourceKind,
       sourceId: sourceId,
-    )).where((policy) => policy.occurrenceId == occurrenceId).firstOrNull;
+    );
+    final existing = policies
+        .where((policy) => policy.occurrenceId == occurrenceId)
+        .firstOrNull;
+    final series = policies
+        .where(
+          (policy) => policy.occurrenceId == ReminderPolicy.seriesOccurrenceId,
+        )
+        .firstOrNull;
+    // Omitted purpose preserves this row; a NEW occurrence override inherits
+    // the effective source-level purpose/contactId.
+    final resolvedPurpose =
+        purpose ??
+        existing?.purpose ??
+        series?.purpose ??
+        ReminderPurpose.standard;
+    final resolvedContactId = switch (resolvedPurpose) {
+      ReminderPurpose.standard => null,
+      ReminderPurpose.contactFollowUp =>
+        purposeContactId ?? existing?.contactId ?? series?.contactId,
+    };
     return repository.upsertPolicy(
       ReminderPolicy(
         id: existing?.id ?? const Uuid().v4(),
@@ -85,12 +121,155 @@ final class ReminderReconciler {
         sourceKind: sourceKind,
         sourceId: sourceId,
         occurrenceId: occurrenceId,
+        purpose: resolvedPurpose,
+        contactId: resolvedContactId,
         mode: mode,
         offsetMinutes: mode == ReminderPolicyMode.offset ? offsetMinutes : null,
         createdAtUtc: existing?.createdAtUtc ?? now,
         updatedAtUtc: now,
       ),
     );
+  }
+
+  /// Explicit source-level (or exact-occurrence) purpose application
+  /// (M7 step 4).  Preserves the existing timing mode/offset; creates an intent
+  /// row with inherit timing when none exists yet.
+  Future<ReminderPolicy> applySourcePurpose({
+    required String profileId,
+    required ReminderSourceKind sourceKind,
+    required String sourceId,
+    required ReminderPurpose purpose,
+    String? contactId,
+    String occurrenceId = ReminderPolicy.seriesOccurrenceId,
+  }) async {
+    final now = clock.nowUtc();
+    final policies = await repository.readPolicies(
+      profileId: profileId,
+      sourceKind: sourceKind,
+      sourceId: sourceId,
+    );
+    final existing = policies
+        .where((policy) => policy.occurrenceId == occurrenceId)
+        .firstOrNull;
+    final resolvedContactId = purpose == ReminderPurpose.contactFollowUp
+        ? contactId
+        : null;
+    if (purpose == ReminderPurpose.contactFollowUp &&
+        (resolvedContactId == null || resolvedContactId.trim().isEmpty)) {
+      throw ArgumentError(
+        'Contact follow-up purpose requires Contact identity.',
+      );
+    }
+    return repository.upsertPolicy(
+      ReminderPolicy(
+        id: existing?.id ?? const Uuid().v4(),
+        profileId: profileId,
+        sourceKind: sourceKind,
+        sourceId: sourceId,
+        occurrenceId: occurrenceId,
+        purpose: purpose,
+        contactId: resolvedContactId,
+        mode: existing?.mode ?? ReminderPolicyMode.inherit,
+        offsetMinutes: existing?.offsetMinutes,
+        createdAtUtc: existing?.createdAtUtc ?? now,
+        updatedAtUtc: now,
+      ),
+    );
+  }
+
+  /// Clears every explicit follow-up purpose on a source whose chosen Contact
+  /// is no longer among the committed live Contacts.  Timing rows are
+  /// preserved.  Returns true when at least one row changed, so the caller
+  /// knows a notification re-reconcile is required.  Ordinary edits never
+  /// create or retarget a purpose through this path.
+  Future<bool> clearUnlinkedPurpose({
+    required String profileId,
+    required ReminderSourceKind sourceKind,
+    required String sourceId,
+    required Set<String> currentContactIds,
+  }) async {
+    final now = clock.nowUtc();
+    final policies = await repository.readPolicies(
+      profileId: profileId,
+      sourceKind: sourceKind,
+      sourceId: sourceId,
+    );
+    var cleared = false;
+    for (final policy in policies) {
+      if (policy.purpose != ReminderPurpose.contactFollowUp) continue;
+      final contactId = policy.contactId;
+      if (contactId != null && currentContactIds.contains(contactId)) continue;
+      await repository.upsertPolicy(
+        policy.copyWith(clearPurpose: true, updatedAtUtc: now),
+      );
+      cleared = true;
+    }
+    return cleared;
+  }
+
+  /// Unlink/lifecycle purpose clearing.  Timing modes/offsets are preserved.
+  ///
+  /// When [occurrenceId] is null the source-level row and every matching
+  /// occurrence row are cleared.  When [occurrenceId] is provided, only that
+  /// occurrence is cleared (creating a standard inherit override when needed)
+  /// so a series intent cannot leak into the unlinked date.
+  Future<void> clearContactPurpose({
+    required String profileId,
+    required ReminderSourceKind sourceKind,
+    required String sourceId,
+    required String contactId,
+    String? occurrenceId,
+  }) async {
+    final now = clock.nowUtc();
+    final policies = await repository.readPolicies(
+      profileId: profileId,
+      sourceKind: sourceKind,
+      sourceId: sourceId,
+    );
+    if (occurrenceId == null) {
+      for (final policy in policies) {
+        if (policy.purpose != ReminderPurpose.contactFollowUp ||
+            policy.contactId != contactId) {
+          continue;
+        }
+        await repository.upsertPolicy(
+          policy.copyWith(clearPurpose: true, updatedAtUtc: now),
+        );
+      }
+      return;
+    }
+    final exact = policies
+        .where((policy) => policy.occurrenceId == occurrenceId)
+        .firstOrNull;
+    final series = policies
+        .where(
+          (policy) => policy.occurrenceId == ReminderPolicy.seriesOccurrenceId,
+        )
+        .firstOrNull;
+    if (exact != null) {
+      if (exact.purpose == ReminderPurpose.contactFollowUp &&
+          exact.contactId == contactId) {
+        await repository.upsertPolicy(
+          exact.copyWith(clearPurpose: true, updatedAtUtc: now),
+        );
+      }
+      return;
+    }
+    if (series?.purpose == ReminderPurpose.contactFollowUp &&
+        series?.contactId == contactId) {
+      await repository.upsertPolicy(
+        ReminderPolicy(
+          id: const Uuid().v4(),
+          profileId: profileId,
+          sourceKind: sourceKind,
+          sourceId: sourceId,
+          occurrenceId: occurrenceId,
+          mode: ReminderPolicyMode.inherit,
+          createdAtUtc: now,
+          updatedAtUtc: now,
+        ),
+      );
+    }
   }
 
   Future<void> cancel({
@@ -136,6 +315,7 @@ final class ReminderReconciler {
     bool refreshContent = false,
     String? renderRevision,
     int? sourceVersion,
+    bool sourceHasLocationEnrichment = false,
   }) async {
     final key = planningStableKey(
       sourceKind: sourceKind,
@@ -167,9 +347,29 @@ final class ReminderReconciler {
     final identity = sourceVersion == null
         ? null
         : 'm4_${sourceVersion}_${startsAtUtc?.microsecondsSinceEpoch ?? 0}_${offset ?? -1}_${policy?.updatedAtUtc.microsecondsSinceEpoch ?? 0}';
-    final revision = identity == null
+    final baseRevision = identity == null
         ? renderRevision
         : '$identity.${renderRevision ?? 'generic'}';
+    // M7 transport selection.  A policy with explicit Contact follow-up OR a
+    // current Event location line requests enriched delivery.  Selection is
+    // independent of preview mode, and once a durable key has been assigned
+    // worker transport the m7w_ marker keeps it sticky across unlink/location
+    // removal/privacy changes so already-queued enriched jobs stay managed.
+    final policyFollowUp = policy?.purpose == ReminderPurpose.contactFollowUp;
+    final enrichmentRequested =
+        policyFollowUp ||
+        (sourceKind == ReminderSourceKind.calendarEvent &&
+            sourceHasLocationEnrichment);
+    final stickyWorker =
+        existing?.sourceRevision?.contains(workerTransportMarker) ?? false;
+    final workerTransport =
+        backgroundWorkGateway != null && (stickyWorker || enrichmentRequested);
+    final revision = switch ((baseRevision, workerTransport)) {
+      (null, false) => null,
+      (null, true) => workerTransportMarker,
+      (final String value, false) => value,
+      (final String value, true) => '$value.$workerTransportMarker',
+    };
     final sameSource = identity == null
         ? existing?.sourceRevision == revision
         : existing?.sourceRevision?.split('.').first == identity;
@@ -320,6 +520,7 @@ final class ReminderReconciler {
     final platform = gateway;
     if (!delivery &&
         !acceptsSnooze &&
+        !workerTransport &&
         existing?.state == BackgroundWorkState.scheduled &&
         _sameInstant(existing?.scheduledForUtc, fireAt) &&
         existing?.sourceRevision == revision &&
@@ -330,6 +531,24 @@ final class ReminderReconciler {
                   fireAt,
                 ))) {
       return;
+    }
+    if (!delivery &&
+        !acceptsSnooze &&
+        workerTransport &&
+        existing?.state == BackgroundWorkState.scheduled &&
+        existing?.sourceRevision == revision &&
+        existing?.platformNotificationId != null &&
+        existing?.scheduledForUtc != null) {
+      final pendingSpec = CanonicalReminderWorkSpec(
+        platformId: existing!.platformNotificationId!,
+        stableKey: key,
+        scheduledAtUtc: existing.scheduledForUtc!,
+        sourceRevision: existing.sourceRevision!,
+      );
+      final observed = await backgroundWorkGateway!.inspect(
+        pendingSpec.uniqueName,
+      );
+      if (observed != BackgroundGatewayWorkState.absent) return;
     }
     if (existing?.platformNotificationId != null &&
         !_sameInstant(existing?.scheduledForUtc, fireAt)) {
@@ -375,8 +594,21 @@ final class ReminderReconciler {
           _categoryEnabled(latest, sourceKind);
     }
 
+    final deliverNow = delivery && !fireAt.isAfter(now);
+    final workerSpec = workerTransport && !deliverNow
+        ? CanonicalReminderWorkSpec(
+            platformId: platformId,
+            stableKey: key,
+            scheduledAtUtc: fireAt,
+            sourceRevision: revision!,
+          )
+        : null;
+
     Future<void> cancelDisabled() async {
       await gateway.cancel(platformId);
+      if (workerSpec != null) {
+        await backgroundWorkGateway!.cancelUnique(workerSpec.uniqueName);
+      }
       await repository.upsertWorkRequest(
         durable.copyWith(
           state: BackgroundWorkState.cancelledObsolete,
@@ -391,8 +623,14 @@ final class ReminderReconciler {
       await cancelDisabled();
       return;
     }
-    final deliverNow = delivery && !fireAt.isAfter(now);
-    if (deliverNow && platform is CanonicalReminderDeliveryGateway) {
+    if (workerSpec != null) {
+      // One logical reminder has exactly one delivery owner: drop any native
+      // alarm for this platform id before enqueueing the targeted worker.
+      await gateway.cancel(platformId);
+      await backgroundWorkGateway!.enqueueUnique(
+        workerSpec.toBackgroundWorkSpec(),
+      );
+    } else if (deliverNow && platform is CanonicalReminderDeliveryGateway) {
       await (platform as CanonicalReminderDeliveryGateway)
           .showCanonicalReminder(request);
     } else {

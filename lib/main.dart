@@ -217,6 +217,9 @@ Future<void> main() async {
           notificationFoundationRepository,
         ),
         notificationGatewayProvider.overrideWithValue(notificationGateway),
+        reminderBackgroundWorkGatewayProvider.overrideWithValue(
+          backgroundWorkGateway,
+        ),
         reminderDeviceLocationProvider.overrideWithValue(
           calendarEventTimeZones.deviceLocation,
         ),

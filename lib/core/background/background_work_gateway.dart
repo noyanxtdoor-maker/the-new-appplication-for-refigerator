@@ -2,7 +2,23 @@ enum BackgroundNetworkConstraint { notRequired, connected, unmetered }
 
 enum BackgroundExistingWorkPolicy { keep, replace }
 
-enum BackgroundGatewayWorkState { absent, scheduled }
+enum BackgroundBackoffPolicy { exponential, linear }
+
+/// Truthful platform work observation.  [scheduled] is retained as the
+/// compatibility spelling for an ENQUEUED/BLOCKED request so existing fakes
+/// stay valid; [unknown] is used when the platform cannot answer (e.g. a web
+/// or iOS surface without a query API), never as a fabricated delay label.
+enum BackgroundGatewayWorkState {
+  absent,
+  scheduled,
+  running,
+  succeeded,
+  failed,
+  cancelled,
+  unknown;
+
+  bool get isActive => this == scheduled || this == running;
+}
 
 final class BackgroundWorkConstraints {
   const BackgroundWorkConstraints({
@@ -27,6 +43,8 @@ final class BackgroundWorkSpec {
     this.tag,
     this.constraints = const BackgroundWorkConstraints(),
     this.existingPolicy = BackgroundExistingWorkPolicy.keep,
+    this.backoffPolicy,
+    this.backoffPolicyDelay,
   });
 
   static final RegExp _safeKey = RegExp(r'^[a-z0-9_]{1,64}$');
@@ -40,8 +58,16 @@ final class BackgroundWorkSpec {
   final BackgroundWorkConstraints constraints;
   final BackgroundExistingWorkPolicy existingPolicy;
 
+  /// Bounded retry configuration.  M8 delivery work uses an exponential
+  /// policy with a 30s initial delay so attempts 1-4 observe
+  /// 30s/60s/120s/240s without any custom scheduler.
+  final BackgroundBackoffPolicy? backoffPolicy;
+  final Duration? backoffPolicyDelay;
+
   void validate() {
-    if (tag != null && !_safeValue.hasMatch(tag!)) throw ArgumentError('Invalid background tag.');
+    if (tag != null && !_safeValue.hasMatch(tag!)) {
+      throw ArgumentError('Invalid background tag.');
+    }
     if (!_safeValue.hasMatch(uniqueName) || !_safeValue.hasMatch(taskName)) {
       throw ArgumentError('Background work identity must be a safe token.');
     }

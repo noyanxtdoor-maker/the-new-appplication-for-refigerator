@@ -38,12 +38,22 @@ final reminderDeviceLocationProvider = Provider<Object?>((ref) {
   return null;
 });
 
+/// Optional M7 enriched-delivery transport.  Null (tests, non-Android
+/// surfaces) keeps the ordinary native contract; the app root and the headless
+/// runtime override it with the real WorkManager gateway.
+final reminderBackgroundWorkGatewayProvider = Provider<BackgroundWorkGateway?>((
+  ref,
+) {
+  return null;
+});
+
 final reminderReconcilerProvider = Provider<ReminderReconciler>((ref) {
   return ReminderReconciler(
     repository: ref.read(notificationFoundationRepositoryProvider),
     gateway: ref.read(notificationGatewayProvider),
     clock: const SystemAppClock(),
     deviceLocation: ref.watch(reminderDeviceLocationProvider) as tz.Location?,
+    backgroundWorkGateway: ref.watch(reminderBackgroundWorkGatewayProvider),
   );
 });
 

@@ -31,6 +31,7 @@ import 'package:rmplanner/features/maps/domain/map_coordinate.dart';
 import 'package:rmplanner/features/maps/presentation/map_location_picker_screen.dart';
 import 'package:rmplanner/features/maps/presentation/maps_screen.dart';
 import 'package:rmplanner/features/maps/presentation/maps_search_screen.dart';
+import 'package:rmplanner/features/notifications/domain/contact_follow_up_creation_intent.dart';
 import 'package:rmplanner/features/planner/application/planner_providers.dart';
 import 'package:rmplanner/features/planner/domain/calendar_event.dart';
 import 'package:rmplanner/features/planner/domain/planner_date.dart';
@@ -70,8 +71,9 @@ import 'package:rmplanner/features/weekly_planning/presentation/weekly_planning_
 
 // Exposed so notification OPEN routing can present the canonical Planner
 // preview over the shell root after landing on the Planner tab.
-final GlobalKey<NavigatorState> appRootNavigatorKey =
-    GlobalKey<NavigatorState>(debugLabel: 'root');
+final GlobalKey<NavigatorState> appRootNavigatorKey = GlobalKey<NavigatorState>(
+  debugLabel: 'root',
+);
 final _rootNavigatorKey = appRootNavigatorKey;
 final _shellNavigatorKey = GlobalKey<NavigatorState>(debugLabel: 'shell');
 
@@ -353,6 +355,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) {
           final rawDate = state.uri.queryParameters['date'];
           final rawContacts = state.uri.queryParameters['contacts'];
+          // M7: only the typed chooser intent carries explicit follow-up
+          // provenance; any other/unknown extra fails closed to ordinary
+          // creation instead of crashing.
+          final followUp = state.extra is ContactFollowUpCreationIntent
+              ? state.extra! as ContactFollowUpCreationIntent
+              : null;
           return TaskFormScreen.create(
             initialDueDate: rawDate == null ? null : PlannerDate.parse(rawDate),
             initialContactIds: rawContacts == null
@@ -361,6 +369,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                       .split(',')
                       .where((id) => id.isNotEmpty)
                       .toList(growable: false),
+            initialFollowUpContactId: followUp?.isValid == true
+                ? followUp!.contactId
+                : null,
           );
         },
       ),
@@ -419,6 +430,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             double.tryParse(rawLat ?? ''),
             double.tryParse(rawLng ?? ''),
           );
+          final followUp = state.extra is ContactFollowUpCreationIntent
+              ? state.extra! as ContactFollowUpCreationIntent
+              : null;
           return CalendarEventCreateGateScreen(
             initialDate: rawDate == null
                 ? PlannerDate.fromDateTime(DateTime.now())
@@ -433,6 +447,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                       .where((id) => id.isNotEmpty)
                       .toList(growable: false),
             initialCoordinate: coordinate,
+            initialFollowUpContactId: followUp?.isValid == true
+                ? followUp!.contactId
+                : null,
           );
         },
       ),

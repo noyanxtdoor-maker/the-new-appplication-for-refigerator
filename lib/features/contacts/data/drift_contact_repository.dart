@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:drift/drift.dart';
+import 'package:rmplanner/core/background/reminder_recovery_request.dart';
 import 'package:rmplanner/core/colors/vs11_color_system.dart';
 import 'package:rmplanner/core/database/app_database.dart';
 import 'package:rmplanner/core/ids/identifier_source.dart';
@@ -506,20 +507,40 @@ final class DriftContactRepository
     required String profileId,
     required String contactId,
   }) async {
-    await (database.update(database.contacts)..where(
-          (table) =>
-              table.profileId.equals(profileId) &
-              table.id.equals(contactId) &
-              table.lifecycleState.equals(ContactLifecycleState.active.name),
-        ))
-        .write(
-          ContactsCompanion(
-            lifecycleState: Value<String>(ContactLifecycleState.archived.name),
-            archivedAtUtc: Value<DateTime?>(clock.nowUtc()),
-            deletedAtUtc: const Value<DateTime?>(null),
-            updatedAtUtc: Value<DateTime>(clock.nowUtc()),
-          ),
+    final now = clock.nowUtc();
+    await database.transaction(() async {
+      final updated =
+          await (database.update(database.contacts)..where(
+                (table) =>
+                    table.profileId.equals(profileId) &
+                    table.id.equals(contactId) &
+                    table.lifecycleState.equals(
+                      ContactLifecycleState.active.name,
+                    ),
+              ))
+              .write(
+                ContactsCompanion(
+                  lifecycleState: Value<String>(
+                    ContactLifecycleState.archived.name,
+                  ),
+                  archivedAtUtc: Value<DateTime?>(now),
+                  deletedAtUtc: const Value<DateTime?>(null),
+                  updatedAtUtc: Value<DateTime>(now),
+                ),
+              );
+      if (updated > 0) {
+        await _invalidateFollowUpPurposeForContacts(
+          profileId: profileId,
+          contactIds: <String>[contactId],
+          nowUtc: now,
         );
+        await ReminderRecoveryRequest.markDirty(
+          database: database,
+          profileId: profileId,
+          nowUtc: now,
+        );
+      }
+    });
   }
 
   @override
@@ -564,20 +585,63 @@ final class DriftContactRepository
     final ids = contactIds.toSet().toList(growable: false);
     if (ids.isEmpty) return;
     final now = clock.nowUtc();
-    await (database.update(database.contacts)..where(
+    await database.transaction(() async {
+      final updated =
+          await (database.update(database.contacts)..where(
+                (table) =>
+                    table.profileId.equals(profileId) &
+                    table.id.isIn(ids) &
+                    table.lifecycleState.equals(
+                      ContactLifecycleState.active.name,
+                    ),
+              ))
+              .write(
+                ContactsCompanion(
+                  lifecycleState: Value<String>(
+                    ContactLifecycleState.recentlyDeleted.name,
+                  ),
+                  archivedAtUtc: const Value<DateTime?>(null),
+                  deletedAtUtc: Value<DateTime?>(now),
+                  updatedAtUtc: Value<DateTime>(now),
+                ),
+              );
+      if (updated > 0) {
+        await _invalidateFollowUpPurposeForContacts(
+          profileId: profileId,
+          contactIds: ids,
+          nowUtc: now,
+        );
+        await ReminderRecoveryRequest.markDirty(
+          database: database,
+          profileId: profileId,
+          nowUtc: now,
+        );
+      }
+    });
+  }
+
+  /// M8/VS16-M7 lifecycle invalidation: an archived/recently-deleted/merged
+  /// Contact can never remain an automatic follow-up recipient.  Timing rows
+  /// are preserved; only the purpose/contact identity is cleared, and the
+  /// repaired reminder falls back to normal current source copy.
+  Future<void> _invalidateFollowUpPurposeForContacts({
+    required String profileId,
+    required Iterable<String> contactIds,
+    required DateTime nowUtc,
+  }) async {
+    final ids = contactIds.toSet().toList(growable: false);
+    if (ids.isEmpty) return;
+    await (database.update(database.reminderPolicies)..where(
           (table) =>
               table.profileId.equals(profileId) &
-              table.id.isIn(ids) &
-              table.lifecycleState.equals(ContactLifecycleState.active.name),
+              table.purpose.equals('contactFollowUp') &
+              table.contactId.isIn(ids),
         ))
         .write(
-          ContactsCompanion(
-            lifecycleState: Value<String>(
-              ContactLifecycleState.recentlyDeleted.name,
-            ),
-            archivedAtUtc: const Value<DateTime?>(null),
-            deletedAtUtc: Value<DateTime?>(now),
-            updatedAtUtc: Value<DateTime>(now),
+          ReminderPoliciesCompanion(
+            purpose: const Value<String>('standard'),
+            contactId: const Value<String?>(null),
+            updatedAtUtc: Value<DateTime>(nowUtc),
           ),
         );
   }
@@ -3832,6 +3896,18 @@ final class DriftContactRepository
           ),
           updatedAtUtc: Value<DateTime>(now),
         ),
+      );
+      // A merged-away Contact is never a follow-up recipient, and no absorbed
+      // identity may be retargeted to the survivor automatically.
+      await _invalidateFollowUpPurposeForContacts(
+        profileId: profileId,
+        contactIds: absorbedIds,
+        nowUtc: now,
+      );
+      await ReminderRecoveryRequest.markDirty(
+        database: database,
+        profileId: profileId,
+        nowUtc: now,
       );
       final detail = await readContactDetail(
         profileId: profileId,

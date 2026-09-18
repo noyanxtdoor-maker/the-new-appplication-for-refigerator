@@ -1,4 +1,5 @@
 import 'package:drift/drift.dart';
+import 'package:rmplanner/core/background/reminder_recovery_request.dart';
 import 'package:rmplanner/core/database/app_database.dart';
 import 'package:rmplanner/core/time/app_clock.dart';
 import 'package:rmplanner/features/goals/data/live_goal_event_type_bindings.dart';
@@ -279,8 +280,11 @@ final class DriftCalendarEventRepository
     final start = PlannerDate.parse(row.startDate);
     // M2's scheduled occurrence horizon is 90 days; routing resolves the
     // same bounded canonical projection rather than reversing UUIDv5 IDs.
+    // M8: the scan starts one day earlier so a previous-day all-day Awaiting
+    // Report tap resolves its valid occurrence without an unbounded search.
     final today = PlannerDate.fromDateTime(clock.nowUtc().toLocal());
-    final first = start.compareTo(today) < 0 ? today : start;
+    final scanFloor = today.addDays(-1);
+    final first = start.compareTo(scanFloor) < 0 ? scanFloor : start;
     final rule = _ruleFromRow(row);
     for (var offset = 0; offset <= 90; offset++) {
       final date = first.addDays(offset);
@@ -319,10 +323,7 @@ final class DriftCalendarEventRepository
       // Type whose slot has no live Goal occupant. The eligibility read and
       // the alias snapshot are captured once, atomically, inside the same
       // transaction that writes the row.
-      final bindings = await readLiveGoalEventTypeBindings(
-        database,
-        profileId,
-      );
+      final bindings = await readLiveGoalEventTypeBindings(database, profileId);
       await _validateSelectionEligibility(
         profileId: profileId,
         bindings: bindings,
@@ -336,6 +337,11 @@ final class DriftCalendarEventRepository
         existing: existing,
         selectionContext: _CalendarEventSelectionContext.newSelection,
         liveBindings: bindings,
+      );
+      await ReminderRecoveryRequest.markDirty(
+        database: database,
+        profileId: profileId,
+        nowUtc: clock.nowUtc(),
       );
       await writeGuard.beforeCommit();
     });
@@ -380,8 +386,7 @@ final class DriftCalendarEventRepository
       // change and must point at a live-occupied canonical slot. Same-type
       // writes are preservations and never gate, including a recurring
       // occurrence override carrying the same canonical type as its master.
-      final typeChanged =
-          normalized.activityTypeId != current.activityTypeId;
+      final typeChanged = normalized.activityTypeId != current.activityTypeId;
       final bindings = typeChanged
           ? await readLiveGoalEventTypeBindings(database, profileId)
           : null;
@@ -536,6 +541,11 @@ final class DriftCalendarEventRepository
         occurrenceId: current.id,
         command: 'edit:${resolvedScope.name}',
       );
+      await ReminderRecoveryRequest.markDirty(
+        database: database,
+        profileId: profileId,
+        nowUtc: clock.nowUtc(),
+      );
       await writeGuard.beforeCommit();
       return CalendarEventMutationOutcome.changed;
     });
@@ -604,6 +614,11 @@ final class DriftCalendarEventRepository
         eventId: eventId,
         occurrenceId: current.id,
         command: 'cancel:${scope.name}',
+      );
+      await ReminderRecoveryRequest.markDirty(
+        database: database,
+        profileId: profileId,
+        nowUtc: clock.nowUtc(),
       );
       await writeGuard.beforeCommit();
       return CalendarEventMutationOutcome.changed;
@@ -675,6 +690,11 @@ final class DriftCalendarEventRepository
           occurrenceId: current.id,
           command: 'reschedule:occurrence',
         );
+        await ReminderRecoveryRequest.markDirty(
+          database: database,
+          profileId: profileId,
+          nowUtc: clock.nowUtc(),
+        );
         await writeGuard.beforeCommit();
         return CalendarEventMutationOutcome.changed;
       }
@@ -745,6 +765,11 @@ final class DriftCalendarEventRepository
         occurrenceId: current.id,
         command: 'reschedule:${scope.name}',
       );
+      await ReminderRecoveryRequest.markDirty(
+        database: database,
+        profileId: profileId,
+        nowUtc: clock.nowUtc(),
+      );
       await writeGuard.beforeCommit();
       return CalendarEventMutationOutcome.changed;
     });
@@ -779,10 +804,7 @@ final class DriftCalendarEventRepository
       // Contract E/F: a duplicate is a NEW selection. Its type must pass
       // the same live-occupancy gate as any new Event, and its snapshot is
       // freshly captured (current live alias), never inherited stale.
-      final bindings = await readLiveGoalEventTypeBindings(
-        database,
-        profileId,
-      );
+      final bindings = await readLiveGoalEventTypeBindings(database, profileId);
       await _validateSelectionEligibility(
         profileId: profileId,
         bindings: bindings,
@@ -861,6 +883,11 @@ final class DriftCalendarEventRepository
         eventId: eventId,
         occurrenceId: current.id,
         command: 'duplicate',
+      );
+      await ReminderRecoveryRequest.markDirty(
+        database: database,
+        profileId: profileId,
+        nowUtc: clock.nowUtc(),
       );
       await writeGuard.beforeCommit();
       return CalendarEventMutationOutcome.changed;

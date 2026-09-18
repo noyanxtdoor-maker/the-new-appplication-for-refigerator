@@ -226,10 +226,14 @@ void main() {
         required BackgroundWorkState state,
         DateTime? scheduledForUtc,
       }) {
+        // M8: family identity is carried by the canonical stableKey prefix.
+        final familyPrefix = ownerKind == BackgroundWorkOwnerKind.task
+            ? 'reminder:task:'
+            : 'reminder:calendarEvent:';
         return repository
             .upsertWorkRequest(
               BackgroundWorkRequest(
-                stableKey: key,
+                stableKey: '$familyPrefix$profileId:$key:base',
                 profileId: profileId,
                 category: category,
                 ownerKind: ownerKind,
@@ -326,8 +330,8 @@ void main() {
         windowEndUtc: windowEnd,
       );
       expect(scoped.map((work) => work.stableKey), <String>[
-        'event-a-start',
-        'event-a-later',
+        'reminder:calendarEvent:$profileId:event-a-start:base',
+        'reminder:calendarEvent:$profileId:event-a-later:base',
       ]);
 
       final allEvents = await repository.readReminderWork(
@@ -337,9 +341,9 @@ void main() {
         windowEndUtc: windowEnd,
       );
       expect(allEvents.map((work) => work.stableKey), <String>[
-        'event-a-start',
-        'event-b',
-        'event-a-later',
+        'reminder:calendarEvent:$profileId:event-a-start:base',
+        'reminder:calendarEvent:$profileId:event-b:base',
+        'reminder:calendarEvent:$profileId:event-a-later:base',
       ]);
       expect(
         () => repository.readReminderWork(

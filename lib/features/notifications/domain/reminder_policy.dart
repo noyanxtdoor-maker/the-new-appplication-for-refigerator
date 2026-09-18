@@ -58,22 +58,43 @@ final class ReminderPolicy {
     }
   }
 
+  /// Explicit purpose/contact mutation law (VS16 M7).
+  ///
+  /// Nullable fields alone cannot express "clear": [purpose] and [contactId]
+  /// omitted means preserve, [clearPurpose] forces standard/null, and
+  /// [clearContact] clears only the Contact identity while keeping the purpose
+  /// the caller sets (which must then be standard).  Timing writes that pass
+  /// neither argument therefore never erase provenance accidentally.
   ReminderPolicy copyWith({
     ReminderPolicyMode? mode,
     int? offsetMinutes,
     bool clearOffset = false,
     DateTime? updatedAtUtc,
-  }) => ReminderPolicy(
-    id: id,
-    profileId: profileId,
-    sourceKind: sourceKind,
-    sourceId: sourceId,
-    occurrenceId: occurrenceId,
-    purpose: purpose,
-    contactId: contactId,
-    mode: mode ?? this.mode,
-    offsetMinutes: clearOffset ? null : offsetMinutes ?? this.offsetMinutes,
-    createdAtUtc: createdAtUtc,
-    updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
-  );
+    ReminderPurpose? purpose,
+    String? contactId,
+    bool clearPurpose = false,
+    bool clearContact = false,
+  }) {
+    final nextPurpose = clearPurpose
+        ? ReminderPurpose.standard
+        : purpose ?? this.purpose;
+    final nextContactId = clearPurpose || clearContact
+        ? null
+        : contactId ?? this.contactId;
+    final policy = ReminderPolicy(
+      id: id,
+      profileId: profileId,
+      sourceKind: sourceKind,
+      sourceId: sourceId,
+      occurrenceId: occurrenceId,
+      purpose: nextPurpose,
+      contactId: nextContactId,
+      mode: mode ?? this.mode,
+      offsetMinutes: clearOffset ? null : offsetMinutes ?? this.offsetMinutes,
+      createdAtUtc: createdAtUtc,
+      updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
+    );
+    policy.validate();
+    return policy;
+  }
 }

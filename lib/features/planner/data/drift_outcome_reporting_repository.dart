@@ -1,4 +1,5 @@
 import 'package:drift/drift.dart';
+import 'package:rmplanner/core/background/reminder_recovery_request.dart';
 import 'package:rmplanner/core/database/app_database.dart';
 import 'package:rmplanner/core/time/app_clock.dart';
 import 'package:rmplanner/features/planner/application/calendar_event_repository.dart';
@@ -450,6 +451,11 @@ final class DriftOutcomeReportingRepository
               ),
             );
       }
+      await ReminderRecoveryRequest.markDirty(
+        database: database,
+        profileId: profileId,
+        nowUtc: clock.nowUtc(),
+      );
       await writeGuard.beforeCommit();
       final row = await _requireReportRow(profileId, savedId);
       return _mapReport(row);
@@ -655,6 +661,11 @@ final class DriftOutcomeReportingRepository
         operationId: operationId,
         now: now,
       );
+      await ReminderRecoveryRequest.markDirty(
+        database: database,
+        profileId: profileId,
+        nowUtc: clock.nowUtc(),
+      );
       await writeGuard.beforeCommit();
 
       final reportRow = await _requireReportRow(profileId, submittedId);
@@ -691,6 +702,11 @@ final class DriftOutcomeReportingRepository
       if (current == null) return false;
 
       final currentEntries = await _effectiveContributionRows(current.id);
+      await ReminderRecoveryRequest.markDirty(
+        database: database,
+        profileId: profileId,
+        nowUtc: clock.nowUtc(),
+      );
       await writeGuard.beforeCommit();
       final now = clock.nowUtc();
       await (database.update(

@@ -1,4 +1,5 @@
 import 'package:drift/drift.dart';
+import 'package:rmplanner/core/background/reminder_recovery_request.dart';
 import 'package:rmplanner/core/colors/vs11_color_system.dart';
 import 'package:rmplanner/core/database/app_database.dart';
 import 'package:rmplanner/core/time/app_clock.dart';
@@ -391,16 +392,17 @@ final class DriftEventTypeRepository implements EventTypeRepository {
         }
       }
     }
+    // M8: only a real global reminder-default change is reminder-relevant.
+    final previousSettings = await readPlannerSettings(profileId: profileId);
     // Read/merge/write inside ONE transaction: the full-document settings
     // write carries the CURRENT stored presentation JSON forward losslessly
     // (event colors, group colors, Goal name overrides, and any invalid raw
     // owner content) instead of a pre-transaction row snapshot that could
     // erase a concurrent color/name/group save.
-    final encodedPresentation =
-        await PlannerPresentationDocumentStore(
-          database: database,
-          clock: clock,
-        ).encodedCurrentDocument(profileId);
+    final encodedPresentation = await PlannerPresentationDocumentStore(
+      database: database,
+      clock: clock,
+    ).encodedCurrentDocument(profileId);
     await database
         .into(database.plannerPreferences)
         .insertOnConflictUpdate(
@@ -440,6 +442,14 @@ final class DriftEventTypeRepository implements EventTypeRepository {
             updatedAtUtc: clock.nowUtc(),
           ),
         );
+    if (previousSettings.defaultReminderMinutes !=
+        settings.defaultReminderMinutes) {
+      await ReminderRecoveryRequest.markDirty(
+        database: database,
+        profileId: profileId,
+        nowUtc: clock.nowUtc(),
+      );
+    }
     return settings;
   }
 
@@ -474,13 +484,18 @@ final class DriftEventTypeRepository implements EventTypeRepository {
       database: database,
       clock: clock,
     );
-    return store.update(profileId, (current) async {
-      return PlannerColorPreferencesDocument(
-        events: current.document.events,
-        groups: <String, int>{...current.document.groups, normalizedId: colorArgb},
-        goalEventTypeNames: current.document.goalEventTypeNames,
-      );
-    }).then((document) => document.groups);
+    return store
+        .update(profileId, (current) async {
+          return PlannerColorPreferencesDocument(
+            events: current.document.events,
+            groups: <String, int>{
+              ...current.document.groups,
+              normalizedId: colorArgb,
+            },
+            goalEventTypeNames: current.document.goalEventTypeNames,
+          );
+        })
+        .then((document) => document.groups);
   }
 
   @override
@@ -656,8 +671,9 @@ final class DriftEventTypeRepository implements EventTypeRepository {
   }
 
   @override
-  Future<Map<String, GoalEventTypeNameOverride>>
-      readGoalEventTypeNameOverrides(String profileId) async {
+  Future<Map<String, GoalEventTypeNameOverride>> readGoalEventTypeNameOverrides(
+    String profileId,
+  ) async {
     return (await _readColorDocument(profileId)).goalEventTypeNames;
   }
 
@@ -765,9 +781,9 @@ final class DriftEventTypeRepository implements EventTypeRepository {
         final nameMatches = observedEntry == null
             ? storedEntry == null
             : storedEntry != null &&
-                storedEntry.eventTypeStableKey ==
-                    observedEntry.eventTypeStableKey &&
-                storedEntry.name == observedEntry.name;
+                  storedEntry.eventTypeStableKey ==
+                      observedEntry.eventTypeStableKey &&
+                  storedEntry.name == observedEntry.name;
         if (!nameMatches) {
           throw StateError(
             'That Event Type changed while you were editing. '
@@ -776,9 +792,8 @@ final class DriftEventTypeRepository implements EventTypeRepository {
         }
         final changedColor = patch.colorPreference;
         if (changedColor != null) {
-          final lockedDefault =
-              PlannerEventColorDefaults
-                  .pmgStableKeyDefaults[canonicalSlot.eventTypeStableKey];
+          final lockedDefault = PlannerEventColorDefaults
+              .pmgStableKeyDefaults[canonicalSlot.eventTypeStableKey];
           final effectiveNow =
               stored.events[canonicalSlot.eventTypeStableKey] ??
               lockedDefault ??
@@ -852,8 +867,8 @@ final class DriftEventTypeRepository implements EventTypeRepository {
       nameOverride: savedEntry?.name,
       colorPreference:
           document.events[canonicalSlot.eventTypeStableKey] ??
-          PlannerEventColorDefaults
-              .pmgStableKeyDefaults[canonicalSlot.eventTypeStableKey] ??
+          PlannerEventColorDefaults.pmgStableKeyDefaults[canonicalSlot
+              .eventTypeStableKey] ??
           PlannerEventColorDefaults.other,
     );
   }
@@ -908,8 +923,9 @@ final class DriftEventTypeRepository implements EventTypeRepository {
       // The owner wants ALL currently saved recommended auto-surfaces to
       // appear dark, while arbitrary manual surfaces must never be
       // overwritten.  Non-recommended accents keep the generic repair below.
-      final recommendedDarkSurfaceArgb =
-          recommendedSurfaceArgbForAccent(entry.value.accentArgb);
+      final recommendedDarkSurfaceArgb = recommendedSurfaceArgbForAccent(
+        entry.value.accentArgb,
+      );
       if (recommendedDarkSurfaceArgb != null) {
         final oldLegacyAutoSurfaceArgb = EventColorMath.lightMutedSurfaceArgb(
           entry.value.accentArgb,
@@ -1236,15 +1252,16 @@ final class DriftEventTypeRepository implements EventTypeRepository {
   /// never merged; duplicate display labels are reported without guessing
   /// identity.
   Future<void> _ensureEducationType(String profileId) async {
-    final byId = await (database.select(database.activityTypes)..where(
-          (table) => table.id.equals(SystemEventTypeIds.education),
-        )).get();
+    final byId = await (database.select(
+      database.activityTypes,
+    )..where((table) => table.id.equals(SystemEventTypeIds.education))).get();
     final byKey =
         await (database.select(database.activityTypes)..where(
               (table) =>
                   table.profileId.equals(profileId) &
                   table.stableKey.equals(SystemEventTypeKeys.education),
-            )).get();
+            ))
+            .get();
     if (byId.isEmpty && byKey.isEmpty) {
       await _assertEducationAccentAvailable(profileId);
       return;
@@ -1295,7 +1312,8 @@ final class DriftEventTypeRepository implements EventTypeRepository {
               (table) =>
                   table.profileId.equals(profileId) &
                   table.isArchived.equals(false),
-            )).get();
+            ))
+            .get();
     final preferenceRow = await (database.select(
       database.plannerPreferences,
     )..where((table) => table.profileId.equals(profileId))).getSingleOrNull();

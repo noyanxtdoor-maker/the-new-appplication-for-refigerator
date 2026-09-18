@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:rmplanner/core/notifications/notification_preview_policy.dart';
 import 'package:rmplanner/features/notifications/application/launcher_badge_providers.dart';
 import 'package:rmplanner/features/notifications/application/notification_providers.dart';
+import 'package:rmplanner/features/notifications/application/reminder_notification_renderer.dart';
 import 'package:rmplanner/features/notifications/domain/reminder_policy.dart';
 import 'package:rmplanner/features/planner/application/calendar_event_repository.dart';
 import 'package:rmplanner/features/planner/application/event_reminder_horizon_reconciler.dart';
@@ -91,6 +92,7 @@ final class CalendarEventController extends Notifier<String?> {
     ReminderPolicyMode? reminderMode,
     int? reminderOffsetMinutes,
     String reminderOccurrenceId = ReminderPolicy.seriesOccurrenceId,
+    bool deferReminderReconciliation = false,
   }) async {
     try {
       final saved = await _repository.saveEvent(
@@ -108,7 +110,11 @@ final class CalendarEventController extends Notifier<String?> {
           offsetMinutes: reminderOffsetMinutes,
         );
       }
-      await reconcileEventHorizon(eventId: saved.id);
+      // M7 explicit follow-up finalization withholds the early reconcile until
+      // the live Contact link and purpose are committed (form step 4).
+      if (!deferReminderReconciliation) {
+        await reconcileEventHorizon(eventId: saved.id);
+      }
       await _refreshLauncherBadge();
       if (awaitPlannerRefresh) {
         await _refreshPlanner();
@@ -131,22 +137,74 @@ final class CalendarEventController extends Notifier<String?> {
   static String _eventReminderBody(
     CalendarEventOccurrence? occurrence,
     String? notes,
-  ) {
-    final start = occurrence?.startDisplay;
-    final end = occurrence?.endDisplay;
-    final range = start == null || end == null
-        ? 'Upcoming event'
-        : '${_clockLabel(start)}–${_clockLabel(end)}';
-    final description = notes?.trim();
-    return description == null || description.isEmpty
-        ? range
-        : '$range\n$description';
+  ) => ReminderNotificationCopy.eventDetailedBody(
+    start: occurrence?.startDisplay,
+    end: occurrence?.endDisplay,
+    notes: notes,
+  );
+
+  /// M7 explicit follow-up finalization: apply the source-level purpose only
+  /// after the canonical Event save and the scoped People commit succeeded,
+  /// then reconcile that source.
+  Future<void> finalizeContactFollowUp({
+    required String sourceId,
+    required String contactId,
+    String occurrenceId = ReminderPolicy.seriesOccurrenceId,
+  }) async {
+    await ref
+        .read(reminderReconcilerProvider)
+        .applySourcePurpose(
+          profileId: _profileId,
+          sourceKind: ReminderSourceKind.calendarEvent,
+          sourceId: sourceId,
+          purpose: ReminderPurpose.contactFollowUp,
+          contactId: contactId,
+          occurrenceId: occurrenceId,
+        );
+    await reconcileEventHorizon(eventId: sourceId);
+    await _refreshLauncherBadge();
   }
 
-  static String _clockLabel(DateTime value) {
-    final hour = value.hour % 12 == 0 ? 12 : value.hour % 12;
-    final suffix = value.hour < 12 ? 'AM' : 'PM';
-    return '$hour:${value.minute.toString().padLeft(2, '0')} $suffix';
+  /// Clears follow-up provenance for Contacts removed by an ordinary People
+  /// commit and re-reconciles only when something actually changed.
+  Future<void> clearUnlinkedFollowUp({
+    required String sourceId,
+    required Set<String> currentContactIds,
+  }) async {
+    try {
+      final cleared = await ref
+          .read(reminderReconcilerProvider)
+          .clearUnlinkedPurpose(
+            profileId: _profileId,
+            sourceKind: ReminderSourceKind.calendarEvent,
+            sourceId: sourceId,
+            currentContactIds: currentContactIds,
+          );
+      if (cleared) {
+        await reconcileEventHorizon(eventId: sourceId);
+        await _refreshLauncherBadge();
+      }
+    } on Object {
+      // The canonical Event/People save already committed; a retry reconciles.
+    }
+  }
+
+  /// Unlink/lifecycle clearing for an explicitly chosen follow-up Contact.
+  Future<void> clearContactFollowUpPurpose({
+    required String sourceId,
+    required String contactId,
+    String? occurrenceId,
+  }) async {
+    await ref
+        .read(reminderReconcilerProvider)
+        .clearContactPurpose(
+          profileId: _profileId,
+          sourceKind: ReminderSourceKind.calendarEvent,
+          sourceId: sourceId,
+          contactId: contactId,
+          occurrenceId: occurrenceId,
+        );
+    await reconcileEventHorizon(eventId: sourceId);
   }
 
   /// Reconcile a committed occurrence after a policy-only mutation. Event
@@ -202,10 +260,12 @@ final class CalendarEventController extends Notifier<String?> {
           // the Event Type label (e.g. "Study or Plan") when the stored
           // title is blank. Using the raw stored title left blank titles on
           // Events created with only an Event Type.
-          detailedTitle: '📅 Event reminder',
+          detailedTitle: ReminderNotificationCopy.eventDetailedTitle,
           detailedBody: _eventReminderBody(occurrence, occurrence.notes),
           showDetails: showDetails,
           refreshContent: refreshContent,
+          sourceHasLocationEnrichment:
+              occurrence.locationText?.trim().isNotEmpty == true,
           // Correction: include the resolved title in the render revision so
           // a title-display fix (or Event Type label change) refreshes the
           // SAME notification identity in place instead of leaving a blank

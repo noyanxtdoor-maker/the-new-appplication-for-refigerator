@@ -99,6 +99,11 @@ final class BackgroundWorkRequest {
     }
   }
 
+  /// Nullable fields alone cannot express "clear": a null argument means
+  /// PRESERVE.  [clearLastAttemptAtUtc], [clearNextEligibleAtUtc],
+  /// [clearCompletedAtUtc] and [clearLastFailureCategory] are the explicit
+  /// VS16 M8 clear semantics needed for a new repair episode or a fresh
+  /// revision that must not inherit stale retry/failure/eligibility metadata.
   BackgroundWorkRequest copyWith({
     BackgroundWorkState? state,
     int? platformNotificationId,
@@ -110,6 +115,10 @@ final class BackgroundWorkRequest {
     DateTime? completedAtUtc,
     String? lastFailureCategory,
     DateTime? updatedAtUtc,
+    bool clearLastAttemptAtUtc = false,
+    bool clearNextEligibleAtUtc = false,
+    bool clearCompletedAtUtc = false,
+    bool clearLastFailureCategory = false,
   }) => BackgroundWorkRequest(
     stableKey: stableKey,
     profileId: profileId,
@@ -124,10 +133,18 @@ final class BackgroundWorkRequest {
         platformNotificationId ?? this.platformNotificationId,
     attemptCount: attemptCount ?? this.attemptCount,
     snoozeCount: snoozeCount ?? this.snoozeCount,
-    lastAttemptAtUtc: lastAttemptAtUtc ?? this.lastAttemptAtUtc,
-    nextEligibleAtUtc: nextEligibleAtUtc ?? this.nextEligibleAtUtc,
-    completedAtUtc: completedAtUtc ?? this.completedAtUtc,
-    lastFailureCategory: lastFailureCategory ?? this.lastFailureCategory,
+    lastAttemptAtUtc: clearLastAttemptAtUtc
+        ? null
+        : lastAttemptAtUtc ?? this.lastAttemptAtUtc,
+    nextEligibleAtUtc: clearNextEligibleAtUtc
+        ? null
+        : nextEligibleAtUtc ?? this.nextEligibleAtUtc,
+    completedAtUtc: clearCompletedAtUtc
+        ? null
+        : completedAtUtc ?? this.completedAtUtc,
+    lastFailureCategory: clearLastFailureCategory
+        ? null
+        : lastFailureCategory ?? this.lastFailureCategory,
     createdAtUtc: createdAtUtc,
     updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
   );

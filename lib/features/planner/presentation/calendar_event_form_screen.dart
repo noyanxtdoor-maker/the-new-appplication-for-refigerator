@@ -62,6 +62,7 @@ final class CalendarEventFormScreen extends ConsumerStatefulWidget {
     this.initialDurationMinutes,
     this.onClose,
     this.initialContactIds = const <String>[],
+    this.followUpContactId,
     this.sheetPresentation = false,
     this.sheetScrollController,
     this.sheetController,
@@ -101,6 +102,7 @@ final class CalendarEventFormScreen extends ConsumerStatefulWidget {
        initialDurationMinutes = null,
        initialCoordinate = null,
        onClose = null,
+       followUpContactId = null,
        initialTitle = null,
        initialEventTypeLabel = null,
        initialStatusIntent = null;
@@ -133,7 +135,8 @@ final class CalendarEventFormScreen extends ConsumerStatefulWidget {
        initialDurationMinutes = null,
        onClose = null,
        sourceTaskId = null,
-       initialContactIds = const <String>[];
+       initialContactIds = const <String>[],
+       followUpContactId = null;
 
   const CalendarEventFormScreen.reschedule({
     required this.eventId,
@@ -158,6 +161,7 @@ final class CalendarEventFormScreen extends ConsumerStatefulWidget {
        sourceTaskId = null,
        deferRecurrenceScopeToSave = false,
        initialContactIds = const <String>[],
+       followUpContactId = null,
        initialTitle = null,
        initialEventTypeLabel = null,
        initialStatusIntent = null;
@@ -189,6 +193,11 @@ final class CalendarEventFormScreen extends ConsumerStatefulWidget {
   final bool deferRecurrenceScopeToSave;
   final String? sourceTaskId;
   final List<String> initialContactIds;
+
+  /// VS16 M7: the Contact explicitly chosen through the existing
+  /// "Create Follow-Up" chooser.  Null for every ordinary creation path; it is
+  /// never inferred from People, title, or a single linked Contact.
+  final String? followUpContactId;
 
   /// NX-06: identity seeds for the Edit Event loading shell (known from the
   /// detail sheet at open time). Null keeps the previous blank-pause behavior
@@ -390,8 +399,8 @@ final class _CalendarEventFormScreenState
     // through it, including objects passed before an archive. Edit mode
     // keeps the raw existing type (the raw list may omit hidden/retired
     // types) and its occurrence snapshot; only a NEW selection is gated.
-    List<EventTypeCreationChoice> eligibleChoices = const <
-        EventTypeCreationChoice>[];
+    List<EventTypeCreationChoice> eligibleChoices =
+        const <EventTypeCreationChoice>[];
     var eligibilityReady = false;
     if (widget.mode == CalendarEventFormMode.create) {
       try {
@@ -438,8 +447,9 @@ final class _CalendarEventFormScreenState
     } else if (widget.initialIndicatorKey != null && eligibilityReady) {
       preferTypeDuration = true;
       selected = eligibleTypeById(
-        (await controller.exactTypeForIndicator(widget.initialIndicatorKey!))
-            ?.id,
+        (await controller.exactTypeForIndicator(
+          widget.initialIndicatorKey!,
+        ))?.id,
       );
     } else if (eventTypeState.settings.defaultEventTypeId != null &&
         eligibilityReady) {
@@ -451,8 +461,7 @@ final class _CalendarEventFormScreenState
     selected ??= eligibilityReady
         ? eligibleChoices
               .where(
-                (choice) =>
-                    choice.type.stableKey == SystemEventTypeKeys.other,
+                (choice) => choice.type.stableKey == SystemEventTypeKeys.other,
               )
               .firstOrNull
               ?.type
@@ -676,9 +685,7 @@ final class _CalendarEventFormScreenState
     }
     if (widget.mode == CalendarEventFormMode.create ||
         selected.id != _loadedTypeId) {
-      final choices = ref
-          .read(eventTypeCreationChoicesProvider)
-          .value;
+      final choices = ref.read(eventTypeCreationChoicesProvider).value;
       if (choices != null) {
         for (final choice in choices) {
           if (choice.type.id == selected.id) {
@@ -2295,8 +2302,7 @@ final class _CalendarEventFormScreenState
     final isNewSelection =
         widget.mode == CalendarEventFormMode.create ||
         (widget.mode == CalendarEventFormMode.edit &&
-            (_loadedTypeId == null ||
-                _selectedEventType?.id != _loadedTypeId));
+            (_loadedTypeId == null || _selectedEventType?.id != _loadedTypeId));
     if (isNewSelection && !await _validateSelectionBeforeWrite()) {
       if (mounted) {
         setState(() => _saving = false);
@@ -2403,6 +2409,9 @@ final class _CalendarEventFormScreenState
         awaitPlannerRefresh: false,
         reminderMode: _reminderMode,
         reminderOffsetMinutes: _reminderOffsetMinutes,
+        // M7 explicit follow-up withholds the early reconcile until the
+        // People commit and purpose write below have succeeded.
+        deferReminderReconciliation: widget.followUpContactId != null,
       ),
       CalendarEventFormMode.edit => await _saveEdit(draft, controller),
       CalendarEventFormMode.reschedule => await controller.rescheduleEvent(
@@ -2480,23 +2489,23 @@ final class _CalendarEventFormScreenState
       // Persist People with the exact scope that the Event write committed.
       // Occurrence identity always uses the canonical original date, even
       // when that occurrence was moved to a different effective date.
+      final editScope = _committedEditScope;
+      final occurrenceOnly =
+          widget.mode == CalendarEventFormMode.edit &&
+          editScope == CalendarEventEditScope.occurrence;
+      final peopleEventId =
+          widget.mode == CalendarEventFormMode.edit &&
+              editScope != CalendarEventEditScope.thisAndFuture
+          ? widget.eventId!
+          : _draftId;
+      final peopleOriginalDate = occurrenceOnly ? widget.originalDate! : null;
+      final peopleOccurrenceId = occurrenceOnly
+          ? CalendarEventOccurrenceIdentity.forDate(
+              eventId: peopleEventId,
+              originalDate: peopleOriginalDate!,
+            )
+          : 'series';
       try {
-        final editScope = _committedEditScope;
-        final occurrenceOnly =
-            widget.mode == CalendarEventFormMode.edit &&
-            editScope == CalendarEventEditScope.occurrence;
-        final peopleEventId =
-            widget.mode == CalendarEventFormMode.edit &&
-                editScope != CalendarEventEditScope.thisAndFuture
-            ? widget.eventId!
-            : _draftId;
-        final peopleOriginalDate = occurrenceOnly ? widget.originalDate! : null;
-        final peopleOccurrenceId = occurrenceOnly
-            ? CalendarEventOccurrenceIdentity.forDate(
-                eventId: peopleEventId,
-                originalDate: peopleOriginalDate!,
-              )
-            : 'series';
         final explicitlyRemovedSeriesContactIds =
             widget.mode == CalendarEventFormMode.edit &&
                 editScope == CalendarEventEditScope.series
@@ -2525,13 +2534,66 @@ final class _CalendarEventFormScreenState
         // The Event itself is already saved; never fail the save silently.
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
+            SnackBar(
               content: Text(
-                'Event saved, but People could not be updated. Edit the '
-                'event to retry.',
+                widget.followUpContactId != null
+                    ? 'Saved, but follow-up could not be applied. Try again.'
+                    : 'Event saved, but People could not be updated. Edit the '
+                          'event to retry.',
               ),
             ),
           );
+        }
+        if (widget.followUpContactId != null) {
+          // Keep the form open so the same stable source ID can be retried.
+          return;
+        }
+      }
+      if (!mounted) {
+        return;
+      }
+      // M7: an ordinary People commit that removed the explicitly chosen
+      // follow-up Contact clears its purpose (timing preserved); ordinary
+      // edits never create or retarget provenance.
+      await controller.clearUnlinkedFollowUp(
+        sourceId: peopleEventId,
+        currentContactIds: _peopleContactIds.toSet(),
+      );
+      if (!mounted) {
+        return;
+      }
+      final followUpContactId = widget.followUpContactId;
+      if (followUpContactId != null) {
+        final contactStillActive = await _isContactStillActive(
+          followUpContactId,
+        );
+        if (!contactStillActive) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Saved without follow-up.')),
+            );
+          }
+        } else {
+          try {
+            await controller.finalizeContactFollowUp(
+              sourceId: peopleEventId,
+              contactId: followUpContactId,
+              occurrenceId: peopleOccurrenceId == 'series'
+                  ? ReminderPolicy.seriesOccurrenceId
+                  : peopleOccurrenceId,
+            );
+          } on Object {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text(
+                    'Saved, but follow-up could not be applied. Try again.',
+                  ),
+                ),
+              );
+            }
+            return;
+          }
         }
       }
       if (!mounted) {
@@ -2542,6 +2604,20 @@ final class _CalendarEventFormScreenState
         return;
       }
       _closeForm(true);
+    }
+  }
+
+  Future<bool> _isContactStillActive(String contactId) async {
+    try {
+      final detail = await ref
+          .read(contactRepositoryProvider)
+          .readContactDetail(
+            profileId: ref.read(contactProfileIdProvider),
+            contactId: contactId,
+          );
+      return detail.contact.isActive;
+    } on Object {
+      return false;
     }
   }
 

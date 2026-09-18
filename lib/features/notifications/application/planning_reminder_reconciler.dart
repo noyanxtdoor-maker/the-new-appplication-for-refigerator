@@ -75,12 +75,13 @@ final class PlanningReminderReconciler {
     required bool systemEnabled,
     required bool showDetails,
   }) async {
-    final now = reminders.clock.nowUtc();
-    final today = PlannerDate.fromDateTime(tz.TZDateTime.from(now, zone));
     final expected = <String>{};
     for (final plan in await weeklyPlans.readHistory(profileId)) {
+      // M8 planning fix: scheduling eligibility comes from known canonical
+      // period timing while the plan is not reviewed/historical.  Delivery
+      // attention (reviewDue) is a separate, later source check and must not
+      // gate the future 09:00 target.
       final eligible =
-          plan.effectiveState(today) == WeeklyPlanState.reviewDue &&
           plan.reviewCompletedAtUtc == null &&
           plan.storedState != WeeklyPlanState.reviewed &&
           plan.storedState != WeeklyPlanState.historical;
@@ -136,12 +137,14 @@ final class PlanningReminderReconciler {
     if (events is! CalendarEventRangeSource) return;
     final now = reminders.clock.nowUtc();
     final today = PlannerDate.fromDateTime(tz.TZDateTime.from(now, zone));
-    // Only current/previous-local-day occurrences can have a still-future M5
-    // trigger. Older report backlogs are intentionally not replayed as new.
+    // M8 planning fix: previous-local-day occurrences keep the current
+    // attention trigger, while future requiresReport Events may schedule their
+    // known end+15m / next-day 09:00 target over the existing 42-day horizon.
+    // No report/plan/outcome rows are ever created here.
     final items = await (events as CalendarEventRangeSource).readRange(
       profileId: profileId,
       startDate: today.addDays(-1),
-      endDate: today,
+      endDate: today.addDays(42),
     );
     final expected = <String>{};
     for (final item in items) {
@@ -154,10 +157,13 @@ final class PlanningReminderReconciler {
         originalDate: originalDate,
       );
       if (occurrence == null) continue;
-      final eligible = occurrence.isAwaitingReport(
-        nowUtc: now,
-        displayToday: today,
-      );
+      // Scheduling eligibility is separate from current delivery attention:
+      // any scheduled requiresReport Event without a submitted report can
+      // hold a future target.  The repository folds a submitted report into a
+      // terminal occurrence status, so `scheduled` already means unreported.
+      final eligible =
+          occurrence.status == CalendarEventStatus.scheduled &&
+          occurrence.requiresReport;
       final scheduled = _reportTrigger(occurrence, zone);
       await reminders.reconcile(
         sourceKind: ReminderSourceKind.awaitingReport,

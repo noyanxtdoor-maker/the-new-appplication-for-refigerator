@@ -239,6 +239,7 @@ Future<T?> showCalendarEventFormSheet<T>({
   String? sourceTaskId,
   List<String> initialContactIds = const <String>[],
   MapCoordinate? initialCoordinate,
+  String? initialFollowUpContactId,
 }) {
   final sheetController = DraggableScrollableController();
   const minChildSize = 0.36;
@@ -273,6 +274,7 @@ Future<T?> showCalendarEventFormSheet<T>({
                 initialEventTypeId: eventType.id,
                 initialContactIds: initialContactIds,
                 initialCoordinate: initialCoordinate,
+                followUpContactId: initialFollowUpContactId,
                 sheetPresentation: true,
                 sheetScrollController: scrollController,
                 sheetController: sheetController,

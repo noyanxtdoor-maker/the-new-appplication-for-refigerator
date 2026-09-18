@@ -27,6 +27,16 @@ abstract interface class NotificationFoundationRepository {
 
   Future<BackgroundWorkRequest?> readWorkRequest(String stableKey);
 
+  Future<BackgroundWorkRequest?> readWorkRequestByPlatformId(int platformId);
+
+  /// Unbounded-in-time but profile/category scoped active-work listing used by
+  /// terminal-source cleanup, reserved-ID repair and diagnostics.  Completed
+  /// historical rows are excluded.
+  Future<List<BackgroundWorkRequest>> readActiveReminderWork({
+    required String profileId,
+    ReminderSourceKind? sourceKind,
+  });
+
   Future<List<BackgroundWorkRequest>> readReminderWork({
     required String profileId,
     required ReminderSourceKind sourceKind,
@@ -46,6 +56,11 @@ abstract interface class NotificationFoundationRepository {
     DateTime? nextEligibleAtUtc,
   });
 
+  /// Records a delivery claim (state=running, last attempt timestamp) WITHOUT
+  /// incrementing the bounded attempt counter: the counter measures real
+  /// retries (maximum five persisted attempts per revision), not claims.
+  Future<void> recordClaim({required String stableKey});
+
   Future<void> recordSnooze({
     required String stableKey,
     required DateTime untilUtc,
@@ -54,4 +69,10 @@ abstract interface class NotificationFoundationRepository {
   Future<int> allocatePlatformNotificationId(String stableKey);
 
   Future<int> countPendingWork({required String profileId});
+
+  /// M8 durable reminder-repair marker lifecycle.  [beginReminderRepair]
+  /// returns true when this caller now owns a queued/retryScheduled episode.
+  Future<bool> beginReminderRepair({required String profileId});
+
+  Future<void> completeReminderRepair({required String profileId});
 }

@@ -1,3 +1,4 @@
+import 'package:rmplanner/features/notifications/domain/task_reminder_occurrence.dart';
 import 'package:rmplanner/features/planner/domain/planner_date.dart';
 import 'package:rmplanner/features/planner/domain/planner_day.dart';
 import 'package:rmplanner/features/planner/domain/planner_task.dart';
@@ -54,6 +55,18 @@ final class EmptyPlannerTaskContextSource implements PlannerTaskContextSource {
 /// only and non-incomplete Tasks are excluded by the production source.
 abstract interface class PlannerTaskReminderSource {
   Future<List<PlannerTask>> readPendingReminderTasks({
+    required String profileId,
+    required PlannerDate startDate,
+    required PlannerDate endDate,
+  });
+}
+
+/// Optional M8 reminder projection: incomplete timed Tasks with their bounded
+/// projected occurrence dates (recurrence-aware).  The current nonrecurring
+/// [PlannerTaskReminderSource.readPendingReminderTasks] contract stays
+/// available to unrelated consumers.
+abstract interface class PlannerTaskReminderOccurrenceSource {
+  Future<List<TaskReminderOccurrence>> readReminderTaskOccurrences({
     required String profileId,
     required PlannerDate startDate,
     required PlannerDate endDate,

@@ -1,5 +1,4 @@
 import 'package:rmplanner/core/background/background_work_gateway.dart';
-import 'package:rmplanner/core/notifications/notification_payload.dart';
 import 'package:rmplanner/features/notifications/application/reminder_background_runtime.dart';
 import 'package:workmanager/workmanager.dart';
 
@@ -7,57 +6,40 @@ import 'package:workmanager/workmanager.dart';
 void nextTransferBackgroundDispatcher() {
   Workmanager().executeTask((task, input) async {
     if (task == 'nt.reminder.snooze') {
-      const keys = {'profile_id', 'source_kind', 'source_id', 'occurrence_id', 'generation', 'action_utc_ms'};
-      if (input == null ||
-          input.length != keys.length ||
-          input.keys.any((key) => !keys.contains(key))) {
-        return false;
-      }
-      final profile = input['profile_id'];
-      final source = input['source_id'];
-      final occurrence = input['occurrence_id'];
-      final generation = input['generation'];
-      final timestamp = input['action_utc_ms'];
-      final kind = NotificationSourceKind.values.asNameMap()[input['source_kind']];
-      if (profile is! String ||
-          source is! String ||
-          occurrence is! String ||
-          generation is! int ||
-          generation < 0 ||
-          timestamp is! int ||
-          (kind != NotificationSourceKind.calendarEvent &&
-              kind != NotificationSourceKind.task)) {
-        return false;
-      }
-      final intent = NotificationResponseIntent(profileId: profile, sourceKind: kind!,
-        sourceId: source, occurrenceId: occurrence, generation: generation,
-        action: NotificationResponseAction.snooze);
-      if (NotificationPayloadCodec.tryDecode(
-            NotificationPayloadCodec.encode(intent),
-          ) ==
-          null) {
-        return false;
-      }
-      return runReminderRuntime(snooze: intent,
-        actionAtUtc: DateTime.fromMillisecondsSinceEpoch(timestamp, isUtc: true));
+      // VS16 M7/M8: Snooze is deferred. Legacy or forged Snooze work must
+      // terminate as a handled no-op without scheduling, domain mutation or
+      // retry. Do not route it through the reminder runtime at all.
+      return true;
     }
     if (task == 'nt.reminder.recovery') {
+      // The recovery task and its one-off horizon-refill re-arm share this
+      // task name; both always run with empty input (contract section 28).
       if (input != null && input.isNotEmpty) return false;
-      return runReminderRuntime();
+      return runReminderRuntime(
+        backgroundGatewayOverride: const WorkmanagerBackgroundWorkGateway(),
+      );
     }
-    if (task != 'nt.reminder.delivery' ||
-        input == null ||
-        input.keys.any(
-          (key) => key != 'stable_key' && key != 'scheduled_utc_ms',
-        )) {
-      return false;
+    if (task != 'nt.reminder.delivery') {
+      // Unknown/malformed legacy tasks terminate safely instead of retrying
+      // forever under the plugin's exponential backoff.
+      return true;
     }
+    const keys = <String>{'stable_key', 'scheduled_utc_ms', 'source_revision'};
+    if (input == null || input.length != keys.length) {
+      // Two-key (or empty) delivery input is a pre-M7 legacy job with no
+      // authoritative revision to re-read: terminal obsolete, never replayed.
+      return true;
+    }
+    if (input.keys.any((key) => !keys.contains(key))) return true;
     final key = input['stable_key'];
     final timestamp = input['scheduled_utc_ms'];
+    final revision = input['source_revision'];
     if (key is! String ||
         timestamp is! int ||
-        !RegExp(r'^reminder:[A-Za-z0-9_.:-]{1,240}$').hasMatch(key)) {
-      return false;
+        revision is! String ||
+        !RegExp(r'^reminder:[A-Za-z0-9_.:-]{1,240}$').hasMatch(key) ||
+        !RegExp(r'^[A-Za-z0-9_.:-]{1,256}$').hasMatch(revision)) {
+      return true;
     }
     return runReminderRuntime(
       deliveryKey: key,
@@ -65,6 +47,7 @@ void nextTransferBackgroundDispatcher() {
         timestamp,
         isUtc: true,
       ),
+      sourceRevision: revision,
     );
   });
 }
@@ -101,6 +84,12 @@ final class WorkmanagerBackgroundWorkGateway implements BackgroundWorkGateway {
         BackgroundExistingWorkPolicy.keep => ExistingWorkPolicy.keep,
         BackgroundExistingWorkPolicy.replace => ExistingWorkPolicy.replace,
       },
+      backoffPolicy: switch (work.backoffPolicy) {
+        BackgroundBackoffPolicy.exponential => BackoffPolicy.exponential,
+        BackgroundBackoffPolicy.linear => BackoffPolicy.linear,
+        null => null,
+      },
+      backoffPolicyDelay: work.backoffPolicyDelay,
     );
   }
 
@@ -110,9 +99,20 @@ final class WorkmanagerBackgroundWorkGateway implements BackgroundWorkGateway {
 
   @override
   Future<BackgroundGatewayWorkState> inspect(String uniqueName) async {
-    final info = await _workmanager.getWorkInfo(uniqueName);
-    return info == null
-        ? BackgroundGatewayWorkState.absent
-        : BackgroundGatewayWorkState.scheduled;
+    try {
+      final info = await _workmanager.getWorkInfo(uniqueName);
+      return switch (info?.state) {
+        null => BackgroundGatewayWorkState.absent,
+        WorkState.scheduled => BackgroundGatewayWorkState.scheduled,
+        WorkState.running => BackgroundGatewayWorkState.running,
+        WorkState.succeeded => BackgroundGatewayWorkState.succeeded,
+        WorkState.failed => BackgroundGatewayWorkState.failed,
+        WorkState.cancelled => BackgroundGatewayWorkState.cancelled,
+      };
+    } on Object {
+      // A platform without a truthful query API must report unknown rather
+      // than fabricate a runnable or delayed state.
+      return BackgroundGatewayWorkState.unknown;
+    }
   }
 }

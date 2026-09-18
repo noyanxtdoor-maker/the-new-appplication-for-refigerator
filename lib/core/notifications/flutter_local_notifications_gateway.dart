@@ -126,15 +126,15 @@ final class FlutterLocalNotificationsGateway
   // VS16 owner decision: reminders carry NO explicit action buttons. Snooze is
   // deferred from the current product and the notification body's own tap is
   // the canonical Open path (same payload/routing as the retired button).
-  NotificationDetails _detailsFor(
-    LocalNotificationRequest request,
-  ) => NotificationDetails(
-    android: AndroidNotificationDetails(
-      request.channel.id,
-      request.channel.label,
-      channelDescription: request.channel.description,
-    ),
-  );
+  NotificationDetails _detailsFor(LocalNotificationRequest request) =>
+      NotificationDetails(
+        android: AndroidNotificationDetails(
+          request.channel.id,
+          request.channel.label,
+          channelDescription: request.channel.description,
+          onlyAlertOnce: request.onlyAlertOnce,
+        ),
+      );
 
   @override
   Future<void> cancel(int platformId) async {

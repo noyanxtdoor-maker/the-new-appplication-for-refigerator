@@ -1,5 +1,6 @@
 import 'package:drift/drift.dart';
 import 'package:rmplanner/core/background/background_work_request.dart';
+import 'package:rmplanner/core/background/reminder_recovery_request.dart';
 import 'package:rmplanner/core/database/app_database.dart'
     hide NotificationPreferences;
 import 'package:rmplanner/core/time/app_clock.dart';
@@ -18,6 +19,11 @@ final class DriftNotificationFoundationRepository
   });
 
   static const int _maximumPlatformId = 0x7fffffff;
+
+  /// VS16 M8: the launcher badge allocates this ID outside the work table.
+  /// The reminder allocator must never hand it out, and a legitimate reminder
+  /// row that somehow occupies it is relocated transactionally.
+  static const int reservedPlatformNotificationId = 0x7ffffffe;
 
   final AppDatabase database;
   final AppClock clock;
@@ -215,6 +221,61 @@ final class DriftNotificationFoundationRepository
   }
 
   @override
+  Future<BackgroundWorkRequest?> readWorkRequestByPlatformId(
+    int platformId,
+  ) async {
+    final row =
+        await (database.select(database.backgroundWorkRequests)
+              ..where(
+                (table) => table.platformNotificationId.equals(platformId),
+              )
+              ..limit(1))
+            .getSingleOrNull();
+    return row == null ? null : _mapWorkRequest(row);
+  }
+
+  @override
+  Future<List<BackgroundWorkRequest>> readActiveReminderWork({
+    required String profileId,
+    ReminderSourceKind? sourceKind,
+  }) async {
+    if (profileId.trim().isEmpty) {
+      throw ArgumentError.value(profileId, 'profileId');
+    }
+    final prefix = switch (sourceKind) {
+      ReminderSourceKind.calendarEvent => 'reminder:calendarEvent:',
+      ReminderSourceKind.task => 'reminder:task:',
+      ReminderSourceKind.weeklyReview => 'planning:weekly-review:',
+      ReminderSourceKind.awaitingReport => 'planning:awaiting-report:',
+      null => null,
+    };
+    final query = database.select(database.backgroundWorkRequests)
+      ..where(
+        (table) =>
+            table.profileId.equals(profileId) &
+            table.category.equals(
+              BackgroundWorkCategory.reminderRecovery.name,
+            ) &
+            table.state.isIn(<String>[
+              BackgroundWorkState.queued.name,
+              BackgroundWorkState.waitingForConstraints.name,
+              BackgroundWorkState.running.name,
+              BackgroundWorkState.delayedBySystem.name,
+              BackgroundWorkState.retryScheduled.name,
+              BackgroundWorkState.scheduled.name,
+            ]) &
+            (prefix == null
+                ? const Constant<bool>(true)
+                : table.stableKey.like('$prefix%')),
+      )
+      ..orderBy(<OrderingTerm Function(BackgroundWorkRequests)>[
+        (table) => OrderingTerm.asc(table.stableKey),
+      ]);
+    final rows = await query.get();
+    return rows.map(_mapWorkRequest).toList(growable: false);
+  }
+
+  @override
   Future<List<BackgroundWorkRequest>> readReminderWork({
     required String profileId,
     required ReminderSourceKind sourceKind,
@@ -238,6 +299,16 @@ final class DriftNotificationFoundationRepository
       ReminderSourceKind.weeklyReview || ReminderSourceKind.awaitingReport =>
         BackgroundWorkOwnerKind.planning.name,
     };
+    // F03: both planning kinds map to ownerKind=planning, so family identity
+    // must be enforced by the stableKey prefix.  Otherwise a weekly cleanup
+    // can retrieve (and cancel under the wrong identity) awaiting-report rows
+    // with the same occurrence token.
+    final familyPrefix = switch (sourceKind) {
+      ReminderSourceKind.calendarEvent => 'reminder:calendarEvent:',
+      ReminderSourceKind.task => 'reminder:task:',
+      ReminderSourceKind.weeklyReview => 'planning:weekly-review:',
+      ReminderSourceKind.awaitingReport => 'planning:awaiting-report:',
+    };
     final activeStates = <String>[
       BackgroundWorkState.completed.name,
       BackgroundWorkState.queued.name,
@@ -254,6 +325,7 @@ final class DriftNotificationFoundationRepository
               BackgroundWorkCategory.reminderRecovery.name,
             ) &
             table.ownerKind.equals(ownerKind) &
+            table.stableKey.like('$familyPrefix%') &
             table.state.isIn(activeStates) &
             table.scheduledForUtc.isBiggerOrEqualValue(windowStartUtc) &
             table.scheduledForUtc.isSmallerThanValue(windowEndUtc) &
@@ -316,8 +388,26 @@ final class DriftNotificationFoundationRepository
         state: nextState,
         attemptCount: current.attemptCount + 1,
         lastAttemptAtUtc: now,
+        clearNextEligibleAtUtc: nextEligibleAtUtc == null,
         nextEligibleAtUtc: nextEligibleAtUtc,
+        clearLastFailureCategory: failureCategory == null,
         lastFailureCategory: failureCategory,
+        updatedAtUtc: now,
+      ),
+    );
+  }
+
+  @override
+  Future<void> recordClaim({required String stableKey}) async {
+    final current = await readWorkRequest(stableKey);
+    if (current == null) throw StateError('Background work request not found.');
+    final now = clock.nowUtc();
+    await upsertWorkRequest(
+      current.copyWith(
+        state: BackgroundWorkState.running,
+        lastAttemptAtUtc: now,
+        clearNextEligibleAtUtc: true,
+        clearLastFailureCategory: true,
         updatedAtUtc: now,
       ),
     );
@@ -352,29 +442,46 @@ final class DriftNotificationFoundationRepository
       if (row == null) {
         throw StateError('Allocate IDs only for durable work requests.');
       }
-      if (row.platformNotificationId != null) {
+      if (row.platformNotificationId != null &&
+          row.platformNotificationId != reservedPlatformNotificationId) {
         return row.platformNotificationId!;
       }
+      if (row.platformNotificationId == reservedPlatformNotificationId) {
+        // VS16 M8: a legitimate reminder row must never keep the launcher
+        // badge slot.  Free it transactionally, then allocate a normal ID.
+        await (database.update(
+          database.backgroundWorkRequests,
+        )..where((table) => table.stableKey.equals(stableKey))).write(
+          BackgroundWorkRequestsCompanion(
+            platformNotificationId: const Value<int?>(null),
+            updatedAtUtc: Value<DateTime>(clock.nowUtc()),
+          ),
+        );
+      }
       var candidate = platformIdSeed(stableKey) & _maximumPlatformId;
-      if (candidate == 0) candidate = 1;
+      if (candidate == 0 || candidate == reservedPlatformNotificationId) {
+        candidate = 1;
+      }
       for (var probes = 0; probes < _maximumPlatformId; probes++) {
-        final collision =
-            await (database.select(database.backgroundWorkRequests)
-                  ..where(
-                    (table) => table.platformNotificationId.equals(candidate),
-                  )
-                  ..limit(1))
-                .getSingleOrNull();
-        if (collision == null) {
-          await (database.update(
-            database.backgroundWorkRequests,
-          )..where((table) => table.stableKey.equals(stableKey))).write(
-            BackgroundWorkRequestsCompanion(
-              platformNotificationId: Value(candidate),
-              updatedAtUtc: Value(clock.nowUtc()),
-            ),
-          );
-          return candidate;
+        if (candidate != reservedPlatformNotificationId) {
+          final collision =
+              await (database.select(database.backgroundWorkRequests)
+                    ..where(
+                      (table) => table.platformNotificationId.equals(candidate),
+                    )
+                    ..limit(1))
+                  .getSingleOrNull();
+          if (collision == null) {
+            await (database.update(
+              database.backgroundWorkRequests,
+            )..where((table) => table.stableKey.equals(stableKey))).write(
+              BackgroundWorkRequestsCompanion(
+                platformNotificationId: Value(candidate),
+                updatedAtUtc: Value(clock.nowUtc()),
+              ),
+            );
+            return candidate;
+          }
         }
         candidate = candidate == _maximumPlatformId ? 1 : candidate + 1;
       }
@@ -397,6 +504,22 @@ final class DriftNotificationFoundationRepository
       );
     return (await query.getSingle()).read(count) ?? 0;
   }
+
+  @override
+  Future<bool> beginReminderRepair({required String profileId}) =>
+      ReminderRecoveryRequest.markRunning(
+        database: database,
+        profileId: profileId,
+        nowUtc: clock.nowUtc(),
+      );
+
+  @override
+  Future<void> completeReminderRepair({required String profileId}) =>
+      ReminderRecoveryRequest.markCompleted(
+        database: database,
+        profileId: profileId,
+        nowUtc: clock.nowUtc(),
+      );
 
   BackgroundWorkRequest _mapWorkRequest(BackgroundWorkRequestRow row) =>
       BackgroundWorkRequest(

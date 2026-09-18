@@ -34,6 +34,7 @@ final class TaskFormScreen extends ConsumerStatefulWidget {
     this.initialDueMinute,
     this.initialDraftId,
     this.initialContactIds = const <String>[],
+    this.initialFollowUpContactId,
     this.initialTitle,
     this.initialDescription,
     this.initialPeople = const <String>[],
@@ -62,6 +63,7 @@ final class TaskFormScreen extends ConsumerStatefulWidget {
   }) : initialDueDate = null,
        initialDueMinute = null,
        initialContactIds = const <String>[],
+       initialFollowUpContactId = null,
        initialTitle = null,
        initialDescription = null,
        initialPeople = const <String>[],
@@ -77,6 +79,10 @@ final class TaskFormScreen extends ConsumerStatefulWidget {
   final int? initialDueMinute;
   final String? initialDraftId;
   final List<String> initialContactIds;
+
+  /// VS16 M7: the Contact explicitly chosen through the existing
+  /// "Create Follow-Up" chooser.  Null for ordinary creation.
+  final String? initialFollowUpContactId;
   final String? initialTitle;
   final String? initialDescription;
   final List<String> initialPeople;
@@ -1111,6 +1117,20 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen>
     }
   }
 
+  Future<bool> _isContactStillActive(String contactId) async {
+    try {
+      final detail = await ref
+          .read(contactRepositoryProvider)
+          .readContactDetail(
+            profileId: ref.read(contactProfileIdProvider),
+            contactId: contactId,
+          );
+      return detail.contact.isActive;
+    } on Object {
+      return false;
+    }
+  }
+
   String _formatTime(BuildContext context, bool use24HourTime) {
     final time = _timeFromMinute(_dueMinute ?? 18 * 60);
     if (use24HourTime) {
@@ -1184,6 +1204,9 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen>
           confirmLinkedTypeTransfer: confirmLinkedTypeTransfer,
           reminderMode: _reminderMode,
           reminderOffsetMinutes: _reminderOffsetMinutes,
+          // M7 explicit follow-up withholds the early reconcile until the
+          // Contacts commit and purpose write below have succeeded.
+          deferReminderReconciliation: widget.initialFollowUpContactId != null,
         );
     if (!mounted) {
       return;
@@ -1193,13 +1216,77 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen>
         return;
       }
       if (!widget.addToPlanner) {
+        try {
+          await ref
+              .read(contactRepositoryProvider)
+              .setTaskContacts(
+                profileId: ref.read(contactProfileIdProvider),
+                taskId: _stableTaskId,
+                contactIds: _contactIds,
+              );
+        } on Object {
+          if (widget.initialFollowUpContactId != null) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text(
+                    'Saved, but follow-up could not be applied. Try again.',
+                  ),
+                ),
+              );
+            }
+            return;
+          }
+        }
+      }
+      if (!mounted) {
+        return;
+      }
+      if (!widget.addToPlanner) {
+        // M7: unlink clears explicit follow-up purpose without touching
+        // ordinary Task timing or lifecycle.
         await ref
-            .read(contactRepositoryProvider)
-            .setTaskContacts(
-              profileId: ref.read(contactProfileIdProvider),
+            .read(plannerControllerProvider.notifier)
+            .clearUnlinkedFollowUp(
               taskId: _stableTaskId,
-              contactIds: _contactIds,
+              currentContactIds: _contactIds.toSet(),
             );
+      }
+      if (!mounted) {
+        return;
+      }
+      final followUpContactId = widget.initialFollowUpContactId;
+      if (followUpContactId != null) {
+        final contactStillActive = await _isContactStillActive(
+          followUpContactId,
+        );
+        if (!contactStillActive) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Saved without follow-up.')),
+            );
+          }
+        } else {
+          try {
+            await ref
+                .read(plannerControllerProvider.notifier)
+                .finalizeContactFollowUp(
+                  taskId: _stableTaskId,
+                  contactId: followUpContactId,
+                );
+          } on Object {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text(
+                    'Saved, but follow-up could not be applied. Try again.',
+                  ),
+                ),
+              );
+            }
+            return;
+          }
+        }
       }
       if (!mounted) {
         return;
@@ -1254,9 +1341,10 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen>
   String _reminderLabel() {
     switch (_reminderMode) {
       case ReminderPolicyMode.inherit:
-        final inherited =
-            ref.watch(notificationSettingsControllerProvider).preferences
-                .defaultTaskReminderMinutes;
+        final inherited = ref
+            .watch(notificationSettingsControllerProvider)
+            .preferences
+            .defaultTaskReminderMinutes;
         if (inherited == null) {
           return 'Default (Off)';
         }

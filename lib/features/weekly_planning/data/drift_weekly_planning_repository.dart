@@ -1,4 +1,5 @@
 import 'package:drift/drift.dart';
+import 'package:rmplanner/core/background/reminder_recovery_request.dart';
 import 'package:rmplanner/core/database/app_database.dart';
 import 'package:rmplanner/core/ids/identifier_source.dart';
 import 'package:rmplanner/core/time/app_clock.dart';
@@ -198,6 +199,12 @@ final class DriftWeeklyPlanningRepository
                 updatedAtUtc: Value<DateTime>(now),
               ),
             );
+        // M8: reminder repair intent commits with the review completion.
+        await ReminderRecoveryRequest.markDirty(
+          database: database,
+          profileId: profileId,
+          nowUtc: now,
+        );
         await writeGuard.beforeCommit();
       });
     }

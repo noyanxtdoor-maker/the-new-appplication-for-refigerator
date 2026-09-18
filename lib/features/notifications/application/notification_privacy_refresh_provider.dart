@@ -15,16 +15,75 @@ typedef NotificationPrivacyRefresh = Future<void> Function();
 /// One canonical Event-and-Task content refresh. Privacy settings invoke this
 /// only after their durable write succeeds.
 final reconcileRemindersProvider = Provider<ReconcileReminders>((ref) {
+  /// Runtime override OR actual StartupReady; never a fabricated startup.
+  /// A container without an overridden startup/diagnostics foundation simply
+  /// has no profile to repair and must not surface a provider error.
+  String? resolveProfileId() {
+    final runtimeProfile = ref.read(reminderRuntimeProfileIdProvider);
+    if (runtimeProfile != null) return runtimeProfile;
+    try {
+      final startup = ref.read(startupControllerProvider);
+      return startup is StartupReady ? startup.profile.id : null;
+    } on Object {
+      return null;
+    }
+  }
+
+  /// True only when this container actually composes the notification
+  /// foundation.  Reading StartupController in a test/reduced container would
+  /// build providers whose async diagnostics read reports an uncaught zone
+  /// error, so prerequisite availability is checked BEFORE startup.
+  bool hasNotificationFoundation() {
+    try {
+      ref.read(notificationFoundationRepositoryProvider);
+      return true;
+    } on Object {
+      return false;
+    }
+  }
+
+  bool hasReading(Object? Function() read) {
+    try {
+      read();
+      return true;
+    } on Object {
+      return false;
+    }
+  }
+
   return ReconcileReminders(
+    // No profile (no StartupReady and no runtime override) means there is no
+    // canonical source to reconcile; skip instead of surfacing a provider
+    // read error from a container without the startup foundation.
     reconcileEvents: () => ref
         .read(calendarEventControllerProvider.notifier)
         .reconcileEventHorizon(refreshContent: true),
     reconcileTasks: () => ref
         .read(plannerControllerProvider.notifier)
         .reconcileTaskReminderHorizon(refreshContent: true),
+    beginRepair: () async {
+      if (!hasNotificationFoundation()) return false;
+      final profileId = resolveProfileId();
+      if (profileId == null) return false;
+      return ref
+          .read(notificationFoundationRepositoryProvider)
+          .beginReminderRepair(profileId: profileId);
+    },
+    completeRepair: () async {
+      if (!hasNotificationFoundation()) return;
+      final profileId = resolveProfileId();
+      if (profileId == null) return;
+      await ref
+          .read(notificationFoundationRepositoryProvider)
+          .completeReminderRepair(profileId: profileId);
+    },
     reconcilePlanning: () async {
-      final startup = ref.read(startupControllerProvider);
-      if (startup is! StartupReady) return;
+      if (!hasNotificationFoundation() ||
+          !hasReading(() => ref.read(weeklyPlanningRepositoryProvider))) {
+        return;
+      }
+      final profileId = resolveProfileId();
+      if (profileId == null) return;
       final permission = await ref
           .read(permissionGatewayProvider)
           .status(OptionalPermission.notifications);
@@ -35,7 +94,7 @@ final reconcileRemindersProvider = Provider<ReconcileReminders>((ref) {
         reminders: ref.read(reminderReconcilerProvider),
         permission: permission,
         privacy: await ref.read(privacyRepositoryProvider).readSettings(),
-      ).reconcile(profileId: startup.profile.id);
+      ).reconcile(profileId: profileId);
     },
   );
 });

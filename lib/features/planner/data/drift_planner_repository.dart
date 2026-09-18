@@ -1,8 +1,10 @@
 import 'dart:convert';
 
 import 'package:drift/drift.dart';
+import 'package:rmplanner/core/background/reminder_recovery_request.dart';
 import 'package:rmplanner/core/database/app_database.dart';
 import 'package:rmplanner/core/time/app_clock.dart';
+import 'package:rmplanner/features/notifications/domain/task_reminder_occurrence.dart';
 import 'package:rmplanner/features/planner/application/planner_repository.dart';
 import 'package:rmplanner/features/planner/data/task_goal_contribution_engine.dart';
 import 'package:rmplanner/features/planner/domain/outcome_reporting.dart';
@@ -25,6 +27,7 @@ final class DriftPlannerRepository
     implements
         PlannerRepository,
         PlannerTaskReminderSource,
+        PlannerTaskReminderOccurrenceSource,
         PlannerBadgeTaskSource {
   const DriftPlannerRepository({
     required this.database,
@@ -138,6 +141,12 @@ final class DriftPlannerRepository
           // caller first returns the task to incomplete.
           break;
       }
+      // M8: durable reminder-repair intent commits with the source change.
+      await ReminderRecoveryRequest.markDirty(
+        database: database,
+        profileId: profileId,
+        nowUtc: changedAt,
+      );
       await writeGuard.beforeCommit();
       return TaskStatusChangeOutcome.changed;
     });
@@ -274,6 +283,11 @@ final class DriftPlannerRepository
           'Task $taskId disappeared before hard delete completed.',
         );
       }
+      await ReminderRecoveryRequest.markDirty(
+        database: database,
+        profileId: profileId,
+        nowUtc: clock.nowUtc(),
+      );
       await writeGuard.beforeCommit();
       return TaskHardDeleteOutcome.deleted;
     });
@@ -446,6 +460,54 @@ final class DriftPlannerRepository
               ]))
             .get();
     return Future.wait(rows.map(_mapTask));
+  }
+
+  @override
+  Future<List<TaskReminderOccurrence>> readReminderTaskOccurrences({
+    required String profileId,
+    required PlannerDate startDate,
+    required PlannerDate endDate,
+  }) async {
+    if (endDate.compareTo(startDate) < 0) {
+      throw ArgumentError('Task reminder range must not end before it starts.');
+    }
+    final rows =
+        await (database.select(database.plannerTasks)
+              ..where(
+                (table) =>
+                    table.profileId.equals(profileId) &
+                    table.status.equals(PlannerTaskStatus.incomplete.name) &
+                    table.dueDate.isNotNull() &
+                    table.dueMinute.isNotNull() &
+                    // Recurring sources may have an anchor before the window;
+                    // nonrecurring sources are bounded by the window itself.
+                    table.dueDate.isSmallerThanValue(
+                      endDate.addDays(1).iso8601,
+                    ),
+              )
+              ..orderBy(<OrderingTerm Function(PlannerTasks)>[
+                (table) => OrderingTerm.asc(table.dueDate),
+                (table) => OrderingTerm.asc(table.dueMinute),
+                (table) => OrderingTerm.asc(table.id),
+              ]))
+            .get();
+    final tasks = await Future.wait(rows.map(_mapTask));
+    final occurrences = <TaskReminderOccurrence>[];
+    for (final task in tasks) {
+      final anchor = task.dueDate;
+      if (anchor == null || task.dueMinute == null) continue;
+      for (
+        var date = startDate;
+        date.compareTo(endDate) <= 0;
+        date = date.addDays(1)
+      ) {
+        if (!task.projectsOn(date)) continue;
+        occurrences.add(
+          TaskReminderOccurrence(task: task, projectedDate: date),
+        );
+      }
+    }
+    return occurrences;
   }
 
   @override
@@ -626,6 +688,12 @@ final class DriftPlannerRepository
           changedAt: now,
         );
       }
+      // M8: durable reminder-repair intent commits with the Task save.
+      await ReminderRecoveryRequest.markDirty(
+        database: database,
+        profileId: profileId,
+        nowUtc: now,
+      );
       await writeGuard.beforeCommit();
     });
 

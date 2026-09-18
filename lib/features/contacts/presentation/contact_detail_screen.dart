@@ -22,6 +22,7 @@ import 'package:rmplanner/features/contacts/presentation/widgets/contact_timelin
 import 'package:rmplanner/features/maps/application/map_coordinate_repository.dart';
 import 'package:rmplanner/features/maps/application/map_providers.dart';
 import 'package:rmplanner/features/maps/domain/map_coordinate.dart';
+import 'package:rmplanner/features/notifications/domain/contact_follow_up_creation_intent.dart';
 import 'package:rmplanner/features/planner/application/event_type_providers.dart';
 
 final contactProfileMapCoordinateProvider =
@@ -648,12 +649,17 @@ final class _ProfileTab extends ConsumerWidget {
         if (value == null || !context.mounted) {
           return;
         }
+        final intent = ContactFollowUpCreationIntent(contact.id);
         if (value == 'event') {
           await context.push(
             '${RoutePaths.calendarEventCreate}?contacts=${contact.id}',
+            extra: intent,
           );
         } else {
-          await context.push('${RoutePaths.taskCreate}?contacts=${contact.id}');
+          await context.push(
+            '${RoutePaths.taskCreate}?contacts=${contact.id}',
+            extra: intent,
+          );
         }
       }),
     );

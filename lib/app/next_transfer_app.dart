@@ -14,7 +14,6 @@ import 'package:rmplanner/features/indicators/application/indicator_providers.da
 import 'package:rmplanner/features/notifications/application/launcher_badge_providers.dart';
 import 'package:rmplanner/features/notifications/application/notification_privacy_refresh_provider.dart';
 import 'package:rmplanner/features/notifications/application/notification_providers.dart';
-import 'package:rmplanner/features/notifications/application/reminder_background_runtime.dart';
 import 'package:rmplanner/features/planner/application/calendar_event_providers.dart';
 import 'package:rmplanner/features/planner/application/calendar_event_repository.dart';
 import 'package:rmplanner/features/planner/application/planner_providers.dart';
@@ -117,10 +116,13 @@ final class _NextTransferAppState extends ConsumerState<NextTransferApp>
     });
   }
 
-  bool _notificationProfileReady(String profileId) {
+  Future<bool> _notificationProfileReady(String profileId) async {
     if (!mounted) return false;
     final startup = ref.read(startupControllerProvider);
-    return startup is StartupReady && startup.profile.id == profileId;
+    if (startup is! StartupReady || startup.profile.id != profileId) {
+      return false;
+    }
+    return !await ref.read(privacyGateProvider).isUnlockRequired();
   }
 
   Future<void> _routeNotification(NotificationResponseIntent intent) async {
@@ -135,10 +137,8 @@ final class _NextTransferAppState extends ConsumerState<NextTransferApp>
     NotificationResponseIntent intent,
   ) async {
     if (intent.action == NotificationResponseAction.snooze) {
-      await enqueueReminderSnooze(
-        snooze: intent,
-        actionAtUtc: DateTime.now().toUtc(),
-      );
+      // VS16 M7/M8: Snooze is deferred.  A legacy/dormant Snooze response is
+      // rejected at app routing and performs no scheduling or domain mutation.
       return;
     }
     final startup = ref.read(startupControllerProvider);
@@ -164,7 +164,7 @@ final class _NextTransferAppState extends ConsumerState<NextTransferApp>
         );
         if (occurrence != null &&
             occurrence.status == CalendarEventStatus.scheduled &&
-            _notificationProfileReady(intent.profileId)) {
+            await _notificationProfileReady(intent.profileId)) {
           // Owner-approved planner-first UX: become the Planner destination
           // (inside the MainShell, exactly like a normal Planner visit), then
           // present the SAME canonical Event preview used by normal Planner
@@ -174,6 +174,9 @@ final class _NextTransferAppState extends ConsumerState<NextTransferApp>
           // One frame later the shell exists; capture the navigator via a
           // microtask-safe read so the overlay context outlives the async gap.
           await Future<void>.delayed(Duration.zero);
+          // M8: the await gap can lapse the profile/readiness guard (for
+          // example a background relock).  Recheck before presenting.
+          if (!await _notificationProfileReady(intent.profileId)) return;
           final navigator = appRootNavigatorKey.currentState;
           if (navigator == null || !navigator.mounted) return;
           await showNotificationEventPreview(
@@ -187,11 +190,12 @@ final class _NextTransferAppState extends ConsumerState<NextTransferApp>
         final task = await ref
             .read(plannerRepositoryProvider)
             .readTask(profileId: intent.profileId, taskId: intent.sourceId);
-        if (task != null && _notificationProfileReady(intent.profileId)) {
+        if (task != null && await _notificationProfileReady(intent.profileId)) {
           // Planner-first UX for Tasks as well: Planner destination first,
           // then the shared Task preview presenter.
           router.go(RoutePaths.planner);
           await Future<void>.delayed(Duration.zero);
+          if (!await _notificationProfileReady(intent.profileId)) return;
           final navigator = appRootNavigatorKey.currentState;
           if (navigator == null || !navigator.mounted) return;
           await showNotificationTaskPreview(navigator.context, taskId: task.id);
@@ -200,7 +204,8 @@ final class _NextTransferAppState extends ConsumerState<NextTransferApp>
         final plan = await ref
             .read(weeklyPlanningRepositoryProvider)
             .readPlan(profileId: intent.profileId, planId: intent.sourceId);
-        if (plan == null || !_notificationProfileReady(intent.profileId)) {
+        if (plan == null ||
+            !await _notificationProfileReady(intent.profileId)) {
           return;
         }
         final today = await ref
@@ -222,7 +227,7 @@ final class _NextTransferAppState extends ConsumerState<NextTransferApp>
               occurrenceId: occurrenceId,
             );
         if (occurrence == null ||
-            !_notificationProfileReady(intent.profileId)) {
+            !await _notificationProfileReady(intent.profileId)) {
           return;
         }
         final today = await ref
@@ -236,6 +241,7 @@ final class _NextTransferAppState extends ConsumerState<NextTransferApp>
         }
         router.go(RoutePaths.planner);
         await Future<void>.delayed(Duration.zero);
+        if (!await _notificationProfileReady(intent.profileId)) return;
         final navigator = appRootNavigatorKey.currentState;
         if (navigator == null || !navigator.mounted) return;
         await showNotificationEventPreview(

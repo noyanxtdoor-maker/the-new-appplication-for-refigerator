@@ -1,4 +1,5 @@
 import 'package:drift/drift.dart';
+import 'package:rmplanner/core/background/reminder_recovery_request.dart';
 import 'package:rmplanner/core/database/app_database.dart';
 import 'package:rmplanner/core/time/app_clock.dart';
 import 'package:rmplanner/features/privacy/application/privacy_repository.dart';
@@ -82,6 +83,7 @@ final class DriftPrivacyRepository implements PrivacyRepository {
       notificationPreviewMode: current.notificationPreviewMode,
     );
     await _writeSettings(updated);
+    await _markReminderRepairForPrimary();
     return updated;
   }
 
@@ -95,7 +97,28 @@ final class DriftPrivacyRepository implements PrivacyRepository {
       notificationPreviewMode: mode,
     );
     await _writeSettings(updated);
+    await _markReminderRepairForPrimary();
     return updated;
+  }
+
+  /// Device-scoped privacy truth belongs to the single primary profile; the
+  /// repair marker is written there without creating any profile.
+  Future<void> _markReminderRepairForPrimary() async {
+    try {
+      final profile =
+          await (database.select(database.localProfiles)
+                ..where((table) => table.slot.equals('primary'))
+                ..limit(1))
+              .getSingleOrNull();
+      if (profile == null) return;
+      await ReminderRecoveryRequest.markDirty(
+        database: database,
+        profileId: profile.id,
+        nowUtc: clock.nowUtc(),
+      );
+    } on Object {
+      // The privacy write is already durable; repair retries on next trigger.
+    }
   }
 
   Future<void> _writePermissionAudit(

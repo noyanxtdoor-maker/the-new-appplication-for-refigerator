@@ -6,8 +6,10 @@ import 'package:rmplanner/core/ids/identifier_source.dart';
 import 'package:rmplanner/core/notifications/notification_preview_policy.dart';
 import 'package:rmplanner/features/notifications/application/launcher_badge_providers.dart';
 import 'package:rmplanner/features/notifications/application/notification_providers.dart';
+import 'package:rmplanner/features/notifications/application/reminder_notification_renderer.dart';
 import 'package:rmplanner/features/notifications/application/reminder_reconciler.dart';
 import 'package:rmplanner/features/notifications/domain/reminder_policy.dart';
+import 'package:rmplanner/features/notifications/domain/task_reminder_occurrence.dart';
 import 'package:rmplanner/features/planner/application/planner_repository.dart';
 import 'package:rmplanner/features/planner/domain/calendar_event.dart';
 import 'package:rmplanner/features/planner/domain/planner_date.dart';
@@ -573,15 +575,12 @@ final class PlannerController extends Notifier<PlannerState> {
       await override(refreshContent);
       return;
     }
-    if (_repository is! PlannerTaskReminderSource) return;
+    if (_repository is! PlannerTaskReminderSource &&
+        _repository is! PlannerTaskReminderOccurrenceSource) {
+      return;
+    }
     final today = _dateSource.today();
     final endDate = today.addDays(42);
-    final tasks = await (_repository as PlannerTaskReminderSource)
-        .readPendingReminderTasks(
-          profileId: _profileId,
-          startDate: today,
-          endDate: endDate,
-        );
     final pending = await ref
         .read(notificationFoundationRepositoryProvider)
         .readReminderWork(
@@ -592,19 +591,43 @@ final class PlannerController extends Notifier<PlannerState> {
               .toUtc(),
           windowEndUtc: endDate.addDays(2).asLocalDate.toUtc(),
         );
-    final projectedTasks = [...tasks];
-    for (final work in pending) {
-      if (work.ownerId == null ||
-          projectedTasks.any((task) => task.id == work.ownerId)) {
-        continue;
+    final List<TaskReminderOccurrence> occurrences;
+    if (_repository is PlannerTaskReminderOccurrenceSource) {
+      // M8: recurrence-aware bounded projection over today..today+42 using the
+      // existing PlannerTask.projectsOn arithmetic.  No per-occurrence Task
+      // persistence; whole-Task terminal state removes every projected key.
+      occurrences = await (_repository as PlannerTaskReminderOccurrenceSource)
+          .readReminderTaskOccurrences(
+            profileId: _profileId,
+            startDate: today,
+            endDate: endDate,
+          );
+    } else {
+      final tasks = await (_repository as PlannerTaskReminderSource)
+          .readPendingReminderTasks(
+            profileId: _profileId,
+            startDate: today,
+            endDate: endDate,
+          );
+      final projectedTasks = [...tasks];
+      for (final work in pending) {
+        if (work.ownerId == null ||
+            projectedTasks.any((task) => task.id == work.ownerId)) {
+          continue;
+        }
+        final task = await _repository.readTask(
+          profileId: _profileId,
+          taskId: work.ownerId!,
+        );
+        if (task != null && task.status == PlannerTaskStatus.incomplete) {
+          projectedTasks.add(task);
+        }
       }
-      final task = await _repository.readTask(
-        profileId: _profileId,
-        taskId: work.ownerId!,
-      );
-      if (task != null && task.status == PlannerTaskStatus.incomplete) {
-        projectedTasks.add(task);
-      }
+      occurrences = <TaskReminderOccurrence>[
+        for (final task in projectedTasks)
+          if (task.dueDate != null)
+            TaskReminderOccurrence(task: task, projectedDate: task.dueDate!),
+      ];
     }
     final preferences = await ref
         .read(notificationFoundationRepositoryProvider)
@@ -621,11 +644,12 @@ final class PlannerController extends Notifier<PlannerState> {
         EffectiveNotificationPreviewMode.detailed;
     final reconciler = ref.read(reminderReconcilerProvider);
     final expected = <String>{};
-    for (final task in projectedTasks) {
-      final due = task.dueDate;
+    for (final occurrence in occurrences) {
+      final task = occurrence.task;
+      final date = occurrence.projectedDate;
       final minute = task.dueMinute;
-      if (due == null || minute == null) continue;
-      final occurrenceId = 'task:${task.id}:${due.iso8601}';
+      if (minute == null) continue;
+      final occurrenceId = occurrence.occurrenceId;
       final key = ReminderReconciler.stableKey(
         sourceKind: ReminderSourceKind.task,
         profileId: _profileId,
@@ -638,9 +662,9 @@ final class PlannerController extends Notifier<PlannerState> {
         sourceVersion: task.updatedAtUtc.microsecondsSinceEpoch,
         occurrenceId: occurrenceId,
         startsAtUtc: DateTime(
-          due.year,
-          due.month,
-          due.day,
+          date.year,
+          date.month,
+          date.day,
           minute ~/ 60,
           minute % 60,
         ).toUtc(),
@@ -651,9 +675,9 @@ final class PlannerController extends Notifier<PlannerState> {
               permission == OperatingSystemPermissionState.granted,
         ),
         sourceActive: task.status == PlannerTaskStatus.incomplete,
-        genericTitle: '🔔 Next Transfer',
-        genericBody: 'You have a new notification.',
-        detailedTitle: '✅ Task reminder',
+        genericTitle: ReminderNotificationCopy.genericTitle,
+        genericBody: ReminderNotificationCopy.genericBody,
+        detailedTitle: ReminderNotificationCopy.taskDetailedTitle,
         detailedBody: _taskReminderBody(task, use24HourTime: false),
         showDetails: showDetails,
         refreshContent: refreshContent,
@@ -704,6 +728,7 @@ final class PlannerController extends Notifier<PlannerState> {
     bool confirmLinkedTypeTransfer = false,
     ReminderPolicyMode? reminderMode,
     int? reminderOffsetMinutes,
+    bool deferReminderReconciliation = false,
   }) async {
     try {
       final saved = await _repository.saveTask(
@@ -753,29 +778,33 @@ final class PlannerController extends Notifier<PlannerState> {
               minute ~/ 60,
               minute % 60,
             ).toUtc();
-      await reconciler.reconcile(
-        sourceKind: ReminderSourceKind.task,
-        profileId: _profileId,
-        sourceId: saved.id,
-        occurrenceId: occurrenceId,
-        startsAtUtc: startsAtUtc,
-        sourceVersion: saved.updatedAtUtc.microsecondsSinceEpoch,
-        renderRevision: showDetails
-            ? 'task_detailed_${saved.updatedAtUtc.microsecondsSinceEpoch}'
-            : 'task_generic',
-        globalOffsetMinutes: preferences.defaultTaskReminderMinutes,
-        categoryEnabled: preferences.taskRemindersEnabled,
-        systemEnabled: preferences.effectiveSystemEnabled(
-          androidPermissionGranted:
-              permission == OperatingSystemPermissionState.granted,
-        ),
-        sourceActive: saved.status == PlannerTaskStatus.incomplete,
-        genericTitle: '🔔 Next Transfer',
-        genericBody: 'You have a new notification.',
-        detailedTitle: '✅ Task reminder',
-        detailedBody: _taskReminderBody(saved, use24HourTime: false),
-        showDetails: showDetails,
-      );
+      // M7 explicit follow-up finalization withholds the early reconcile until
+      // the Contacts save and purpose write have committed.
+      if (!deferReminderReconciliation) {
+        await reconciler.reconcile(
+          sourceKind: ReminderSourceKind.task,
+          profileId: _profileId,
+          sourceId: saved.id,
+          occurrenceId: occurrenceId,
+          startsAtUtc: startsAtUtc,
+          sourceVersion: saved.updatedAtUtc.microsecondsSinceEpoch,
+          renderRevision: showDetails
+              ? 'task_detailed_${saved.updatedAtUtc.microsecondsSinceEpoch}'
+              : 'task_generic',
+          globalOffsetMinutes: preferences.defaultTaskReminderMinutes,
+          categoryEnabled: preferences.taskRemindersEnabled,
+          systemEnabled: preferences.effectiveSystemEnabled(
+            androidPermissionGranted:
+                permission == OperatingSystemPermissionState.granted,
+          ),
+          sourceActive: saved.status == PlannerTaskStatus.incomplete,
+          genericTitle: ReminderNotificationCopy.genericTitle,
+          genericBody: ReminderNotificationCopy.genericBody,
+          detailedTitle: ReminderNotificationCopy.taskDetailedTitle,
+          detailedBody: _taskReminderBody(saved, use24HourTime: false),
+          showDetails: showDetails,
+        );
+      }
       await _load(state.selectedDate, invalidateCache: true);
       await _refreshLauncherBadge();
       return true;
@@ -797,13 +826,77 @@ final class PlannerController extends Notifier<PlannerState> {
   }) {
     final minute = task.dueMinute;
     if (minute == null) return 'Upcoming task';
-    final hour = minute ~/ 60;
-    final minutePart = (minute % 60).toString().padLeft(2, '0');
-    final time = use24HourTime
-        ? '${hour.toString().padLeft(2, '0')}:$minutePart'
-        : '${hour % 12 == 0 ? 12 : hour % 12}:$minutePart ${hour < 12 ? 'AM' : 'PM'}';
-    final notes = task.notes?.trim();
-    return notes == null || notes.isEmpty ? 'Due $time' : 'Due $time\n$notes';
+    if (use24HourTime) {
+      final hour = minute ~/ 60;
+      final minutePart = (minute % 60).toString().padLeft(2, '0');
+      final time = '${hour.toString().padLeft(2, '0')}:$minutePart';
+      final notes = task.notes?.trim();
+      return notes == null || notes.isEmpty ? 'Due $time' : 'Due $time\n$notes';
+    }
+    return ReminderNotificationCopy.taskDetailedBody(
+      dueMinute: minute,
+      notes: task.notes,
+    );
+  }
+
+  /// M7 explicit follow-up finalization for Tasks: purpose is applied only
+  /// after the canonical Task save and Contacts commit succeeded.
+  Future<void> finalizeContactFollowUp({
+    required String taskId,
+    required String contactId,
+    String? occurrenceId,
+  }) async {
+    await ref
+        .read(reminderReconcilerProvider)
+        .applySourcePurpose(
+          profileId: _profileId,
+          sourceKind: ReminderSourceKind.task,
+          sourceId: taskId,
+          purpose: ReminderPurpose.contactFollowUp,
+          contactId: contactId,
+          occurrenceId: occurrenceId ?? ReminderPolicy.seriesOccurrenceId,
+        );
+    await reconcileTaskReminderHorizon();
+  }
+
+  /// Clears follow-up provenance for Contacts removed by an ordinary Task
+  /// Contacts commit and re-reconciles only when something actually changed.
+  Future<void> clearUnlinkedFollowUp({
+    required String taskId,
+    required Set<String> currentContactIds,
+  }) async {
+    try {
+      final cleared = await ref
+          .read(reminderReconcilerProvider)
+          .clearUnlinkedPurpose(
+            profileId: _profileId,
+            sourceKind: ReminderSourceKind.task,
+            sourceId: taskId,
+            currentContactIds: currentContactIds,
+          );
+      if (cleared) {
+        await reconcileTaskReminderHorizon();
+      }
+    } on Object {
+      // The canonical Task/Contacts save already committed; retry reconciles.
+    }
+  }
+
+  Future<void> clearContactFollowUpPurpose({
+    required String taskId,
+    required String contactId,
+    String? occurrenceId,
+  }) async {
+    await ref
+        .read(reminderReconcilerProvider)
+        .clearContactPurpose(
+          profileId: _profileId,
+          sourceKind: ReminderSourceKind.task,
+          sourceId: taskId,
+          contactId: contactId,
+          occurrenceId: occurrenceId,
+        );
+    await reconcileTaskReminderHorizon();
   }
 
   Future<TaskStatusChangeOutcome> changeStatus({

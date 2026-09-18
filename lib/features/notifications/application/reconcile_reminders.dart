@@ -7,11 +7,19 @@ final class ReconcileReminders {
     required this.reconcileEvents,
     required this.reconcileTasks,
     this.reconcilePlanning,
+    this.beginRepair,
+    this.completeRepair,
   });
 
   final Future<void> Function() reconcileEvents;
   final Future<void> Function() reconcileTasks;
   final Future<void> Function()? reconcilePlanning;
+
+  /// M8 durable marker handoff.  [beginRepair] returns true when this drain
+  /// owns a queued/retryScheduled repair episode; [completeRepair] closes a
+  /// still-running episode after the passes.
+  final Future<bool> Function()? beginRepair;
+  final Future<void> Function()? completeRepair;
   Future<void>? _running;
   bool _again = false;
   bool _started = false;
@@ -53,9 +61,24 @@ final class ReconcileReminders {
         _again = false;
         await _resume?.future;
         _started = true;
+        var markerOwned = false;
+        try {
+          markerOwned = await beginRepair?.call() ?? false;
+        } on Object {
+          markerOwned = false;
+        }
         await reconcileEvents();
         await reconcileTasks();
         await reconcilePlanning?.call();
+        if (markerOwned) {
+          try {
+            await completeRepair?.call();
+          } on Object {
+            // A later trigger retries; source truth is already reconciled.
+          }
+          // One trailing pass absorbs a mutation that landed during this pass.
+          _again = true;
+        }
         _started = false;
       } while (_again);
     } finally {
