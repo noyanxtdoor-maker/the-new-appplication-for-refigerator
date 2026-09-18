@@ -97,7 +97,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         name: RouteNames.startup,
         path: RoutePaths.startup,
-        builder: (context, state) => const StartupScreen(),
+        pageBuilder: (context, state) =>
+            const NoTransitionPage<void>(child: StartupScreen()),
       ),
       GoRoute(
         name: RouteNames.onboarding,
@@ -117,12 +118,14 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ShellRoute(
         navigatorKey: _shellNavigatorKey,
         observers: <NavigatorObserver>[shellRouteObserver],
-        builder: (context, state, child) => MainShell(child: child),
+        pageBuilder: (context, state, child) =>
+            NoTransitionPage<void>(child: MainShell(child: child)),
         routes: <RouteBase>[
           GoRoute(
             name: RouteNames.home,
             path: RoutePaths.home,
-            builder: (context, state) => const HomeScreen(),
+            pageBuilder: (context, state) =>
+                const NoTransitionPage<void>(child: HomeScreen()),
           ),
           GoRoute(
             name: RouteNames.planner,

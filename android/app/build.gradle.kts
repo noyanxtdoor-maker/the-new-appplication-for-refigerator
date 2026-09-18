@@ -72,6 +72,8 @@ flutter {
 }
 
 dependencies {
+    // M5: AndroidX supplies the compatible Android 12+ system splash theme.
+    implementation("androidx.core:core-splashscreen:1.0.1")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
     // M4 recovery receiver enqueues one bounded canonical WorkManager task.
     // Same version the workmanager plugin itself compiles against; the merged

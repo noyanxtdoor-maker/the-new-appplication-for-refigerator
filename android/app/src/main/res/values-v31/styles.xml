@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="LaunchTheme" parent="Theme.SplashScreen">
+        <item name="android:windowSplashScreenBackground">@color/next_transfer_deep_blue</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/nt_splash_no_icon</item>
+        <item name="postSplashScreenTheme">@style/NormalTheme</item>
+        <item name="android:statusBarColor">@color/next_transfer_deep_blue</item>
+        <item name="android:navigationBarColor">@color/next_transfer_deep_blue</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+</resources>
