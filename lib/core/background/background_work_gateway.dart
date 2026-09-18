@@ -2,7 +2,22 @@ enum BackgroundNetworkConstraint { notRequired, connected, unmetered }
 
 enum BackgroundExistingWorkPolicy { keep, replace }
 
-enum BackgroundGatewayWorkState { absent, scheduled }
+enum BackgroundBackoffPolicy { none, exponential }
+
+/// Astra §65 truthful platform WorkInfo mapping (workmanager 0.10.9/0.10.8:
+/// Android ENQUEUED and BLOCKED are indistinguishable in the Dart DTO and
+/// both map to [scheduled]; terminal states are [succeeded], [failed] and
+/// [cancelled]; null WorkInfo is [absent]; an unavailable query is [unknown]
+/// and must never be reported as absence or OS delay).
+enum BackgroundGatewayWorkState {
+  absent,
+  scheduled,
+  running,
+  succeeded,
+  failed,
+  cancelled,
+  unknown,
+}
 
 final class BackgroundWorkConstraints {
   const BackgroundWorkConstraints({
@@ -27,6 +42,8 @@ final class BackgroundWorkSpec {
     this.tag,
     this.constraints = const BackgroundWorkConstraints(),
     this.existingPolicy = BackgroundExistingWorkPolicy.keep,
+    this.backoffPolicy = BackgroundBackoffPolicy.none,
+    this.backoffPolicyDelay,
   });
 
   static final RegExp _safeKey = RegExp(r'^[a-z0-9_]{1,64}$');
@@ -39,6 +56,11 @@ final class BackgroundWorkSpec {
   final String? tag;
   final BackgroundWorkConstraints constraints;
   final BackgroundExistingWorkPolicy existingPolicy;
+
+  /// §31: bounded registration retry exposes the plugin's exponential
+  /// backoff through the narrow spec; the plugin enforces a 10s minimum delay.
+  final BackgroundBackoffPolicy backoffPolicy;
+  final Duration? backoffPolicyDelay;
 
   void validate() {
     if (tag != null && !_safeValue.hasMatch(tag!)) throw ArgumentError('Invalid background tag.');

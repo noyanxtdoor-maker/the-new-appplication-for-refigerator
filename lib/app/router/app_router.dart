@@ -31,6 +31,7 @@ import 'package:rmplanner/features/maps/domain/map_coordinate.dart';
 import 'package:rmplanner/features/maps/presentation/map_location_picker_screen.dart';
 import 'package:rmplanner/features/maps/presentation/maps_screen.dart';
 import 'package:rmplanner/features/maps/presentation/maps_search_screen.dart';
+import 'package:rmplanner/features/notifications/domain/contact_follow_up_creation_intent.dart';
 import 'package:rmplanner/features/planner/application/planner_providers.dart';
 import 'package:rmplanner/features/planner/domain/calendar_event.dart';
 import 'package:rmplanner/features/planner/domain/planner_date.dart';
@@ -353,6 +354,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) {
           final rawDate = state.uri.queryParameters['date'];
           final rawContacts = state.uri.queryParameters['contacts'];
+          // §8: only the Contact chooser's typed intent carries provenance;
+          // unknown/malformed extra fails closed to ordinary creation.
+          final followUpIntent = state.extra is ContactFollowUpCreationIntent
+              ? state.extra! as ContactFollowUpCreationIntent
+              : null;
           return TaskFormScreen.create(
             initialDueDate: rawDate == null ? null : PlannerDate.parse(rawDate),
             initialContactIds: rawContacts == null
@@ -361,6 +367,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                       .split(',')
                       .where((id) => id.isNotEmpty)
                       .toList(growable: false),
+            followUpContactId: followUpIntent?.contactId,
           );
         },
       ),
@@ -433,6 +440,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                       .where((id) => id.isNotEmpty)
                       .toList(growable: false),
             initialCoordinate: coordinate,
+            // §8: only the Contact chooser's typed intent carries
+            // provenance; unknown/malformed extra fails closed.
+            followUpContactId: state.extra is ContactFollowUpCreationIntent
+                ? (state.extra! as ContactFollowUpCreationIntent).contactId
+                : null,
           );
         },
       ),

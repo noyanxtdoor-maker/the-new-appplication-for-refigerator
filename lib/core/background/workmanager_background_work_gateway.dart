@@ -1,71 +1,111 @@
 import 'package:rmplanner/core/background/background_work_gateway.dart';
-import 'package:rmplanner/core/notifications/notification_payload.dart';
 import 'package:rmplanner/features/notifications/application/reminder_background_runtime.dart';
 import 'package:workmanager/workmanager.dart';
+
+/// Targeted enriched delivery input (Astra §12/§14): EXACTLY the three
+/// technical keys.  No private text ever enters WorkManager input.
+final class CanonicalReminderWorkSpecInput {
+  const CanonicalReminderWorkSpecInput({
+    required this.stableKey,
+    required this.scheduledUtcMs,
+    required this.sourceRevision,
+  });
+
+  static const String stableKeyField = 'stable_key';
+  static const String scheduledUtcMsField = 'scheduled_utc_ms';
+  static const String sourceRevisionField = 'source_revision';
+
+  static const Set<String> allowedKeys = <String>{
+    stableKeyField,
+    scheduledUtcMsField,
+    sourceRevisionField,
+  };
+
+  final String stableKey;
+  final int scheduledUtcMs;
+  final String sourceRevision;
+
+  Map<String, Object> toInput() => <String, Object>{
+    stableKeyField: stableKey,
+    scheduledUtcMsField: scheduledUtcMs,
+    sourceRevisionField: sourceRevision,
+  };
+
+  /// Strict three-key parse: exact keys, types and shapes.  Legacy two-key
+  /// input and any extra/malformed field are rejected (caller treats them as
+  /// terminal obsolete, Astra §32 step 1).
+  static CanonicalReminderWorkSpecInput? tryParse(Map<String, dynamic>? input) {
+    if (input == null || input.length != allowedKeys.length) {
+      return null;
+    }
+    for (final key in input.keys) {
+      if (!allowedKeys.contains(key)) {
+        return null;
+      }
+    }
+    final stableKey = input[stableKeyField];
+    final scheduled = input[scheduledUtcMsField];
+    final revision = input[sourceRevisionField];
+    if (stableKey is! String ||
+        !RegExp(r'^reminder:[A-Za-z0-9_.:-]{1,240}$').hasMatch(stableKey)) {
+      return null;
+    }
+    if (scheduled is! int || scheduled < 0) {
+      return null;
+    }
+    if (revision is! String ||
+        !RegExp(r'^[A-Za-z0-9_.:-]{1,256}$').hasMatch(revision)) {
+      return null;
+    }
+    return CanonicalReminderWorkSpecInput(
+      stableKey: stableKey,
+      scheduledUtcMs: scheduled,
+      sourceRevision: revision,
+    );
+  }
+
+  /// Legacy two-key M4 delivery input — recognized only to be ignored.
+  static bool isLegacyTwoKeyInput(Map<String, dynamic>? input) {
+    if (input == null || input.length != 2) return false;
+    return input.containsKey(stableKeyField) &&
+        input.containsKey(scheduledUtcMsField) &&
+        !input.containsKey(sourceRevisionField);
+  }
+}
 
 @pragma('vm:entry-point')
 void nextTransferBackgroundDispatcher() {
   Workmanager().executeTask((task, input) async {
     if (task == 'nt.reminder.snooze') {
-      const keys = {'profile_id', 'source_kind', 'source_id', 'occurrence_id', 'generation', 'action_utc_ms'};
-      if (input == null ||
-          input.length != keys.length ||
-          input.keys.any((key) => !keys.contains(key))) {
-        return false;
-      }
-      final profile = input['profile_id'];
-      final source = input['source_id'];
-      final occurrence = input['occurrence_id'];
-      final generation = input['generation'];
-      final timestamp = input['action_utc_ms'];
-      final kind = NotificationSourceKind.values.asNameMap()[input['source_kind']];
-      if (profile is! String ||
-          source is! String ||
-          occurrence is! String ||
-          generation is! int ||
-          generation < 0 ||
-          timestamp is! int ||
-          (kind != NotificationSourceKind.calendarEvent &&
-              kind != NotificationSourceKind.task)) {
-        return false;
-      }
-      final intent = NotificationResponseIntent(profileId: profile, sourceKind: kind!,
-        sourceId: source, occurrenceId: occurrence, generation: generation,
-        action: NotificationResponseAction.snooze);
-      if (NotificationPayloadCodec.tryDecode(
-            NotificationPayloadCodec.encode(intent),
-          ) ==
-          null) {
-        return false;
-      }
-      return runReminderRuntime(snooze: intent,
-        actionAtUtc: DateTime.fromMillisecondsSinceEpoch(timestamp, isUtc: true));
+      // Astra §48: Snooze is deferred.  Runtime handles it without scheduling
+      // or domain mutation; legacy queued jobs terminate rather than retry.
+      return runReminderRuntime(snoozeIgnored: true);
     }
     if (task == 'nt.reminder.recovery') {
       if (input != null && input.isNotEmpty) return false;
       return runReminderRuntime();
     }
-    if (task != 'nt.reminder.delivery' ||
-        input == null ||
-        input.keys.any(
-          (key) => key != 'stable_key' && key != 'scheduled_utc_ms',
-        )) {
+    if (task != 'nt.reminder.delivery') {
       return false;
     }
-    final key = input['stable_key'];
-    final timestamp = input['scheduled_utc_ms'];
-    if (key is! String ||
-        timestamp is! int ||
-        !RegExp(r'^reminder:[A-Za-z0-9_.:-]{1,240}$').hasMatch(key)) {
-      return false;
+    // Three-key targeted delivery; legacy two-key input is terminal obsolete
+    // (handled true, no post, no domain mutation); anything else is malformed
+    // and also handled without retry.
+    final spec = CanonicalReminderWorkSpecInput.tryParse(input);
+    if (spec != null) {
+      return runReminderRuntime(
+        deliveryKey: spec.stableKey,
+        scheduledAtUtc: DateTime.fromMillisecondsSinceEpoch(
+          spec.scheduledUtcMs,
+          isUtc: true,
+        ),
+        deliverySourceRevision: spec.sourceRevision,
+      );
     }
-    return runReminderRuntime(
-      deliveryKey: key,
-      scheduledAtUtc: DateTime.fromMillisecondsSinceEpoch(
-        timestamp,
-        isUtc: true,
-      ),
-    );
+    if (CanonicalReminderWorkSpecInput.isLegacyTwoKeyInput(input)) {
+      return runReminderRuntime(legacyDeliveryIgnored: true);
+    }
+    return false;
   });
 }
 
@@ -101,6 +141,11 @@ final class WorkmanagerBackgroundWorkGateway implements BackgroundWorkGateway {
         BackgroundExistingWorkPolicy.keep => ExistingWorkPolicy.keep,
         BackgroundExistingWorkPolicy.replace => ExistingWorkPolicy.replace,
       },
+      backoffPolicy: switch (work.backoffPolicy) {
+        BackgroundBackoffPolicy.none => BackoffPolicy.linear,
+        BackgroundBackoffPolicy.exponential => BackoffPolicy.exponential,
+      },
+      backoffPolicyDelay: work.backoffPolicyDelay,
     );
   }
 
@@ -108,11 +153,27 @@ final class WorkmanagerBackgroundWorkGateway implements BackgroundWorkGateway {
   Future<void> cancelUnique(String uniqueName) =>
       _workmanager.cancelByUniqueName(uniqueName);
 
+  /// Astra §65 truthful WorkInfo mapping.  Android ENQUEUED/BLOCKED map to
+  /// [BackgroundGatewayWorkState.scheduled] (the installed plugin cannot
+  /// distinguish them in its Dart DTO); terminal states map truthfully;
+  /// null is absent; query failure is UNKNOWN, never absence.
   @override
   Future<BackgroundGatewayWorkState> inspect(String uniqueName) async {
-    final info = await _workmanager.getWorkInfo(uniqueName);
-    return info == null
-        ? BackgroundGatewayWorkState.absent
-        : BackgroundGatewayWorkState.scheduled;
+    final WorkInfo? info;
+    try {
+      info = await _workmanager.getWorkInfo(uniqueName);
+    } on Object {
+      return BackgroundGatewayWorkState.unknown;
+    }
+    if (info == null) {
+      return BackgroundGatewayWorkState.absent;
+    }
+    return switch (info.state) {
+      WorkState.scheduled => BackgroundGatewayWorkState.scheduled,
+      WorkState.running => BackgroundGatewayWorkState.running,
+      WorkState.succeeded => BackgroundGatewayWorkState.succeeded,
+      WorkState.failed => BackgroundGatewayWorkState.failed,
+      WorkState.cancelled => BackgroundGatewayWorkState.cancelled,
+    };
   }
 }

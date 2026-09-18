@@ -6,6 +6,7 @@ import 'package:rmplanner/app/theme/app_theme.dart';
 import 'package:rmplanner/app/theme/internal_screen.dart';
 import 'package:rmplanner/features/notifications/application/notification_providers.dart';
 import 'package:rmplanner/features/notifications/domain/notification_preferences.dart';
+import 'package:rmplanner/features/notifications/domain/reminder_policy_label.dart';
 import 'package:rmplanner/features/planner/application/event_type_providers.dart';
 import 'package:rmplanner/features/privacy/application/privacy_providers.dart';
 import 'package:rmplanner/features/privacy/domain/permission_summary.dart';
@@ -394,9 +395,8 @@ final class _NotificationsSettingsScreenState
 
   static String _leadLabel(int? minutes) {
     if (minutes == null) return 'Off';
-    if (minutes == 0) return 'At time';
     if (minutes == 60) return '1 hour before';
-    return '$minutes minutes before';
+    return formatReminderLeadMinutes(minutes);
   }
 }
 

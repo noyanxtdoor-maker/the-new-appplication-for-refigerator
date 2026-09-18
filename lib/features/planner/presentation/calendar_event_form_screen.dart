@@ -22,6 +22,7 @@ import 'package:rmplanner/features/maps/presentation/map_location_picker_screen.
 import 'package:rmplanner/features/maps/presentation/map_pin_section.dart';
 import 'package:rmplanner/features/notifications/application/notification_providers.dart';
 import 'package:rmplanner/features/notifications/domain/reminder_policy.dart';
+import 'package:rmplanner/features/notifications/domain/reminder_policy_label.dart';
 import 'package:rmplanner/features/notifications/presentation/reminder_time_picker.dart';
 import 'package:rmplanner/features/planner/application/calendar_event_creation_draft_provider.dart';
 import 'package:rmplanner/features/planner/application/calendar_event_providers.dart';
@@ -62,6 +63,7 @@ final class CalendarEventFormScreen extends ConsumerStatefulWidget {
     this.initialDurationMinutes,
     this.onClose,
     this.initialContactIds = const <String>[],
+    this.followUpContactId,
     this.sheetPresentation = false,
     this.sheetScrollController,
     this.sheetController,
@@ -101,6 +103,7 @@ final class CalendarEventFormScreen extends ConsumerStatefulWidget {
        initialDurationMinutes = null,
        initialCoordinate = null,
        onClose = null,
+       followUpContactId = null,
        initialTitle = null,
        initialEventTypeLabel = null,
        initialStatusIntent = null;
@@ -133,6 +136,7 @@ final class CalendarEventFormScreen extends ConsumerStatefulWidget {
        initialDurationMinutes = null,
        onClose = null,
        sourceTaskId = null,
+       followUpContactId = null,
        initialContactIds = const <String>[];
 
   const CalendarEventFormScreen.reschedule({
@@ -157,6 +161,7 @@ final class CalendarEventFormScreen extends ConsumerStatefulWidget {
        onClose = null,
        sourceTaskId = null,
        deferRecurrenceScopeToSave = false,
+       followUpContactId = null,
        initialContactIds = const <String>[],
        initialTitle = null,
        initialEventTypeLabel = null,
@@ -189,6 +194,11 @@ final class CalendarEventFormScreen extends ConsumerStatefulWidget {
   final bool deferRecurrenceScopeToSave;
   final String? sourceTaskId;
   final List<String> initialContactIds;
+
+  /// §8 typed provenance: the ONE explicitly selected Contact when creation
+  /// came from Contact Detail's Create Follow-Up chooser; null for every
+  /// ordinary creation path. Never persisted; consumed at Save finalization.
+  final String? followUpContactId;
 
   /// NX-06: identity seeds for the Edit Event loading shell (known from the
   /// detail sheet at open time). Null keeps the previous blank-pause behavior
@@ -2121,6 +2131,28 @@ final class _CalendarEventFormScreenState
     ],
   );
 
+  /// O9/OAT11 identity law: the Edit header MUST derive from the same
+  /// current canonical Event Type identity the Detail sheet displays — the
+  /// loaded occurrence/snapshot chain — whenever the bound type is
+  /// unchanged.  Only an explicit NEW selection renders the newly chosen
+  /// type's label.  Master-row resolution through the live provider list can
+  /// surface a retired legacy type's display name that Detail never shows;
+  /// historical data is never rewritten to fix a title.
+  String? get _editIdentityLabel {
+    if (widget.mode != CalendarEventFormMode.edit) {
+      return null;
+    }
+    final selected = _selectedEventType;
+    final unchanged = selected == null || selected.id == _loadedTypeId;
+    if (unchanged) {
+      final snapshot = _loadedEventTypeLabel?.trim();
+      if (snapshot != null && snapshot.isNotEmpty) {
+        return snapshot;
+      }
+    }
+    return selected?.label;
+  }
+
   String get _formHeading => switch (widget.mode) {
     CalendarEventFormMode.create when widget.sourceTaskId != null =>
       'Create Event from Task',
@@ -2128,12 +2160,12 @@ final class _CalendarEventFormScreenState
       _selectedEventType == null
           ? 'Create Event'
           : 'Create ${_selectedEventType!.label}',
-    CalendarEventFormMode.edit =>
-      _selectedEventType == null
-          ? widget.initialEventTypeLabel?.trim().isNotEmpty == true
-                ? 'Edit ${widget.initialEventTypeLabel} Event'
-                : 'Edit Event'
-          : 'Edit ${_selectedEventType!.label} Event',
+    CalendarEventFormMode.edit => switch (_editIdentityLabel) {
+      final label? => 'Edit $label Event',
+      _ => widget.initialEventTypeLabel?.trim().isNotEmpty == true
+          ? 'Edit ${widget.initialEventTypeLabel} Event'
+          : 'Edit Event',
+    },
     CalendarEventFormMode.reschedule => 'Reschedule Event',
   };
 
@@ -2403,6 +2435,15 @@ final class _CalendarEventFormScreenState
         awaitPlannerRefresh: false,
         reminderMode: _reminderMode,
         reminderOffsetMinutes: _reminderOffsetMinutes,
+        // §8 M7: the follow-up save withholds early scheduling until the
+        // People links and explicit purpose commit (steps 3-4 below).
+        deferReminderReconciliation: _isFollowUpSave,
+        reminderPurpose: _isFollowUpSave
+            ? ReminderPurpose.contactFollowUp
+            : null,
+        reminderPurposeContactId: _isFollowUpSave
+            ? widget.followUpContactId
+            : null,
       ),
       CalendarEventFormMode.edit => await _saveEdit(draft, controller),
       CalendarEventFormMode.reschedule => await controller.rescheduleEvent(
@@ -2534,6 +2575,32 @@ final class _CalendarEventFormScreenState
           );
         }
       }
+      // §8 M7 steps 4/5: the follow-up save finalizes AFTER the scoped People
+      // commit — explicit source-level purpose (timing preserved), then
+      // reconcile that source.  Failure keeps the form open with the same
+      // stable source ID for retry (no phantom Contact, no source rollback).
+      if (_isFollowUpSave) {
+        final finalized = await controller.finalizeContactFollowUp(
+          eventId: _draftId,
+          contactId: widget.followUpContactId!,
+          mode: _reminderMode,
+          offsetMinutes: _reminderOffsetMinutes,
+        );
+        if (!mounted) {
+          return;
+        }
+        if (!finalized) {
+          setState(() => _saving = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Saved, but follow-up could not be applied. Try again.',
+              ),
+            ),
+          );
+          return;
+        }
+      }
       if (!mounted) {
         return;
       }
@@ -2544,6 +2611,14 @@ final class _CalendarEventFormScreenState
       _closeForm(true);
     }
   }
+
+  /// §8: only the Contact chooser's typed intent creates a follow-up save;
+  /// the retained contacts= preselection alone is ordinary creation.
+  bool get _isFollowUpSave =>
+      widget.mode == CalendarEventFormMode.create &&
+      widget.sourceTaskId == null &&
+      widget.followUpContactId != null &&
+      widget.followUpContactId!.trim().isNotEmpty;
 
   Future<void> _persistMapPin() async {
     try {
@@ -2807,7 +2882,7 @@ final class _CalendarEventFormScreenState
       case ReminderPolicyMode.off:
         return 'Off  ›';
       case ReminderPolicyMode.offset:
-        return '${_reminderOffsetMinutes ?? 0} minutes before  ›';
+        return '${formatReminderLeadMinutes(_reminderOffsetMinutes ?? 0)}  ›';
     }
   }
 

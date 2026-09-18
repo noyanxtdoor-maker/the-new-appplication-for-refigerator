@@ -15,6 +15,7 @@ import 'package:rmplanner/features/goals/domain/goal.dart';
 import 'package:rmplanner/features/goals/presentation/widgets/goal_icon.dart';
 import 'package:rmplanner/features/notifications/application/notification_providers.dart';
 import 'package:rmplanner/features/notifications/domain/reminder_policy.dart';
+import 'package:rmplanner/features/notifications/domain/reminder_policy_label.dart';
 import 'package:rmplanner/features/notifications/presentation/reminder_time_picker.dart';
 import 'package:rmplanner/features/planner/application/event_type_providers.dart';
 import 'package:rmplanner/features/planner/application/planner_providers.dart';
@@ -34,6 +35,7 @@ final class TaskFormScreen extends ConsumerStatefulWidget {
     this.initialDueMinute,
     this.initialDraftId,
     this.initialContactIds = const <String>[],
+    this.followUpContactId,
     this.initialTitle,
     this.initialDescription,
     this.initialPeople = const <String>[],
@@ -62,6 +64,7 @@ final class TaskFormScreen extends ConsumerStatefulWidget {
   }) : initialDueDate = null,
        initialDueMinute = null,
        initialContactIds = const <String>[],
+       followUpContactId = null,
        initialTitle = null,
        initialDescription = null,
        initialPeople = const <String>[],
@@ -77,6 +80,11 @@ final class TaskFormScreen extends ConsumerStatefulWidget {
   final int? initialDueMinute;
   final String? initialDraftId;
   final List<String> initialContactIds;
+
+  /// §8 typed provenance: the ONE explicitly selected Contact when creation
+  /// came from Contact Detail's Create Follow-Up chooser; null for ordinary
+  /// creation. Never persisted; consumed at Save finalization.
+  final String? followUpContactId;
   final String? initialTitle;
   final String? initialDescription;
   final List<String> initialPeople;
@@ -1123,6 +1131,13 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen>
     return TimeOfDay(hour: minute ~/ 60, minute: minute % 60);
   }
 
+  /// §8: only the Contact chooser's typed intent creates a follow-up save;
+  /// the retained contacts= preselection alone is ordinary creation.
+  bool get _isFollowUpSave =>
+      widget.taskId == null &&
+      widget.followUpContactId != null &&
+      widget.followUpContactId!.trim().isNotEmpty;
+
   static int _snapMinute(int minute) =>
       ((minute / 5).round() * 5).clamp(0, 1439);
 
@@ -1184,6 +1199,15 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen>
           confirmLinkedTypeTransfer: confirmLinkedTypeTransfer,
           reminderMode: _reminderMode,
           reminderOffsetMinutes: _reminderOffsetMinutes,
+          // §8 M7: the follow-up save withholds policy + scheduling until the
+          // Task Contact links commit (steps 3-4 below).
+          deferReminderReconciliation: _isFollowUpSave,
+          reminderPurpose: _isFollowUpSave
+              ? ReminderPurpose.contactFollowUp
+              : null,
+          reminderPurposeContactId: _isFollowUpSave
+              ? widget.followUpContactId
+              : null,
         );
     if (!mounted) {
       return;
@@ -1200,6 +1224,29 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen>
               taskId: _stableTaskId,
               contactIds: _contactIds,
             );
+      }
+      // §8 M7 steps 4/5: finalize AFTER the Task Contact commit — explicit
+      // source-level purpose with the form's timing, then reconcile.  Failure
+      // keeps the form open with the same stable Task ID for retry.
+      if (_isFollowUpSave) {
+        final finalized = await ref
+            .read(plannerControllerProvider.notifier)
+            .finalizeContactFollowUp(
+              taskId: _stableTaskId,
+              contactId: widget.followUpContactId!,
+              mode: _reminderMode,
+              offsetMinutes: _reminderOffsetMinutes,
+            );
+        if (!mounted) {
+          return;
+        }
+        if (!finalized) {
+          setState(() {
+            _saving = false;
+            _error = 'Saved, but follow-up could not be applied. Try again.';
+          });
+          return;
+        }
       }
       if (!mounted) {
         return;
@@ -1266,7 +1313,7 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen>
       case ReminderPolicyMode.off:
         return 'Off';
       case ReminderPolicyMode.offset:
-        return '${_reminderOffsetMinutes ?? 0} minutes before';
+        return formatReminderLeadMinutes(_reminderOffsetMinutes ?? 0);
     }
   }
 

@@ -58,6 +58,9 @@ final class ReminderPolicy {
     }
   }
 
+  /// Astra M7 update law (§9): purpose/contactId changes must be explicit.
+  /// The default [copyWith] preserves both. [withPurpose] builds an explicit
+  /// set/clear variant so null-ambiguity can never make clearing impossible.
   ReminderPolicy copyWith({
     ReminderPolicyMode? mode,
     int? offsetMinutes,
@@ -76,4 +79,31 @@ final class ReminderPolicy {
     createdAtUtc: createdAtUtc,
     updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
   );
+
+  /// Explicit purpose replacement.  [contactId] is required for
+  /// [ReminderPurpose.contactFollowUp] and forbidden for standard.
+  ReminderPolicy withPurpose({
+    required ReminderPurpose purpose,
+    String? contactId,
+    DateTime? updatedAtUtc,
+  }) => ReminderPolicy(
+    id: id,
+    profileId: profileId,
+    sourceKind: sourceKind,
+    sourceId: sourceId,
+    occurrenceId: occurrenceId,
+    purpose: purpose,
+    contactId: purpose == ReminderPurpose.contactFollowUp ? contactId : null,
+    mode: mode,
+    offsetMinutes: offsetMinutes,
+    createdAtUtc: createdAtUtc,
+    updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
+  );
+
+  /// Explicit standard clearing: purpose standard and contactId null.
+  ReminderPolicy clearPurpose({DateTime? updatedAtUtc}) =>
+      withPurpose(
+        purpose: ReminderPurpose.standard,
+        updatedAtUtc: updatedAtUtc,
+      );
 }

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:rmplanner/core/background/background_work_request.dart';
 import 'package:rmplanner/core/ids/identifier_source.dart';
 import 'package:rmplanner/core/notifications/notification_preview_policy.dart';
+import 'package:rmplanner/features/contacts/application/contact_providers.dart';
 import 'package:rmplanner/features/notifications/application/launcher_badge_providers.dart';
 import 'package:rmplanner/features/notifications/application/notification_providers.dart';
 import 'package:rmplanner/features/notifications/application/reminder_reconciler.dart';
@@ -704,6 +705,9 @@ final class PlannerController extends Notifier<PlannerState> {
     bool confirmLinkedTypeTransfer = false,
     ReminderPolicyMode? reminderMode,
     int? reminderOffsetMinutes,
+    bool deferReminderReconciliation = false,
+    ReminderPurpose? reminderPurpose,
+    String? reminderPurposeContactId,
   }) async {
     try {
       final saved = await _repository.saveTask(
@@ -739,6 +743,8 @@ final class PlannerController extends Notifier<PlannerState> {
           occurrenceId: occurrenceId,
           mode: reminderMode,
           offsetMinutes: reminderOffsetMinutes,
+          purpose: reminderPurpose,
+          purposeContactId: reminderPurposeContactId,
         );
       }
       final startsAtUtc = due == null || minute == null
@@ -753,29 +759,35 @@ final class PlannerController extends Notifier<PlannerState> {
               minute ~/ 60,
               minute % 60,
             ).toUtc();
-      await reconciler.reconcile(
-        sourceKind: ReminderSourceKind.task,
-        profileId: _profileId,
-        sourceId: saved.id,
-        occurrenceId: occurrenceId,
-        startsAtUtc: startsAtUtc,
-        sourceVersion: saved.updatedAtUtc.microsecondsSinceEpoch,
-        renderRevision: showDetails
-            ? 'task_detailed_${saved.updatedAtUtc.microsecondsSinceEpoch}'
-            : 'task_generic',
-        globalOffsetMinutes: preferences.defaultTaskReminderMinutes,
-        categoryEnabled: preferences.taskRemindersEnabled,
-        systemEnabled: preferences.effectiveSystemEnabled(
-          androidPermissionGranted:
-              permission == OperatingSystemPermissionState.granted,
-        ),
-        sourceActive: saved.status == PlannerTaskStatus.incomplete,
-        genericTitle: '🔔 Next Transfer',
-        genericBody: 'You have a new notification.',
-        detailedTitle: '✅ Task reminder',
-        detailedBody: _taskReminderBody(saved, use24HourTime: false),
-        showDetails: showDetails,
-      );
+      // §8 M7: the follow-up save withholds BOTH policy persistence and the
+      // early reconcile until the Task Contact links commit (steps 3-4); the
+      // form's finalize step applies purpose + reconcile afterwards.
+      if (!deferReminderReconciliation) {
+        await reconciler.reconcile(
+          sourceKind: ReminderSourceKind.task,
+          profileId: _profileId,
+          sourceId: saved.id,
+          occurrenceId: occurrenceId,
+          startsAtUtc: startsAtUtc,
+          sourceVersion: saved.updatedAtUtc.microsecondsSinceEpoch,
+          renderRevision: showDetails
+              ? 'task_detailed_${saved.updatedAtUtc.microsecondsSinceEpoch}'
+              : 'task_generic',
+          globalOffsetMinutes: preferences.defaultTaskReminderMinutes,
+          categoryEnabled: preferences.taskRemindersEnabled,
+          systemEnabled: preferences.effectiveSystemEnabled(
+            androidPermissionGranted:
+                permission == OperatingSystemPermissionState.granted,
+          ),
+          sourceActive: saved.status == PlannerTaskStatus.incomplete,
+          genericTitle: '🔔 Next Transfer',
+          genericBody: 'You have a new notification.',
+          detailedTitle: '✅ Task reminder',
+          detailedBody: _taskReminderBody(saved, use24HourTime: false),
+          showDetails: showDetails,
+          enrichmentRequested: false,
+        );
+      }
       await _load(state.selectedDate, invalidateCache: true);
       await _refreshLauncherBadge();
       return true;
@@ -787,6 +799,104 @@ final class PlannerController extends Notifier<PlannerState> {
         message:
             'Task could not be saved. Your input remains available to retry.',
       );
+      return false;
+    }
+  }
+
+  /// Astra §8 M7 step 4/5 (Task): after the follow-up save's Task Contact
+  /// commit, apply the explicit source-level purpose while preserving the
+  /// timing the form persisted, then reconcile the Task's current occurrence.
+  /// Validated Contact identity is re-read here (§7: no link/name inference).
+  Future<bool> finalizeContactFollowUp({
+    required String taskId,
+    required String contactId,
+    ReminderPolicyMode mode = ReminderPolicyMode.inherit,
+    int? offsetMinutes,
+  }) async {
+    try {
+      final contact = (await ref
+              .read(contactRepositoryProvider)
+              .readContactsByIds(
+                profileId: _profileId,
+                contactIds: <String>[contactId],
+                today: PlannerDate.fromDateTime(DateTime.now()),
+              ))[contactId];
+      if (contact == null || !contact.contact.isActive) {
+        return false; // §8: source stays saved; intent clears.
+      }
+      final task = await _repository.readTask(
+        profileId: _profileId,
+        taskId: taskId,
+      );
+      final due = task?.dueDate;
+      final minute = task?.dueMinute;
+      final reconciler = ref.read(reminderReconcilerProvider);
+      if (due != null && minute != null) {
+        await reconciler.savePolicy(
+          profileId: _profileId,
+          sourceKind: ReminderSourceKind.task,
+          sourceId: taskId,
+          occurrenceId: 'task:$taskId:${due.iso8601}',
+          mode: mode,
+          offsetMinutes: offsetMinutes,
+          purpose: ReminderPurpose.contactFollowUp,
+          purposeContactId: contactId,
+        );
+      }
+      final preferences = await ref
+          .read(notificationFoundationRepositoryProvider)
+          .readPreferences(profileId: _profileId);
+      final permission = await ref
+          .read(permissionGatewayProvider)
+          .status(OptionalPermission.notifications);
+      final privacy = await ref.read(privacyRepositoryProvider).readSettings();
+      final showDetails =
+          resolveNotificationPreviewMode(
+            settings: privacy,
+            privacyProtectionRequired: privacy.lockEnabled,
+          ) ==
+          EffectiveNotificationPreviewMode.detailed;
+      await reconciler.reconcile(
+        sourceKind: ReminderSourceKind.task,
+        profileId: _profileId,
+        sourceId: taskId,
+        occurrenceId: task == null || due == null
+            ? 'task:$taskId:none'
+            : 'task:$taskId:${due.iso8601}',
+        startsAtUtc: task == null || due == null || minute == null
+            ? null
+            : DateTime(
+                due.year,
+                due.month,
+                due.day,
+                minute ~/ 60,
+                minute % 60,
+              ).toUtc(),
+        sourceVersion:
+            task?.updatedAtUtc.microsecondsSinceEpoch ??
+            DateTime.now().microsecondsSinceEpoch,
+        renderRevision: showDetails
+            ? 'task_detailed_${task?.updatedAtUtc.microsecondsSinceEpoch ?? 0}'
+            : 'task_generic',
+        globalOffsetMinutes: preferences.defaultTaskReminderMinutes,
+        categoryEnabled: preferences.taskRemindersEnabled,
+        systemEnabled: preferences.effectiveSystemEnabled(
+          androidPermissionGranted:
+              permission == OperatingSystemPermissionState.granted,
+        ),
+        sourceActive:
+            task?.status == PlannerTaskStatus.incomplete,
+        genericTitle: '🔔 Next Transfer',
+        genericBody: 'You have a new notification.',
+        detailedTitle: '✅ Task reminder',
+        detailedBody: task == null
+            ? 'Due later today'
+            : _taskReminderBody(task, use24HourTime: false),
+        showDetails: showDetails,
+        enrichmentRequested: true,
+      );
+      return true;
+    } on Object {
       return false;
     }
   }

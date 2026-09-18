@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:rmplanner/core/notifications/notification_preview_policy.dart';
+import 'package:rmplanner/features/contacts/application/contact_providers.dart';
 import 'package:rmplanner/features/notifications/application/launcher_badge_providers.dart';
 import 'package:rmplanner/features/notifications/application/notification_providers.dart';
 import 'package:rmplanner/features/notifications/domain/reminder_policy.dart';
@@ -91,6 +92,9 @@ final class CalendarEventController extends Notifier<String?> {
     ReminderPolicyMode? reminderMode,
     int? reminderOffsetMinutes,
     String reminderOccurrenceId = ReminderPolicy.seriesOccurrenceId,
+    bool deferReminderReconciliation = false,
+    ReminderPurpose? reminderPurpose,
+    String? reminderPurposeContactId,
   }) async {
     try {
       final saved = await _repository.saveEvent(
@@ -106,9 +110,16 @@ final class CalendarEventController extends Notifier<String?> {
           occurrenceId: reminderOccurrenceId,
           mode: reminderMode,
           offsetMinutes: reminderOffsetMinutes,
+          purpose: reminderPurpose,
+          purposeContactId: reminderPurposeContactId,
         );
       }
-      await reconcileEventHorizon(eventId: saved.id);
+      // §8 M7 follow-up creation: the follow-up save withholds the early
+      // scheduling until the Contact links and explicit purpose have both
+      // committed (step 4), then reconciles that source (step 5).
+      if (!deferReminderReconciliation) {
+        await reconcileEventHorizon(eventId: saved.id);
+      }
       await _refreshLauncherBadge();
       if (awaitPlannerRefresh) {
         await _refreshPlanner();
@@ -330,6 +341,8 @@ final class CalendarEventController extends Notifier<String?> {
     required String occurrenceId,
     required ReminderPolicyMode mode,
     int? offsetMinutes,
+    ReminderPurpose? purpose,
+    String? purposeContactId,
   }) async {
     await ref
         .read(reminderReconcilerProvider)
@@ -340,7 +353,45 @@ final class CalendarEventController extends Notifier<String?> {
           occurrenceId: occurrenceId,
           mode: mode,
           offsetMinutes: offsetMinutes,
+          purpose: purpose,
+          purposeContactId: purposeContactId,
         );
+  }
+
+  /// Astra §8 M7 step 4/5: after the follow-up save's scoped People commit,
+  /// apply the explicit source-level purpose while preserving the timing the
+  /// form already persisted, then reconcile that source.  Validated Contact
+  /// identity is re-read here (§7: no inference from links or names).
+  Future<bool> finalizeContactFollowUp({
+    required String eventId,
+    required String contactId,
+    ReminderPolicyMode mode = ReminderPolicyMode.inherit,
+    int? offsetMinutes,
+  }) async {
+    try {
+      final contact = (await ref
+              .read(contactRepositoryProvider)
+              .readContactsByIds(
+                profileId: _profileId,
+                contactIds: <String>[contactId],
+                today: PlannerDate.fromDateTime(DateTime.now()),
+              ))[contactId];
+      if (contact == null || !contact.contact.isActive) {
+        return false; // §8: save normal source, clear pending intent.
+      }
+      await _saveReminderPolicy(
+        sourceId: eventId,
+        occurrenceId: ReminderPolicy.seriesOccurrenceId,
+        mode: mode,
+        offsetMinutes: offsetMinutes,
+        purpose: ReminderPurpose.contactFollowUp,
+        purposeContactId: contactId,
+      );
+      await reconcileEventHorizon(eventId: eventId);
+      return true;
+    } on Object {
+      return false;
+    }
   }
 
   Future<CalendarEventCancellationResult> cancelEvent({

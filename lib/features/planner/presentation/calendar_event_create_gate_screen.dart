@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:rmplanner/app/router/route_names.dart';
 import 'package:rmplanner/features/maps/domain/map_coordinate.dart';
+import 'package:rmplanner/features/notifications/domain/contact_follow_up_creation_intent.dart';
 import 'package:rmplanner/features/planner/domain/planner_date.dart';
 import 'package:rmplanner/features/planner/presentation/calendar_event_creation.dart';
 import 'package:rmplanner/features/planner/presentation/event_type_picker_dialog.dart';
@@ -18,6 +19,7 @@ final class CalendarEventCreateGateScreen extends ConsumerStatefulWidget {
     this.initialEventTypeId,
     this.sourceTaskId,
     this.initialContactIds = const <String>[],
+    this.followUpContactId,
     super.key,
   });
 
@@ -28,6 +30,10 @@ final class CalendarEventCreateGateScreen extends ConsumerStatefulWidget {
   final String? initialEventTypeId;
   final String? sourceTaskId;
   final List<String> initialContactIds;
+
+  /// §8 typed provenance: the ONE explicitly selected Contact when creation
+  /// came from Contact Detail's Create Follow-Up chooser; null otherwise.
+  final String? followUpContactId;
 
   @override
   ConsumerState<CalendarEventCreateGateScreen> createState() =>
@@ -87,9 +93,13 @@ final class _CalendarEventCreateGateScreenState
           sourceTaskId: widget.sourceTaskId,
           initialContactIds: widget.initialContactIds,
           initialCoordinate: widget.initialCoordinate,
+          followUpContactId: widget.followUpContactId,
         ),
       EventTypePickerTask() => await router.push<bool>(
         '${RoutePaths.taskCreate}?date=${widget.initialDate.iso8601}',
+        extra: widget.followUpContactId == null
+            ? null
+            : ContactFollowUpCreationIntent(contactId: widget.followUpContactId!),
       ),
     };
     if (!mounted) {

@@ -301,6 +301,120 @@ final class DriftNotificationFoundationRepository
     return (await readWorkRequest(request.stableKey))!;
   }
 
+  /// Astra §32/§65: expected-generation conditional transition helpers.
+  /// All three compare (key, revision, scheduledForUtc, permitted prior
+  /// states) inside a transaction so an older callback can never overwrite,
+  /// complete or cancel a newer generation.
+  bool _matchesExpectedGeneration(
+    BackgroundWorkRequest row, {
+    required String expectedRevision,
+    required DateTime expectedScheduledForUtc,
+  }) =>
+      row.sourceRevision == expectedRevision &&
+      row.scheduledForUtc != null &&
+      row.scheduledForUtc!.isAtSameMomentAs(expectedScheduledForUtc);
+
+  @override
+  Future<BackgroundWorkRequest?> claimForDelivery({
+    required String stableKey,
+    required String expectedRevision,
+    required DateTime expectedScheduledForUtc,
+    required DateTime nowUtc,
+  }) async {
+    return database.transaction<BackgroundWorkRequest?>(() async {
+      final current = await readWorkRequest(stableKey);
+      if (current == null ||
+          !_matchesExpectedGeneration(
+            current,
+            expectedRevision: expectedRevision,
+            expectedScheduledForUtc: expectedScheduledForUtc,
+          )) {
+        return null;
+      }
+      // Claimable: durable pre-delivery states.  A row already running is a
+      // concurrent invocation — leave it alone (§36 no competing post).
+      const claimable = <BackgroundWorkState>{
+        BackgroundWorkState.queued,
+        BackgroundWorkState.scheduled,
+        BackgroundWorkState.retryScheduled,
+      };
+      if (!claimable.contains(current.state)) {
+        return null;
+      }
+      final claimed = current.copyWith(
+        state: BackgroundWorkState.running,
+        attemptCount: current.attemptCount + 1,
+        lastAttemptAtUtc: nowUtc,
+        updatedAtUtc: nowUtc,
+      );
+      await upsertWorkRequest(claimed);
+      return claimed;
+    });
+  }
+
+  @override
+  Future<bool> completeDelivery({
+    required String stableKey,
+    required String expectedRevision,
+    required DateTime expectedScheduledForUtc,
+    required DateTime nowUtc,
+  }) async {
+    return database.transaction<bool>(() async {
+      final current = await readWorkRequest(stableKey);
+      if (current == null ||
+          !_matchesExpectedGeneration(
+            current,
+            expectedRevision: expectedRevision,
+            expectedScheduledForUtc: expectedScheduledForUtc,
+          )) {
+        return false;
+      }
+      if (current.state == BackgroundWorkState.cancelledObsolete) {
+        return false;
+      }
+      await upsertWorkRequest(
+        current.copyWith(
+          state: BackgroundWorkState.completed,
+          completedAtUtc: nowUtc,
+          updatedAtUtc: nowUtc,
+        ),
+      );
+      return true;
+    });
+  }
+
+  @override
+  Future<bool> recordDeliveryFailure({
+    required String stableKey,
+    required String expectedRevision,
+    required DateTime expectedScheduledForUtc,
+    required BackgroundWorkState nextState,
+    required String failureCategory,
+    DateTime? nextEligibleAtUtc,
+    required DateTime nowUtc,
+  }) async {
+    return database.transaction<bool>(() async {
+      final current = await readWorkRequest(stableKey);
+      if (current == null ||
+          !_matchesExpectedGeneration(
+            current,
+            expectedRevision: expectedRevision,
+            expectedScheduledForUtc: expectedScheduledForUtc,
+          )) {
+        return false;
+      }
+      await upsertWorkRequest(
+        current.copyWith(
+          state: nextState,
+          lastFailureCategory: failureCategory,
+          nextEligibleAtUtc: nextEligibleAtUtc,
+          updatedAtUtc: nowUtc,
+        ),
+      );
+      return true;
+    });
+  }
+
   @override
   Future<void> recordAttempt({
     required String stableKey,

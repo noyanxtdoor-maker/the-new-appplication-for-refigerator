@@ -5,6 +5,7 @@ import 'package:rmplanner/core/notifications/notification_payload.dart';
 import 'package:rmplanner/core/notifications/notification_preview_policy.dart';
 import 'package:rmplanner/core/notifications/notification_response_controller.dart';
 import 'package:rmplanner/features/notifications/domain/notification_preferences.dart';
+import 'package:rmplanner/features/notifications/domain/reminder_policy.dart';
 import 'package:rmplanner/features/privacy/domain/privacy_settings.dart';
 
 void main() {
@@ -167,5 +168,118 @@ void main() {
       actionId: 'snooze',
     );
     expect((await warm).action, NotificationResponseAction.snooze);
+  });
+
+  // T1 pin (Astra §7): an explicit contactFollowUp purpose is only valid with
+  // a nonblank Contact identity. Domain validation alone is insufficient for
+  // acceptance, but it remains the innermost gate and must keep holding.
+  test('T1: contactFollowUp requires a nonblank contactId', () {
+    ReminderPolicy policyFor(ReminderPurpose purpose, String? contactId) =>
+        ReminderPolicy(
+          id: 'policy-t1',
+          profileId: 'profile-t1',
+          sourceKind: ReminderSourceKind.calendarEvent,
+          sourceId: 'event-t1',
+          occurrenceId: ReminderPolicy.seriesOccurrenceId,
+          purpose: purpose,
+          contactId: contactId,
+          mode: ReminderPolicyMode.offset,
+          offsetMinutes: 10,
+          createdAtUtc: DateTime.utc(2026, 9, 5, 5),
+          updatedAtUtc: DateTime.utc(2026, 9, 5, 5),
+        );
+    expect(policyFor(ReminderPurpose.contactFollowUp, null).validate,
+        throwsArgumentError);
+    expect(policyFor(ReminderPurpose.contactFollowUp, '   ').validate,
+        throwsArgumentError);
+    expect(
+      () => policyFor(ReminderPurpose.contactFollowUp, 'contact-1').validate(),
+      returnsNormally,
+    );
+  });
+
+  // T2 pin (Astra §7): standard reminders never store Contact identity.
+  test('T2: standard purpose with a contactId is invalid', () {
+    expect(
+      ReminderPolicy(
+        id: 'policy-t2',
+        profileId: 'profile-t2',
+        sourceKind: ReminderSourceKind.task,
+        sourceId: 'task-t2',
+        occurrenceId: ReminderPolicy.seriesOccurrenceId,
+        purpose: ReminderPurpose.standard,
+        contactId: 'contact-t2',
+        mode: ReminderPolicyMode.inherit,
+        createdAtUtc: DateTime.utc(2026, 9, 5, 5),
+        updatedAtUtc: DateTime.utc(2026, 9, 5, 5),
+      ).validate,
+      throwsArgumentError,
+    );
+  });
+
+  // T3 (Astra §62 T3): explicit purpose clear via the M7 API produces
+  // standard/null identity and validates.  Uses the new withPurpose/clearPurpose
+  // semantics so null-ambiguity can never make clearing impossible (§9).
+  test('T3: explicit purpose clear produces standard/null and persists', () {
+    final followUp = ReminderPolicy(
+      id: 'policy-t3',
+      profileId: 'profile-t3',
+      sourceKind: ReminderSourceKind.calendarEvent,
+      sourceId: 'event-t3',
+      occurrenceId: ReminderPolicy.seriesOccurrenceId,
+      purpose: ReminderPurpose.contactFollowUp,
+      contactId: 'contact-t3',
+      mode: ReminderPolicyMode.offset,
+      offsetMinutes: 10,
+      createdAtUtc: DateTime.utc(2026, 9, 5, 5),
+      updatedAtUtc: DateTime.utc(2026, 9, 5, 5),
+    );
+    final cleared = followUp.clearPurpose();
+    expect(cleared.purpose, ReminderPurpose.standard);
+    expect(cleared.contactId, isNull);
+    expect(cleared.mode, ReminderPolicyMode.offset);
+    expect(cleared.offsetMinutes, 10);
+    expect(() => cleared.validate(), returnsNormally);
+    expect(
+      followUp
+          .withPurpose(
+            purpose: ReminderPurpose.standard,
+            contactId: 'should-be-dropped',
+          )
+          .contactId,
+      isNull,
+      reason: 'standard purpose must never retain Contact identity',
+    );
+  });
+
+  // T5 (Astra §62 T5): omitted purpose argument preserves; explicit standard
+  // clears contactId (verified through ReminderReconciler.savePolicy in the
+  // repository suite); withPurpose set/keep semantics pinned here.
+  test('T5: withPurpose set and keep semantics', () {
+    final base = ReminderPolicy(
+      id: 'policy-t5',
+      profileId: 'profile-t5',
+      sourceKind: ReminderSourceKind.task,
+      sourceId: 'task-t5',
+      occurrenceId: ReminderPolicy.seriesOccurrenceId,
+      purpose: ReminderPurpose.contactFollowUp,
+      contactId: 'contact-t5',
+      mode: ReminderPolicyMode.offset,
+      offsetMinutes: 5,
+      createdAtUtc: DateTime.utc(2026, 9, 5, 5),
+      updatedAtUtc: DateTime.utc(2026, 9, 5, 5),
+    );
+    final retargeted = base.withPurpose(
+      purpose: ReminderPurpose.contactFollowUp,
+      contactId: 'contact-t5b',
+    );
+    expect(retargeted.purpose, ReminderPurpose.contactFollowUp);
+    expect(retargeted.contactId, 'contact-t5b');
+    expect(retargeted.offsetMinutes, 5);
+    expect(() => retargeted.validate(), returnsNormally);
+    // Default copyWith still preserves purpose/contact (§9 preserve law).
+    final retimed = base.copyWith(offsetMinutes: 7);
+    expect(retimed.purpose, ReminderPurpose.contactFollowUp);
+    expect(retimed.contactId, 'contact-t5');
   });
 }

@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:rmplanner/core/background/background_work_request.dart';
+import 'package:rmplanner/features/notifications/application/reminder_reconciler.dart';
 import 'package:rmplanner/features/notifications/data/drift_notification_foundation_repository.dart';
 import 'package:rmplanner/features/notifications/domain/notification_preferences.dart';
 import 'package:rmplanner/features/notifications/domain/reminder_policy.dart';
@@ -352,4 +353,120 @@ void main() {
       );
     },
   );
+
+  ReminderPolicy followUpPolicy(DateTime stamp) => ReminderPolicy(
+    id: 'policy-followup-1',
+    profileId: profileId,
+    sourceKind: ReminderSourceKind.calendarEvent,
+    sourceId: 'event-followup',
+    occurrenceId: ReminderPolicy.seriesOccurrenceId,
+    purpose: ReminderPurpose.contactFollowUp,
+    contactId: 'contact-followup',
+    mode: ReminderPolicyMode.offset,
+    offsetMinutes: 10,
+    createdAtUtc: stamp,
+    updatedAtUtc: stamp,
+  );
+
+  // T6 pin (Astra §7/P10): the existing v46 unique policy row round-trips
+  // purpose and contactId unchanged through Drift persistence.
+  test('T6: policy roundtrip retains purpose and contactId across read',
+      () async {
+    final database = openMemoryDatabase();
+    addTearDown(database.close);
+    await buildTestRepository(database: database).completeOnboarding();
+    final repository = DriftNotificationFoundationRepository(
+      database: database,
+      clock: FixedClock(now),
+    );
+    await repository.upsertPolicy(followUpPolicy(now));
+    final stored = await repository.readPolicies(
+      profileId: profileId,
+      sourceKind: ReminderSourceKind.calendarEvent,
+      sourceId: 'event-followup',
+    );
+    expect(stored, hasLength(1));
+    expect(stored.single.purpose, ReminderPurpose.contactFollowUp);
+    expect(stored.single.contactId, 'contact-followup');
+  });
+
+  // T7 (Astra §62 T7): re-upserting the same unique identity must preserve
+  // the original row id and createdAtUtc — policy identity is stable across
+  // updates.  Fail-first at baseline: the upsert currently assigns a fresh id
+  // and createdAtUtc on conflict.
+  test(
+      'T7: unique policy conflict preserves row id and createdAtUtc', () async {
+    final database = openMemoryDatabase();
+    addTearDown(database.close);
+    await buildTestRepository(database: database).completeOnboarding();
+    final repository = DriftNotificationFoundationRepository(
+      database: database,
+      clock: FixedClock(now),
+    );
+    await repository.upsertPolicy(followUpPolicy(now));
+    final later = now.add(const Duration(hours: 1));
+    await repository.upsertPolicy(
+      ReminderPolicy(
+        id: 'policy-different-id',
+        profileId: profileId,
+        sourceKind: ReminderSourceKind.calendarEvent,
+        sourceId: 'event-followup',
+        occurrenceId: ReminderPolicy.seriesOccurrenceId,
+        mode: ReminderPolicyMode.offset,
+        offsetMinutes: 20,
+        createdAtUtc: later,
+        updatedAtUtc: later,
+      ),
+    );
+    final stored = await repository.readPolicies(
+      profileId: profileId,
+      sourceKind: ReminderSourceKind.calendarEvent,
+      sourceId: 'event-followup',
+    );
+    expect(stored, hasLength(1));
+    expect(stored.single.id, 'policy-followup-1');
+    expect(stored.single.createdAtUtc.isAtSameMomentAs(now), isTrue,
+        reason: 'original createdAtUtc instant is preserved on conflict');
+    expect(stored.single.offsetMinutes, 20);
+  });
+
+  // T4 (Astra §62 T4, defect F02): a timing-only savePolicy write must
+  // preserve existing purpose/contactId.  Implemented in M7-1; behavioral
+  // red at baseline because ReminderReconciler.savePolicy rebuilds the policy
+  // with default purpose/contactId.
+  test('T4: timing-only savePolicy preserves existing purpose/contactId',
+      () async {
+    final database = openMemoryDatabase();
+    addTearDown(database.close);
+    await buildTestRepository(database: database).completeOnboarding();
+    final repository = DriftNotificationFoundationRepository(
+      database: database,
+      clock: FixedClock(now),
+    );
+    final reconciler = ReminderReconciler(
+      repository: repository,
+      gateway: FakeNotificationGateway(),
+      clock: FixedClock(now.add(const Duration(minutes: 30))),
+    );
+    await repository.upsertPolicy(followUpPolicy(now));
+    await reconciler.savePolicy(
+      profileId: profileId,
+      sourceKind: ReminderSourceKind.calendarEvent,
+      sourceId: 'event-followup',
+      occurrenceId: ReminderPolicy.seriesOccurrenceId,
+      mode: ReminderPolicyMode.offset,
+      offsetMinutes: 25,
+    );
+    final stored = await repository.readPolicies(
+      profileId: profileId,
+      sourceKind: ReminderSourceKind.calendarEvent,
+      sourceId: 'event-followup',
+    );
+    expect(stored, hasLength(1));
+    expect(stored.single.purpose, ReminderPurpose.contactFollowUp,
+        reason: 'timing-only write must not clear explicit purpose (F02)');
+    expect(stored.single.contactId, 'contact-followup',
+        reason: 'timing-only write must not clear the selected Contact (F02)');
+    expect(stored.single.offsetMinutes, 25);
+  });
 }
