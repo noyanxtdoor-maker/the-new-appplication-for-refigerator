@@ -404,7 +404,13 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('filter-validation-phone')), findsNothing);
       expect(find.byKey(const Key('filter-state-phone')), findsOneWidget);
-      expect(find.text('Some'), findsOneWidget);
+      // 'Some' is intentionally not unique on this screen - the Displayed
+      // Fields section can also read 'Some' - so the state assertion targets
+      // the keyed Phone category state instead of the bare text.
+      expect(
+        tester.widget<Text>(find.byKey(const Key('filter-state-phone'))).data,
+        'Some',
+      );
 
       // Uncheck Mobile -> explicit None; never normalize back to All.
       await tester.tap(
@@ -543,26 +549,11 @@ void main() {
     (tester) async {
       await pumpFilter(tester);
 
-      // Divider after Save as Contact Filter and after Contact List Sort are
-      // near the top of the list and visible immediately.
-      expect(find.byKey(const Key('filter-band-after-save')), findsOneWidget);
-      expect(find.byKey(const Key('filter-band-after-sort')), findsOneWidget);
-
-      // Divider before the lower event toggles (bottom of the list).
-      await scrollTo(tester, find.byKey(const Key('filter-toggle-today')));
-      expect(
-        find.byKey(const Key('filter-band-before-toggles')),
-        findsOneWidget,
-      );
-
-      // Every one of them is a hairline, and every one uses the neutral
+      // Every section separator must be a hairline using the neutral
       // section-divider token rather than theme primary.
-      for (final key in <Key>[
-        const Key('filter-band-after-save'),
-        const Key('filter-band-after-sort'),
-        const Key('filter-band-before-toggles'),
-      ]) {
+      void expectHairline(Key key) {
         final finder = find.byKey(key);
+        expect(finder, findsOneWidget, reason: '$key must be present');
         final divider = tester.widget<Divider>(finder);
         final context = tester.element(finder);
         expect(divider.height, 1, reason: '$key must be a hairline, not a band');
@@ -577,6 +568,17 @@ void main() {
           reason: '$key must not paint a thick slab',
         );
       }
+
+      // After Save as Contact Filter and after Contact List Sort: near the top
+      // of the list and mounted immediately.
+      expectHairline(const Key('filter-band-after-save'));
+      expectHairline(const Key('filter-band-after-sort'));
+
+      // Before the lower event toggles. Assert it where it is mounted: the list
+      // is lazy, so the top rows are disposed once it is scrolled down and must
+      // not be re-queried here.
+      await scrollTo(tester, find.byKey(const Key('filter-toggle-today')));
+      expectHairline(const Key('filter-band-before-toggles'));
     },
   );
 
