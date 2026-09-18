@@ -1,12 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Modify this file to customize your launch splash screen -->
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="@android:color/white" />
+<!--
+  M5 SPLASH CORRECTION — pre-Android-12 launch background, and the launch window
+  background on every API level.
 
-    <!-- You can insert your own image assets here -->
-    <!-- <item>
-        <bitmap
-            android:gravity="center"
-            android:src="@mipmap/launch_image" />
-    </item> -->
+  Before Android 12 the platform splash is driven entirely by this drawable, so
+  it must be the same thing the Android 12+ surface is: the approved intro
+  splash's OWN deep-blue field, and nothing else.
+
+  It used to layer the emblem over that field, which reproduced the composition
+  of the earlier rejected "old splash" (a small centred logo in a blue field) and
+  made the launch read as old splash -> new splash.  The only branded splash the
+  user sees is now the owner-approved composition, painted by the first Flutter
+  frame.
+
+  The field colour is the first stop of the approved artwork's own backdrop, so
+  this surface, the Android 12+ surface and the first Flutter frame all continue
+  each other seamlessly.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/nt_native_blue" />
 </layer-list>

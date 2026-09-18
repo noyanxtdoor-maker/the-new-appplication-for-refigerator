@@ -47,6 +47,9 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
+    # M5: the owner-approved intro splash artwork, painted as the first Flutter
+    # frame by the startup surface (see lib/app/intro_splash.dart).
+    - assets/branding/m5/next_transfer_app_splash_screen.png
     - assets/icons/goals/
     - assets/icons/filter-svgrepo-com.svg
     - assets/icons/contacts/standard_filters/

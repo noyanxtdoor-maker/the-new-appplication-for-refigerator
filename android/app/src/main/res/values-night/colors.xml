@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      M5 — night-mode launch field.
+
+      This file exists so the night launch field is DELIBERATELY identical to the
+      day launch field rather than inheriting a system-dependent palette.  A
+      device in Dark mode must launch with exactly the same deep Next Transfer
+      blue as a device in Light mode.
+
+      The value is the first stop of the approved intro splash's own backdrop
+      (lib/app/intro_splash.dart, `kIntroSplashEdgeColors.first`), so the platform
+      surface hands over into the approved splash with no seam.
+    -->
+    <color name="nt_native_blue">#FF00388C</color>
+</resources>

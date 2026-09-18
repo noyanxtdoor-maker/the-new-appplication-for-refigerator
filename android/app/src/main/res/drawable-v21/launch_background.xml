@@ -1,12 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Modify this file to customize your launch splash screen -->
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="?android:colorBackground" />
+<!--
+  M5 SPLASH CORRECTION — API 21+ launch background.
 
-    <!-- You can insert your own image assets here -->
-    <!-- <item>
-        <bitmap
-            android:gravity="center"
-            android:src="@mipmap/launch_image" />
-    </item> -->
+  Identical treatment to the base drawable: the approved intro splash's own
+  deep-blue field and nothing else.  The emblem that used to sit here made the
+  API 21-30 launch look like the earlier rejected "old splash"; the approved
+  composition is owned by the first Flutter frame instead.
+
+  This previously resolved to ?android:colorBackground, which made the launch
+  field follow the device's Light/Dark palette and produced a system-dependent
+  (and white-capable) opening frame.  `nt_native_blue` is fixed, so no such frame
+  is possible.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/nt_native_blue" />
 </layer-list>

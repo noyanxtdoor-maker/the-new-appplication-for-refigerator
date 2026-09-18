@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  M5 SPLASH CORRECTION — the deliberately EMPTY Android system splash icon.
+
+  Why an empty icon instead of the approved emblem:
+
+  Android 12+ always draws a platform-controlled launch surface and cannot be
+  told to draw none.  While that surface carried the emblem alone on the brand
+  blue, it was a small logo centred in a blue field — which is EXACTLY the
+  composition of the earlier, rejected "old splash", and on a real cold launch
+  it dominates the screen (measured on the authorized Infinix: 0.79 s-1.9 s of
+  the launch) while the approved composition only appears afterwards.  The owner
+  therefore perceives old splash -> new splash, which is the one outcome M5 must
+  not produce.
+
+  Android also cannot render the approved composition natively: the splash
+  background attribute is a plain colour and the icon is scaled into a masked
+  slot, so the title and tagline can never reach it.
+
+  So the unavoidable platform surface is reduced to what it can honestly be: the
+  approved intro splash's OWN deep-blue field, with no logo, no tile, no text and
+  no second design.  The field colour is the first stop of the approved
+  artwork's own backdrop (`nt_native_blue`, sampled from the artwork's top edge),
+  so the platform surface and the first Flutter frame are byte-identical at the
+  top and hand over with no visible seam.
+
+  The ONLY branded splash a user ever sees is then the owner-approved
+  composition, which owns the first Flutter frame.
+
+  This drawable must stay transparent.  Putting any artwork back here restores
+  the "old splash" perception and fails the M5 splash contract
+  (test/features/startup/presentation/m5_clean_splash_test.dart, tests N5/N7).
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@android:color/transparent" />
+</shape>

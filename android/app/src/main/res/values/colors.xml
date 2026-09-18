@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      M5 — Next Transfer native launch field.
+
+      `nt_native_blue` is the unavoidable Android launch surface's colour, and it
+      is deliberately the FIRST STOP of the owner-approved intro splash's own
+      backdrop (see `kIntroSplashEdgeColors.first` in lib/app/intro_splash.dart),
+      i.e. the colour of the artwork's top edge: rgb(0, 56, 140).
+
+      Using the artwork's own top colour means the platform launch field and the
+      first Flutter frame are identical at the top of the screen, so the
+      hand-over from the platform surface into the approved intro splash has no
+      visible seam and no white/black frame is possible.
+
+      Default and night intentionally resolve to the SAME value: launch branding
+      must not shift with the device's Light/Dark setting.
+    -->
+    <color name="nt_native_blue">#FF00388C</color>
+</resources>

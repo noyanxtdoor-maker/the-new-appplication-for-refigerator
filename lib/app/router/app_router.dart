@@ -97,7 +97,20 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         name: RouteNames.startup,
         path: RoutePaths.startup,
-        builder: (context, state) => const StartupScreen(),
+        // M5: StartupScreen is a full opaque intro splash.  The app's default
+        // Android page transition fades the OUTGOING page out through an
+        // OpacityLayer (ZoomPageTransitionsBuilder / _ZoomExitTransition), which
+        // would make the splash translucent and expose the resolved destination
+        // underneath it.  No pageTransitionsTheme is configured anywhere in this
+        // app, so that default applies here.
+        //
+        // NoTransitionPage's route returns its child unchanged and therefore
+        // ignores BOTH animations, so the splash cannot be faded, scaled or slid
+        // while it leaves; the splash -> destination step becomes a clean
+        // replacement.  This is scoped to the startup route only: every
+        // destination's own transition is untouched.
+        pageBuilder: (context, state) =>
+            const NoTransitionPage<void>(child: StartupScreen()),
       ),
       GoRoute(
         name: RouteNames.onboarding,

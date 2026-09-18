@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  M5 — adaptive launcher icon (Android 8.0 / API 26+).
+
+  Derived from the owner-approved launcher artwork (mountains, hands passing the
+  notebook, winding road) on its own deep blue field.
+
+  The foreground drawable is the approved artwork at 96% of the 108dp layer,
+  centred, inside a transparent margin.  Measured on the generated asset, every
+  bright/important pixel lies INSIDE the central 66dp adaptive safe zone with
+  ~7.8px of margin at xxxhdpi, so no finger, notebook ring or road tip can be
+  cropped by a circle, squircle or rounded-square mask, and the icon still reads
+  at small launcher sizes.
+
+  `android:monochrome` is intentionally NOT declared: no monochrome derivative of
+  the approved artwork was authorised, and inventing one would be a redesign.
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@drawable/nt_launcher_background" />
+    <foreground android:drawable="@drawable/nt_launcher_foreground" />
+</adaptive-icon>

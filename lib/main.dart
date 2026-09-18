@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:rmplanner/app/intro_splash.dart';
 import 'package:rmplanner/app/next_transfer_app.dart';
 import 'package:rmplanner/app/startup_bootstrap.dart';
 import 'package:rmplanner/core/background/reminder_recovery_request.dart';
@@ -65,6 +66,11 @@ Future<void> main() async {
   await SystemChrome.setPreferredOrientations(<DeviceOrientation>[
     DeviceOrientation.portraitUp,
   ]);
+
+  // M5: begin decoding the approved intro splash artwork now.  The splash owns
+  // the first Flutter frame, so the decode is overlapped with the bootstrap work
+  // below and joined immediately before runApp.
+  final introSplashPreload = preloadIntroSplashArtwork();
 
   final environment = AppEnvironment.fromDartDefines();
   final diagnostics = SanitizedDiagnostics(
@@ -259,6 +265,15 @@ Future<void> main() async {
   Future<void> cancelCanonicalReminderWork(String uniqueName) async {
     if (!backgroundWorkAvailable) return;
     await backgroundWorkGateway.cancelUnique(uniqueName);
+  }
+
+  // M5: the intro splash must own the first frame.  A decode that fails or stalls
+  // must never hold startup, so this join is bounded and swallowed; the splash
+  // backdrop is already fully opaque without the raster.
+  try {
+    await introSplashPreload.timeout(const Duration(seconds: 3));
+  } on Object {
+    // Opportunistic warm-up only.
   }
 
   runApp(
