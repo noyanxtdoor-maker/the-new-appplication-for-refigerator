@@ -1,7 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:rmplanner/app/router/route_names.dart';
 import 'package:rmplanner/app/theme/internal_screen.dart';
+import 'package:rmplanner/features/shell/messages/application/message_providers.dart';
 import 'package:rmplanner/features/shell/messages/message.dart';
 
 /// Bundled local Messages (Pack 3, locked policy 1; closed-beta V2 AG-3/AG-4).
@@ -15,11 +19,23 @@ import 'package:rmplanner/features/shell/messages/message.dart';
 ///
 /// A message that ships in the bundle is always readable offline, because it
 /// is part of the application itself.
-final class MessagesScreen extends StatelessWidget {
+///
+/// CLOSED-BETA 0.1.1 (owner requirement, 2026-09-18): OPENING a message records
+/// its read receipt, which is what clears the Home bell dot. The receipt is
+/// written from this real user gesture (never from a build or a post-frame
+/// callback), and the message detail screen records it again from its own
+/// primary action. The write is idempotent, so opening and then confirming
+/// stores one receipt.
+final class MessagesScreen extends ConsumerWidget {
   const MessagesScreen({super.key});
 
+  void _openMessage(BuildContext context, WidgetRef ref, Message message) {
+    unawaited(ref.read(messageAcknowledgementProvider).acknowledge(message.id));
+    unawaited(context.push<void>(RoutePaths.messageDetail(message.id)));
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final messages = BundledMessages.all;
     return Scaffold(
       appBar: InternalAppBar(title: const Text('Messages')),
@@ -33,6 +49,7 @@ final class MessagesScreen extends StatelessWidget {
                 itemBuilder: (context, index) => _MessageListRow(
                   message: messages[index],
                   nowLocal: DateTime.now(),
+                  onOpen: () => _openMessage(context, ref, messages[index]),
                 ),
               ),
       ),
@@ -44,10 +61,18 @@ final class MessagesScreen extends StatelessWidget {
 /// relative date beneath it, separated by generous whitespace instead of heavy
 /// card chrome.
 final class _MessageListRow extends StatelessWidget {
-  const _MessageListRow({required this.message, required this.nowLocal});
+  const _MessageListRow({
+    required this.message,
+    required this.nowLocal,
+    required this.onOpen,
+  });
 
   final Message message;
   final DateTime nowLocal;
+
+  /// Records the receipt and opens the detail. Supplied by the screen so the
+  /// row itself stays free of application state.
+  final VoidCallback onOpen;
 
   @override
   Widget build(BuildContext context) {
@@ -63,7 +88,7 @@ final class _MessageListRow extends StatelessWidget {
           '${MessageDateLabel.relative(message.publishedAtLocal, nowLocal)}',
       child: InkWell(
         key: Key('message-row-${message.id}'),
-        onTap: () => context.push(RoutePaths.messageDetail(message.id)),
+        onTap: onOpen,
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 14),
           child: Column(

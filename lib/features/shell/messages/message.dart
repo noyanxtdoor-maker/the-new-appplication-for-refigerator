@@ -48,6 +48,7 @@ final class Message {
     required this.title,
     required this.publishedAtLocal,
     required this.blocks,
+    this.actionLabel,
   });
 
   /// Stable identity. It is the route parameter for the detail screen and
@@ -60,6 +61,35 @@ final class Message {
   final DateTime publishedAtLocal;
 
   final List<MessageBlock> blocks;
+
+  /// Optional primary action rendered at the end of the detail body.
+  ///
+  /// A release note that asks for an explicit acknowledgement carries one
+  /// (`'Got it'`). A message without an action stays read-only, exactly as it
+  /// was before this field existed. The label is presentation only: it never
+  /// grants notification permission and never opens Android settings.
+  final String? actionLabel;
+}
+
+/// Version-scoped unread law (owner requirement, 2026-09-18).
+///
+/// A bundled message is UNREAD until its own [Message.id] has been
+/// acknowledged on this device. Because the id carries the release version
+/// (`next-transfer-0-1-1-beta`), a later release ships a NEW id and is
+/// therefore unread again, while an already-acknowledged message can never
+/// become unread a second time by simply relaunching the app.
+abstract final class MessageUnreadLaw {
+  /// True when [message] has not been acknowledged yet.
+  static bool isUnread(Message message, Set<String> acknowledgedIds) =>
+      !acknowledgedIds.contains(message.id);
+
+  /// The bundled messages that are still unread, newest first.
+  static List<Message> unread(
+    Iterable<Message> messages,
+    Set<String> acknowledgedIds,
+  ) => List<Message>.unmodifiable(
+    messages.where((message) => isUnread(message, acknowledgedIds)),
+  );
 }
 
 /// Relative publication label: "Today", "Yesterday", "N days ago".
@@ -128,6 +158,51 @@ abstract final class BundledMessages {
     ],
   );
 
+  /// The closed-beta 0.1.1 update notice.
+  ///
+  /// OWNER REQUIREMENT (2026-09-18): a tester-facing in-app update message.
+  /// Every claim below is verified against what actually shipped in 0.1.1:
+  /// Backup & Restore and the bundled Messages catalog are absent from the
+  /// released 0.1.0 bundle (proven by inspecting both signed AABs), the
+  /// 10-minute Event/Task defaults and the Event Type selector fix are in
+  /// `checkpoint(owner): preserve 10-minute reminder default regression proof`
+  /// and `…preserve event type picker refresh glitch fix`, and the Create Goal
+  /// flicker is reported but NOT root-caused, so it is stated as such.
+  static final Message versionZeroOneOne = Message(
+    id: 'next-transfer-0-1-1-beta',
+    title: "What's New in Next Transfer",
+    publishedAtLocal: DateTime(2026, 9, 18, 20),
+    actionLabel: 'Got it',
+    blocks: const <MessageBlock>[
+      MessageParagraph('Beta 0.1.1'),
+      MessageParagraph(
+        'Thanks for continuing to test Next Transfer. 💙',
+      ),
+      MessageSectionHeading("What's new"),
+      MessageBulletList(<String>[
+        'Backup & Restore is now available to help you save and restore your '
+            'Next Transfer data.',
+        'Improved Manage Groups, including No Group filtering and Restore '
+            'Default Groups behavior.',
+        'Improved notification setup and reminder behavior.',
+        'Event and Task reminders now use the intended 10-minute default.',
+        'Fixed a flicker in the Planner Event Type selector.',
+        'Improved reliability across Planner, Maps, Restore, Contacts, and '
+            'Settings.',
+        'Additional stability improvements based on beta feedback.',
+      ]),
+      MessageSectionHeading('Still being investigated'),
+      MessageBulletList(<String>[
+        'A visual flicker reported on the Create Goal screen on one beta '
+            'device.',
+      ]),
+      MessageParagraph(
+        'Thanks for helping us improve Next Transfer before launch.',
+      ),
+      MessageParagraph('The mission has ended. The next transfer begins.'),
+    ],
+  );
+
   /// The welcome note that introduced the closed beta.
   static final Message welcome = Message(
     id: 'welcome-to-next-transfer-beta',
@@ -152,7 +227,7 @@ abstract final class BundledMessages {
 
   /// All bundled messages, newest first.
   static final List<Message> all = List<Message>.unmodifiable(
-    <Message>[versionZeroOneZero, welcome]..sort(
+    <Message>[versionZeroOneOne, versionZeroOneZero, welcome]..sort(
       (left, right) => right.publishedAtLocal.compareTo(left.publishedAtLocal),
     ),
   );

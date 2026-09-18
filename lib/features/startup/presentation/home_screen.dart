@@ -18,6 +18,7 @@ import 'package:rmplanner/features/planner/domain/planner_date.dart';
 import 'package:rmplanner/features/planner/presentation/calendar_event_creation.dart';
 import 'package:rmplanner/features/planner/presentation/contextual_create_fab.dart';
 import 'package:rmplanner/features/settings/application/start_of_week_providers.dart';
+import 'package:rmplanner/features/shell/messages/application/message_providers.dart';
 import 'package:rmplanner/features/weekly_planning/application/weekly_planning_providers.dart';
 
 /// Returns the month-specific label shown beside the canonical monthly Goal.
@@ -115,11 +116,45 @@ final class _HomeScreenState extends ConsumerState<HomeScreen> {
         actions: <Widget>[
           // Pack 3: the Home bell opens the canonical local Messages screen,
           // never Android notification permissions.
-          IconButton(
-            key: const Key('home-messages'),
-            tooltip: 'Messages',
-            onPressed: () => context.push(RoutePaths.messages),
-            icon: const Icon(Icons.notifications_none_outlined),
+          //
+          // Closed-beta 0.1.1 (owner requirement): a small red dot marks a
+          // genuinely unread bundled message, so a tester notices the update
+          // notice. It is derived from a real stored read receipt, is hidden
+          // while storage is still unresolved, is silent, and is never tied to
+          // Android notification state. The bell itself is unchanged.
+          //
+          // It is read through a stateless Consumer on purpose: the indicator
+          // changes while Home is offstage (a message is opened from the
+          // Messages route), and a stateless consumer subscription cannot be
+          // resumed from a ticker-mode callback during another build.
+          Consumer(
+            builder: (context, ref, _) => Stack(
+              clipBehavior: Clip.none,
+              children: <Widget>[
+                IconButton(
+                  key: const Key('home-messages'),
+                  tooltip: 'Messages',
+                  onPressed: () => context.push(RoutePaths.messages),
+                  icon: const Icon(Icons.notifications_none_outlined),
+                ),
+                if (ref.watch(hasUnreadMessagesProvider))
+                  Positioned(
+                    top: 12,
+                    right: 12,
+                    child: IgnorePointer(
+                      child: Container(
+                        key: const Key('home-messages-unread-dot'),
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.error,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ],
       ),

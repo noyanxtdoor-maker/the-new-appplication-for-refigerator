@@ -273,6 +273,24 @@ abstract final class BackupDomainRegistry {
         'lib/features/backup/data/secure_checkpoint_key_store.dart',
       },
     ),
+    // Closed-beta 0.1.1 (owner requirement): the bundled Messages read
+    // receipts that drive the Home bell unread dot.
+    //
+    // CLASSIFIED EXCLUDE, deliberately. It is device-scoped presentation state
+    // describing which BUILT-IN release notes this install has already shown —
+    // no user-authored content, no profile data, no personal information. It is
+    // not canonical user configuration, so it is not part of a native payload,
+    // and a restored or reinstalled device showing the current update notice as
+    // unread again is harmless and arguably correct.
+    NonDriftStoreSpec(
+      id: 'message_read_state',
+      stateClass: PersistentStateClass.exclude,
+      mechanism: 'app_private_file',
+      evidence: 'lib/features/shell/messages/data/message_read_state_store.dart',
+      allowedLocations: <String>{
+        'lib/features/shell/messages/data/message_read_state_store.dart',
+      },
+    ),
   ];
 
   /// Drift tables that are part of a native backup payload.
