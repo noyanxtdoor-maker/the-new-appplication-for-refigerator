@@ -8,6 +8,7 @@ import 'package:rmplanner/core/notifications/notification_gateway.dart';
 import 'package:rmplanner/core/notifications/notification_response_controller.dart';
 import 'package:rmplanner/core/time/app_clock.dart';
 import 'package:rmplanner/features/notifications/application/background_diagnostics_provider.dart';
+import 'package:rmplanner/features/notifications/application/notification_first_run_setup.dart';
 import 'package:rmplanner/features/notifications/application/notification_foundation_repository.dart';
 import 'package:rmplanner/features/notifications/application/notification_privacy_refresh_provider.dart';
 import 'package:rmplanner/features/notifications/application/reminder_orphan_sweeper.dart';
@@ -339,6 +340,12 @@ final class NotificationSettingsController
   }
 
   Future<void> requestPermission({bool refreshReminders = true}) async {
+    // OWNER REVIEW #4 race guard.  The OS dialog can suspend and resume the
+    // app, so a permission answer can arrive after this controller was
+    // invalidated, re-loaded, or had a newer master operation started.  `load()`
+    // already refuses to publish a stale result; the request path is given the
+    // same protection so a late answer can never overwrite newer truth.
+    final revision = _revision;
     try {
       final privacy = ref.read(privacyRepositoryProvider);
       await privacy.recordPermissionRequested(OptionalPermission.notifications);
@@ -348,17 +355,46 @@ final class NotificationSettingsController
       if (result == OperatingSystemPermissionState.granted) {
         await privacy.recordPermissionGranted(OptionalPermission.notifications);
       }
+      if (!ref.mounted || revision != _revision) return;
       state = state.copyWith(
         permission: result,
         permissionRequested: true,
         clearMessage: true,
       );
       ref.invalidate(permissionSummariesProvider);
+      if (result == OperatingSystemPermissionState.granted) {
+        // First-ever setup only: a profile that has never had notification
+        // preferences written receives the owner-approved defaults here, which
+        // is the moment the app first knows Android will actually deliver.
+        await _seedFirstRunDefaultsIfEligible();
+      }
       if (refreshReminders) unawaited(_refreshReminders());
     } on Object {
+      if (!ref.mounted) return;
       state = state.copyWith(
         message: 'Android notification permission could not be requested.',
       );
+    }
+  }
+
+  /// Seeds the owner-approved new-user defaults exactly once per profile.
+  ///
+  /// Deliberately non-fatal: the user's action was to enable notifications, and
+  /// a seeding failure must not be reported as if enabling failed. The next
+  /// explicit enable retries, because the sentinel is still absent.
+  Future<void> _seedFirstRunDefaultsIfEligible() async {
+    try {
+      final seeded = await ref
+          .read(notificationFirstRunSetupProvider)
+          .seedIfNeverConfigured(profileId: _profileId);
+      if (!seeded) return;
+      _persisted = await ref
+          .read(notificationFoundationRepositoryProvider)
+          .readPreferences(profileId: _profileId);
+      if (!ref.mounted) return;
+      state = state.copyWith(preferences: _persisted);
+    } on Object {
+      // Seeding is opportunistic; the explicit enable below still applies.
     }
   }
 
@@ -401,6 +437,11 @@ final class NotificationSettingsController
         }
         await requestPermission(refreshReminders: false);
       }
+      // OWNER REVIEW #4: the first-run defaults are seeded on the GRANT itself
+      // (`requestPermission`), which is the one moment the app learns Android
+      // will actually deliver. Doing it here as well would seed on every master
+      // toggle for a profile that merely happens to be already granted, which is
+      // not "first-ever setup" and would fight the user's own master write.
       await savePreferences(
         state.preferences.copyWith(
           systemNotificationsEnabled:

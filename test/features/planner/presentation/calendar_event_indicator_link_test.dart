@@ -55,6 +55,20 @@ void main() {
     Future<void> openOtherForm() async {
       await tester.tap(find.text('Planner'));
       await tester.pumpAndSettle();
+      // OWNER REVIEW #4: selecting Planner now passes the shell's notification
+      // education gate BEFORE the Planner is mounted. This suite is about the
+      // Life Goal link, so it declines the education to reach the Planner; the
+      // education itself is covered at the shell boundary. No assertion in this
+      // file changes.
+      final education = find.byKey(
+        const Key('planner-notification-education'),
+      );
+      if (education.evaluate().isNotEmpty) {
+        await tester.tap(
+          find.byKey(const Key('planner-notification-not-now')),
+        );
+        await tester.pumpAndSettle();
+      }
       await tester.tap(find.byKey(const Key('planner-create-button')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('create-calendar-event-action')));

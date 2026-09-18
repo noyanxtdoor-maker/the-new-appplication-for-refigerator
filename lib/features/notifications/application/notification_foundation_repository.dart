@@ -6,6 +6,20 @@ import 'package:rmplanner/features/notifications/domain/reminder_policy.dart';
 abstract interface class NotificationFoundationRepository {
   Future<NotificationPreferences> readPreferences({required String profileId});
 
+  /// Whether this profile has EVER had notification preferences written.
+  ///
+  /// OWNER REVIEW #4 — the first-ever-setup sentinel.
+  ///
+  /// [readPreferences] is documented never to create a row and to answer with
+  /// [NotificationPreferences.defaults] when none exists, so "the row is
+  /// absent" is a durable, already-existing record that nothing has ever been
+  /// configured on this profile. That is the only state in which the app may
+  /// seed the owner-approved new-user defaults. A returning user who revoked
+  /// and re-granted the Android permission keeps their deliberate choices,
+  /// because their row exists. No new column, no sentinel table and no schema
+  /// change are needed.
+  Future<bool> hasPreferences({required String profileId});
+
   /// VS16 M7 corrective persistence repair — the five per-field Detailed
   /// notification content options.
   ///

@@ -49,20 +49,24 @@ final class DriftStartupRepository implements StartupRepository {
               ..limit(1))
             .getSingleOrNull();
     final unlockRequired = await privacyGate.isUnlockRequired();
+    final reconciledCheckpoint = await _reconcileCheckpoint(
+      profileRow: profileRow,
+      checkpointRow: checkpointRow,
+    );
 
     diagnostics.record(
       'startup_resolved',
       context: <String, Object?>{
         'database_state': 'ready',
-        'onboarding_stage': checkpointRow?.stage ?? 'none',
+        'onboarding_stage': reconciledCheckpoint?.stage ?? 'none',
       },
     );
 
     return StartupSnapshot(
       profile: profileRow == null ? null : _mapProfile(profileRow),
-      onboardingCheckpoint: checkpointRow == null
+      onboardingCheckpoint: reconciledCheckpoint == null
           ? null
-          : _mapCheckpoint(checkpointRow),
+          : _mapCheckpoint(reconciledCheckpoint),
       accountSessionState: AccountSessionState.localOnly,
       syncState: LocalSyncState.notConfigured,
       unlockRequired: unlockRequired,
@@ -219,6 +223,69 @@ final class DriftStartupRepository implements StartupRepository {
           ..where((table) => table.slot.equals(_primaryKey))
           ..limit(1))
         .getSingleOrNull();
+  }
+
+  /// Returns the checkpoint row that is consistent with [profileRow].
+  ///
+  /// OWNER REVIEW #4 — restore consistency repair.
+  ///
+  /// A whole-profile restore adopts the backup's own profile identity and
+  /// retires the identity this install had. `onboarding_checkpoints` is
+  /// deliberately NOT an exported backup domain (it is replay/repair-class
+  /// state), so after such a restore the surviving row can still name the
+  /// profile the restore removed — leaving the install permanently recording an
+  /// onboarding that belongs to a profile that no longer exists.
+  ///
+  /// `_stateFromSnapshot` already fails closed for the mirror-image case
+  /// (a completed checkpoint with no profile). This is the other half of the
+  /// same invariant. It is repaired HERE, on the single path every route into a
+  /// profile already passes through, rather than on the restore path alone, so
+  /// a restore, an identity adoption and any future migration all converge on
+  /// one consistent checkpoint. It is idempotent: a consistent row is returned
+  /// untouched, and a checkpoint still mid-onboarding (no profile yet) is never
+  /// disturbed.
+  Future<OnboardingCheckpointRow?> _reconcileCheckpoint({
+    required LocalProfileRow? profileRow,
+    required OnboardingCheckpointRow? checkpointRow,
+  }) async {
+    if (profileRow == null) return checkpointRow;
+    final consistent = checkpointRow != null &&
+        checkpointRow.stage == OnboardingStage.completed.name &&
+        checkpointRow.pendingProfileId == profileRow.id;
+    if (consistent) return checkpointRow;
+
+    final now = clock.nowUtc();
+    try {
+      if (checkpointRow == null) {
+        await database
+            .into(database.onboardingCheckpoints)
+            .insert(
+              OnboardingCheckpointsCompanion.insert(
+                pendingProfileId: profileRow.id,
+                stage: OnboardingStage.completed.name,
+                createdAtUtc: now,
+                updatedAtUtc: now,
+              ),
+            );
+      } else {
+        await (database.update(
+          database.onboardingCheckpoints,
+        )..where((table) => table.key.equals(_primaryKey))).write(
+          OnboardingCheckpointsCompanion(
+            pendingProfileId: Value<String>(profileRow.id),
+            stage: Value<String>(OnboardingStage.completed.name),
+            updatedAtUtc: Value<DateTime>(now),
+          ),
+        );
+      }
+    } on Object {
+      // A repair that cannot be written must never stop the app from starting:
+      // the snapshot below still carries the live profile, and the next resolve
+      // retries. Failing closed here would strand a working profile behind a
+      // bookkeeping problem.
+      return checkpointRow;
+    }
+    return _readCheckpoint();
   }
 
   Future<OnboardingCheckpointRow?> _readCheckpoint() {

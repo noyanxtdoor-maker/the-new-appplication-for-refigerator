@@ -22,6 +22,71 @@ if (releaseRequested && !releaseSigningComplete) {
     )
 }
 
+// OWNER REVIEW #4 — the Maps API key gate.
+//
+// The profile APK previously shipped the TRACKED placeholder
+// (`DEFAULT_API_KEY`) because `android/secrets.properties` was absent from the
+// worktree. The Google Maps Android SDK cannot authorize against that value, so
+// the map could not render on a build that passed every test. A profile/release
+// build must now fail loudly instead of shipping a map that cannot load.
+//
+// Debug builds are deliberately left alone so ordinary `flutter run` and the
+// widget/unit suites keep working on a machine with no local secret.
+val mapsApiKeyProperty = "MAPS_API_KEY"
+val mapsApiKeyPlaceholder = "DEFAULT_API_KEY"
+val mapsKeyRequested = gradle.startParameter.taskNames.any {
+    it.contains("Release", ignoreCase = true) ||
+        it.contains("Profile", ignoreCase = true)
+}
+
+fun readMapsApiKeyOrNull(file: File): String? {
+    if (!file.exists()) return null
+    return file.readLines()
+        .asSequence()
+        .map { it.trim() }
+        .filter { it.isNotEmpty() && !it.startsWith("#") && !it.startsWith("!") }
+        .mapNotNull { line ->
+            val separators = listOf(line.indexOf('='), line.indexOf(':'))
+                .filter { it >= 0 }
+            val separator = separators.minOrNull() ?: return@mapNotNull null
+            if (line.substring(0, separator).trim() != mapsApiKeyProperty) {
+                null
+            } else {
+                line.substring(separator + 1).trim()
+            }
+        }
+        .firstOrNull()
+}
+
+// Precedence is deliberately permissive in the SAFE direction: any local
+// secrets file wins over any defaults file, and a Gradle property or environment
+// variable is accepted too, so a valid configuration can never be blocked.
+val resolvedMapsApiKey: String? = sequenceOf(
+    rootProject.file("secrets.properties"),
+    project.file("secrets.properties"),
+    rootProject.file("secrets.defaults.properties"),
+    project.file("secrets.defaults.properties"),
+)
+    .mapNotNull { readMapsApiKeyOrNull(it) }
+    .firstOrNull()
+    ?: providers.gradleProperty(mapsApiKeyProperty).orNull
+    ?: providers.environmentVariable(mapsApiKeyProperty).orNull
+
+if (
+    mapsKeyRequested &&
+    (resolvedMapsApiKey.isNullOrBlank() ||
+        resolvedMapsApiKey == mapsApiKeyPlaceholder)
+) {
+    throw GradleException(
+        "Maps API key is not configured. Provide android/secrets.properties " +
+            "with $mapsApiKeyProperty=<restricted Google Maps Android key>. " +
+            "The tracked secrets.defaults.properties only supplies the " +
+            "\"$mapsApiKeyPlaceholder\" placeholder, which the Google Maps " +
+            "Android SDK cannot authorize against, so the built map would " +
+            "never render on device.",
+    )
+}
+
 android {
     namespace = "com.nexttransfer.rmplanner"
     compileSdk = 36

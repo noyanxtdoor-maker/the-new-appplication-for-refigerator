@@ -1,9 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:rmplanner/app/router/route_names.dart';
 import 'package:rmplanner/app/shell/global_drawer_controller.dart';
 import 'package:rmplanner/app/shell/nav_destination_icon.dart';
 import 'package:rmplanner/app/shell/window_size_class.dart';
+import 'package:rmplanner/features/notifications/application/notification_providers.dart';
+import 'package:rmplanner/features/planner/presentation/planner_notification_invitation.dart';
 import 'package:rmplanner/features/shell/global_app_drawer.dart';
 
 /// ONE canonical destination model for the shell.
@@ -73,6 +78,19 @@ const Key kMainBottomNavigationKey = Key('main-bottom-navigation');
 /// Key of the wide-window side navigation presentation.
 const Key kMainNavigationRailKey = Key('main-navigation-rail');
 
+/// OWNER RULING (2026-09-18) — enter the Planner through the notification
+/// education gate.
+///
+/// `markVisit` records one DELIBERATE Planner entry. Visibility is then derived
+/// from live permission state plus how many times the user has answered within
+/// the current visit, which is what lets a user who tap-denied by accident get
+/// another chance on a later entry while never being nagged twice inside one
+/// session. There is deliberately no permanent "already shown" flag.
+///
+/// The Android dialog is only ever raised by the explicit `Enable notifications`
+/// action, and it routes through the same serialized controller the Notifications
+/// settings screen uses. Opening the Planner never fires a permission request,
+/// and a dismissal is never treated as consent.
 final class MainShell extends StatefulWidget {
   const MainShell({required this.child, super.key});
 
@@ -85,6 +103,65 @@ final class MainShell extends StatefulWidget {
 final class _MainShellState extends State<MainShell> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final GlobalDrawerController _controller = GlobalDrawerController();
+
+  /// Applies the notification education, then enters the Planner.
+  ///
+  /// The order matters and is the whole point of doing this in the shell: the
+  /// education is resolved and answered BEFORE `go(planner)`, so the Planner is
+  /// never mounted behind a modal, never resized, and never has a pointer taken
+  /// from it. Every path — enable, not now, dismissed, unavailable, already
+  /// granted — ends by entering the Planner.
+  Future<void> _enterPlanner(BuildContext context, String routePath) async {
+    final container = ProviderScope.containerOf(context, listen: false);
+    // No Android notification permission model means no education to give.
+    if (!container.read(notificationEducationSupportedProvider)) {
+      if (!context.mounted) return;
+      context.go(routePath);
+      return;
+    }
+    final answers = container.read(plannerNotificationAnswersProvider.notifier);
+    // One deliberate Planner entry. Counting it here, at the boundary, is what
+    // makes "later entry offers another chance" true without a permanent flag.
+    container.read(plannerNotificationVisitsProvider.notifier).markVisit();
+    // The settings controller is built lazily and publishes `loading` until its
+    // first read finishes, and `loading` deliberately means "show nothing".
+    // Evaluating before that load completed would silently skip the education
+    // for exactly the user who needs it, so the decision is made on real
+    // permission truth instead.
+    final settingsController = container.read(
+      notificationSettingsControllerProvider.notifier,
+    );
+    await settingsController.load();
+    if (!context.mounted) return;
+    final kind = container.read(plannerNotificationInvitationProvider);
+    var wantsEnable = false;
+    if (kind != PlannerNotificationInvitationKind.hidden) {
+      final outcome = await showModalBottomSheet<
+        PlannerNotificationEducationOutcome
+      >(
+        context: context,
+        isScrollControlled: true,
+        builder: (_) => const PlannerNotificationEducationSheet(),
+      );
+      // A dismissed sheet is an answer for THIS visit only: never consent, and
+      // never a second nag inside the same session.
+      answers.answer();
+      wantsEnable = outcome == PlannerNotificationEducationOutcome.enable;
+    }
+    if (!context.mounted) return;
+    // OWNER RULING: after either action the user continues into the Planner.
+    // Navigation is never awaited on the permission machinery — an Android
+    // dialog, a slow settings round-trip or a slow seed must not be able to
+    // strand the user on the previous screen, and the Planner is not mounted
+    // behind a modal in any case.
+    context.go(routePath);
+    if (wantsEnable) {
+      // The same serialized path the Notifications settings screen uses. It
+      // requests at most once, seeds the first-run defaults on a grant, and
+      // opens App Settings when Android will no longer show its dialog.
+      unawaited(settingsController.setSystemNotificationsEnabled(true));
+    }
+  }
 
   @override
   void initState() {
@@ -143,7 +220,22 @@ final class _MainShellState extends State<MainShell> {
       if (index < 0 || index >= _shellDestinations.length) {
         return;
       }
-      context.go(_shellDestinations[index].routePath);
+      final routePath = _shellDestinations[index].routePath;
+      if (routePath == RoutePaths.planner) {
+        // OWNER RULING (2026-09-18): notification education happens at the SHELL
+        // / NAVIGATION boundary, BEFORE the Planner is activated.
+        //
+        // Three mounting points inside `PlannerScreen` were built and measured,
+        // and each broke a different accepted contract (canvas hit tests, the
+        // accepted toolbar/header taps, the body height the canvas geometry is
+        // measured against). Showing it here instead means the Planner's layout
+        // and hit-test contract are untouched by construction: at the moment
+        // this runs, the Planner is not mounted, so it can neither be resized
+        // nor participate in the decision.
+        unawaited(_enterPlanner(context, routePath));
+        return;
+      }
+      context.go(routePath);
     }
 
     return GlobalDrawerScope(
@@ -228,6 +320,19 @@ final class _MainShellState extends State<MainShell> {
         // Exactly one navigation presentation is mounted in steady state: the
         // rail above on a wide window, this bar on a compact one, and neither
         // on the full-screen Goal icon picker.
+        // OWNER REVIEW #4 — the Planner notification invitation is NOT mounted
+        // here.
+        //
+        // It was implemented and unit-tested, and two mounting points were
+        // tried and measured. Inside the Planner it shifted the day canvas the
+        // accepted geometry contracts assert, and as an overlay over the canvas
+        // it swallowed real hit tests. Riding above this navigation bar it made
+        // the body shorter, which broke the app-level Planner tests that tap the
+        // timeline at an absolute canvas coordinate. Every mounting point that
+        // is visible on the first Planner visit therefore collides with an
+        // accepted contract, and the choice between them is the owner's, not a
+        // detail to settle silently. The widget, its visibility rules and its
+        // tests stay in place so the decision costs only a mount point.
         bottomNavigationBar: useRail || isGoalIconPicker
             ? null
             : NavigationBar(

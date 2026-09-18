@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:rmplanner/app/theme/internal_screen.dart';
 import 'package:rmplanner/features/backup/application/backup_providers.dart';
+import 'package:rmplanner/features/backup/domain/backup_flow_notice.dart';
 
 /// Backup & Restore (VS-18).
 ///
@@ -25,6 +28,48 @@ import 'package:rmplanner/features/backup/application/backup_providers.dart';
 final class BackupRecoveryScreen extends ConsumerWidget {
   const BackupRecoveryScreen({super.key});
 
+  /// The title the restore flow publishes on a committed restore.
+  static const String dataRestoredTitle = 'Data restored';
+
+  /// OWNER REVIEW #4 (owner ruling, 2026-09-18) — a successful restore is
+  /// acknowledged, never merely announced.
+  ///
+  /// A committed restore brings its own profile identity and can require a
+  /// reopen before the restored data is on screen. That is precisely the state
+  /// the owner read as "restore did nothing": the only instruction lived in a
+  /// snackbar that expired while the app still looked empty. The acknowledgement
+  /// therefore stays up until the user dismisses it, and it says what is true:
+  /// the restore succeeded and the reopen is a display refresh, not a retry.
+  ///
+  /// It is deliberately NOT a forced close and NOT a programmatic restart.
+  Future<void> acknowledgeRestore(
+    BuildContext context,
+    BackupFlowNotice notice,
+  ) async {
+    await showDialog<void>(
+      context: context,
+      // Persistent until acknowledged: dismissal must be a deliberate act.
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        key: const Key('backup-restore-acknowledged'),
+        title: Text(
+          notice.title,
+          key: const Key('backup-notice-title'),
+        ),
+        content: notice.body == null
+            ? null
+            : Text(notice.body!, key: const Key('backup-notice-body')),
+        actions: <Widget>[
+          FilledButton(
+            key: const Key('backup-restore-acknowledge'),
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(backupFlowControllerProvider);
@@ -36,6 +81,13 @@ final class BackupRecoveryScreen extends ConsumerWidget {
     ref.listen<BackupFlowState>(backupFlowControllerProvider, (previous, next) {
       final notice = next.notice;
       if (notice != null && notice != previous?.notice) {
+        // A committed restore gets the persistent acknowledgement above; every
+        // other outcome keeps the transient snackbar it already had.
+        if (notice.title == dataRestoredTitle) {
+          unawaited(acknowledgeRestore(context, notice));
+          controller.consumeNotice();
+          return;
+        }
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
           ..showSnackBar(

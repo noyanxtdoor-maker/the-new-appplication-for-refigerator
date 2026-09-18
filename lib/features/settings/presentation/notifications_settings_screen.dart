@@ -6,7 +6,6 @@ import 'package:rmplanner/app/theme/app_theme.dart';
 import 'package:rmplanner/app/theme/internal_screen.dart';
 import 'package:rmplanner/features/notifications/application/detailed_content_providers.dart';
 import 'package:rmplanner/features/notifications/application/notification_providers.dart';
-import 'package:rmplanner/features/notifications/application/reminder_notification_renderer.dart';
 import 'package:rmplanner/features/notifications/data/detailed_content_preferences_store.dart';
 import 'package:rmplanner/features/notifications/domain/notification_preferences.dart';
 import 'package:rmplanner/features/notifications/domain/reminder_policy_label.dart';
@@ -444,7 +443,6 @@ final class _DetailedContentCard extends ConsumerWidget {
           _DetailedToggle(
             key: const Key('notifications-detailed-title'),
             title: 'Show title',
-            subtitle: 'The event or task title, including its emoji',
             value: stored.showTitle,
             onChanged: (value) => ref
                 .read(detailedContentControllerProvider)
@@ -454,9 +452,6 @@ final class _DetailedContentCard extends ConsumerWidget {
           _DetailedToggle(
             key: const Key('notifications-detailed-description'),
             title: 'Show description',
-            subtitle:
-                'Up to ${ReminderNotificationRenderer.maxDescriptionGraphemes} '
-                'characters',
             value: stored.showDescription,
             onChanged: (value) => ref
                 .read(detailedContentControllerProvider)
@@ -466,7 +461,6 @@ final class _DetailedContentCard extends ConsumerWidget {
           _DetailedToggle(
             key: const Key('notifications-detailed-time'),
             title: 'Show time',
-            subtitle: 'When the event runs or the task is due',
             value: stored.showTime,
             onChanged: (value) => ref
                 .read(detailedContentControllerProvider)
@@ -476,7 +470,6 @@ final class _DetailedContentCard extends ConsumerWidget {
           _DetailedToggle(
             key: const Key('notifications-detailed-contacts'),
             title: 'Show contacts',
-            subtitle: 'Who to follow up with',
             value: stored.showContacts,
             onChanged: (value) => ref
                 .read(detailedContentControllerProvider)
@@ -486,7 +479,6 @@ final class _DetailedContentCard extends ConsumerWidget {
           _DetailedToggle(
             key: const Key('notifications-detailed-location'),
             title: 'Show location',
-            subtitle: 'The saved place name as text',
             value: stored.showLocation,
             onChanged: (value) => ref
                 .read(detailedContentControllerProvider)
@@ -532,20 +524,23 @@ final class _DetailedToggle extends StatelessWidget {
   const _DetailedToggle({
     super.key,
     required this.title,
-    required this.subtitle,
     required this.value,
     required this.onChanged,
   });
 
   final String title;
-  final String subtitle;
   final bool value;
   final ValueChanged<bool> onChanged;
 
+  /// OWNER REVIEW #4: the per-field explanations were REMOVED.
+  ///
+  /// This card already renders a live Notification preview of exactly what the
+  /// current combination produces, so a sentence restating each switch was
+  /// redundant and cost vertical space. Delete rather than suppress: a `subtitle`
+  /// parameter nobody supplies is dead surface that would quietly accrete back.
   @override
   Widget build(BuildContext context) => SwitchListTile(
     title: Text(title),
-    subtitle: Text(subtitle),
     value: value,
     onChanged: onChanged,
   );

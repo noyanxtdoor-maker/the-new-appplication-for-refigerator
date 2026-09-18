@@ -63,6 +63,20 @@ final class DriftNotificationFoundationRepository
     return preferences;
   }
 
+  /// True when a `notification_preferences` row already exists for
+  /// [profileId].  This is the durable "has this profile ever been configured"
+  /// sentinel; [readPreferences] deliberately answers with defaults (and never
+  /// creates a row) when it is false.
+  @override
+  Future<bool> hasPreferences({required String profileId}) async {
+    final row =
+        await (database.select(database.notificationPreferences)
+              ..where((table) => table.profileId.equals(profileId))
+              ..limit(1))
+            .getSingleOrNull();
+    return row != null;
+  }
+
   DetailedContentPreferencesStore get _detailedStore =>
       DetailedContentPreferencesStore(database: database, clock: clock);
 
