@@ -1,0 +1,44 @@
+================================================================================
+FORBIDDEN-FEATURE SCAN (Contract protected boundary)
+================================================================================
+
+Each forbidden item from the contract was searched for in the CHANGED/NEW
+production files only. A hit is not automatically a violation (a term may
+appear in a comment or a negative assertion), so hits are listed for review.
+
+--- SCHEDULE_EXACT_ALARM ---
+  (no occurrence in modified production files)
+--- USE_EXACT_ALARM ---
+  (no occurrence in modified production files)
+--- exactAllowWhileIdle ---
+  (no occurrence in modified production files)
+--- ACCESS_BACKGROUND_LOCATION ---
+  (no occurrence in modified production files)
+--- GeofencingClient ---
+  (no occurrence in modified production files)
+--- geofenc ---
+  (no occurrence in modified production files)
+--- addGeofence ---
+  (no occurrence in modified production files)
+--- SavedPlace ---
+  (no occurrence in modified production files)
+--- saved_place ---
+  (no occurrence in modified production files)
+--- snoozeAction ---
+  (no occurrence in modified production files)
+--- SnoozeAction ---
+  (no occurrence in modified production files)
+--- ACTION_OPEN ---
+  (no occurrence in modified production files)
+--- openAction ---
+  (no occurrence in modified production files)
+--- notificationActionButton ---
+  (no occurrence in modified production files)
+--- shape: ---
+  (no occurrence in modified production files)
+--- fontFamily ---
+  (no occurrence in modified production files)
+--- geolocator ---
+  (no occurrence in modified production files)
+--- background_locator ---
+  (no occurrence in modified production files)

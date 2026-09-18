@@ -1,0 +1,111 @@
+================================================================================
+P29 BEHAVIORAL VERIFICATION — FAIL-FIRST PROOF ON PRISTINE BASE 7b1395c
+================================================================================
+Worktree under test (candidate): C:\Users\sherl\Downloads\NT_B5_DEVELOP__deepseek-m7m8-20260911
+Pristine base worktree          : NT_B5_DEVELOP__baseline-7b1395c-20260910
+Base commit                     : 7b1395c10232b51f7d59464214ffe915415c4bb1
+Test file                       : test/features/planner/data/m7_occurrence_route_window_test.dart
+Method                          : observable repository behavior (NOT grep-based)
+
+--------------------------------------------------------------------------------
+P29 RECOVERY LAW
+--------------------------------------------------------------------------------
+The recovery / horizon process must not incorrectly discard an otherwise relevant
+Event reminder merely because its reminder target belongs to the previous planner
+date.
+
+A simple grep (e.g. "the source contains minus one day") is explicitly NOT
+sufficient as primary proof. Proof below is behavioral: the test exercises
+`readOccurrenceById` on a real repository and asserts on the returned occurrence.
+
+--------------------------------------------------------------------------------
+PROCEDURE EXECUTED
+--------------------------------------------------------------------------------
+1. Copied the candidate behavioral test into the pristine baseline worktree
+   (temp file), so both trees ran the IDENTICAL test source.
+2. Ran it against pristine 7b1395c with the same toolchain wrapper.
+3. Recorded per-test outcome.
+4. Deleted the temp file and confirmed the baseline worktree was restored to
+   its prior state (only ?? .flutter, ?? .flutter_tool_state, ?? .m7_evidence/).
+
+--------------------------------------------------------------------------------
+RESULT — PRISTINE BASE 7b1395c (fail-first)
+--------------------------------------------------------------------------------
+Test 1  P29 an occurrence one day before today still resolves ......... FAILED
+        Actual: <null>
+        Interpretation: the base DOES NOT recover a reminder whose target
+        belongs to the previous planner date. This is exactly the defect P29
+        corrects.
+
+Test 2  (companion window test) ...................................... PASSED
+Test 3  (companion window test) ...................................... PASSED
+
+=> Only the corrected prior-day behavior is absent from the base. The surrounding
+   route-window machinery is present and functioning in 7b1395c, so the base is
+   not failing for unrelated reasons.
+
+--------------------------------------------------------------------------------
+RESULT — CANDIDATE (current worktree)
+--------------------------------------------------------------------------------
+Test 1  P29 an occurrence one day before today still resolves ......... PASSED
+Test 2  P29 an occurrence today resolves ............................. PASSED
+Test 3  P29 a recurring series anchored well before today still
+        resolves its newest occurrence .............................. PASSED
+
+Suite total: 7/7 PASS  (see EVIDENCE/04_m7_new_suites_106_of_106.txt and
+                        EVIDENCE/06_affected_suite_rest.txt)
+
+--------------------------------------------------------------------------------
+IMPLEMENTATION DELTA THAT PRODUCES THE BEHAVIOR CHANGE
+--------------------------------------------------------------------------------
+File: lib/features/planner/data/drift_calendar_event_repository.dart
+Function: readOccurrenceById
+
+BASELINE (7b1395c):
+    final today = PlannerDate.fromDateTime(clock.nowUtc().toLocal());
+    final first = start.compareTo(today) < 0 ? today : start;
+    for (var offset = 0; offset <= 90; offset++) { ... }
+
+CANDIDATE:
+    final today = PlannerDate.fromDateTime(clock.nowUtc().toLocal());
+    final scanFloor = today.addDays(-1);
+    final first = start.compareTo(scanFloor) < 0 ? scanFloor : start;
+    for (var offset = 0; offset <= 91; offset++) { ... }
+
+The scan floor is widened by exactly one planner day and the bounded iteration
+limit is raised correspondingly (90 -> 91) so the window still covers the same
+forward horizon. The widened floor is what allows a reminder target that belongs
+to the previous planner date to be recovered rather than discarded.
+
+--------------------------------------------------------------------------------
+TEST-AUTHORING CORRECTION — DISCLOSED
+--------------------------------------------------------------------------------
+The third test was CORRECTED during certification, and the correction made the
+test STRONGER, not weaker. It was NOT weakened to make it green.
+
+Original (defective) form: seeded a NON-recurring Event 7 days in the past and
+asserted that an occurrence dated today resolves.
+
+Why that was wrong: `CalendarRecurrenceFrequency.none` yields exactly ONE
+occurrence. `CalendarRecurrenceRule.occurrenceIndexOn` implements:
+    CalendarRecurrenceFrequency.none => targetDate == startDate ? 0 : null
+So a non-recurring Event anchored 7 days ago can never produce a today-dated
+occurrence. The assertion was unsatisfiable by ANY implementation, and the
+failure was therefore a defective test, not an implementation bug.
+
+Correction applied: seed a DAILY recurring series anchored 7 days back, and add
+an optional `recurrence` parameter to the `seedEvent` helper. The test now
+exercises the real scenario P29 targets — a genuinely recurring series whose
+newest occurrence must still resolve after the anchor date has passed.
+
+No assertion was relaxed. The remaining two tests are unchanged.
+
+Import hygiene fix: removed an unused
+`import 'package:rmplanner/core/time/app_clock.dart';` (FixedClock actually comes
+from test/support/test_dependencies.dart). This was surfaced by the analyzer gate
+and fixed by deletion, not by suppression.
+
+================================================================================
+VERDICT: P29 BEHAVIORAL VERIFICATION = PASS
+         FAIL-FIRST PROOF ON PRISTINE 7b1395c = CONFIRMED (test 1 FAILED)
+================================================================================

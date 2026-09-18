@@ -1,0 +1,3811 @@
+diff --git a/lib/app/router/app_router.dart b/lib/app/router/app_router.dart
+index cab4df0..1842fc2 100644
+--- a/lib/app/router/app_router.dart
++++ b/lib/app/router/app_router.dart
+@@ -31,6 +31,7 @@ import 'package:rmplanner/features/maps/domain/map_coordinate.dart';
+ import 'package:rmplanner/features/maps/presentation/map_location_picker_screen.dart';
+ import 'package:rmplanner/features/maps/presentation/maps_screen.dart';
+ import 'package:rmplanner/features/maps/presentation/maps_search_screen.dart';
++import 'package:rmplanner/features/notifications/domain/contact_follow_up_creation_intent.dart';
+ import 'package:rmplanner/features/planner/application/planner_providers.dart';
+ import 'package:rmplanner/features/planner/domain/calendar_event.dart';
+ import 'package:rmplanner/features/planner/domain/planner_date.dart';
+@@ -361,6 +362,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
+                       .split(',')
+                       .where((id) => id.isNotEmpty)
+                       .toList(growable: false),
++            // M7 section 8: the Contact Detail chooser forwards a typed
++            // ephemeral intent.  Unknown/malformed extra fails closed to
++            // ordinary creation rather than crashing.
++            followUpContactId: _followUpContactIdOf(state),
+           );
+         },
+       ),
+@@ -433,6 +438,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
+                       .where((id) => id.isNotEmpty)
+                       .toList(growable: false),
+             initialCoordinate: coordinate,
++            // M7 section 8: typed follow-up provenance from the Contact Detail
++            // chooser; unknown extra fails closed to ordinary creation.
++            followUpContactId: _followUpContactIdOf(state),
+           );
+         },
+       ),
+@@ -662,6 +670,20 @@ final appRouterProvider = Provider<GoRouter>((ref) {
+   return router;
+ });
+ 
++/// M7 section 8 — resolve the typed follow-up provenance carried by the
++/// Contact Detail chooser.
++///
++/// Only an explicit [ContactFollowUpCreationIntent] counts.  Anything else
++/// (null, an unknown object type, or a blank Contact id) fails closed to
++/// ordinary creation so an unforeseen `extra` can never invent provenance.
++String? _followUpContactIdOf(GoRouterState state) {
++  final extra = state.extra;
++  if (extra is! ContactFollowUpCreationIntent) {
++    return null;
++  }
++  return extra.isValid ? extra.contactId : null;
++}
++
+ PlannerDate _periodStart(String? raw, PlannerDate today, Ref ref) {
+   if (raw != null) {
+     try {
+diff --git a/lib/core/background/background_work_gateway.dart b/lib/core/background/background_work_gateway.dart
+index 4997fdb..71b24aa 100644
+--- a/lib/core/background/background_work_gateway.dart
++++ b/lib/core/background/background_work_gateway.dart
+@@ -2,6 +2,12 @@ enum BackgroundNetworkConstraint { notRequired, connected, unmetered }
+ 
+ enum BackgroundExistingWorkPolicy { keep, replace }
+ 
++/// Mirrors the installed plugin's [BackoffPolicy] without leaking it into the
++/// domain layer.  Contract section 31 requires exponential minimum backoff for
++/// bounded delivery retries; the composition layer supplies the concrete
++/// delays (30s/60s/120s/240s for attempts 1-4).
++enum BackgroundBackoffPolicy { linear, exponential }
++
+ enum BackgroundGatewayWorkState { absent, scheduled }
+ 
+ final class BackgroundWorkConstraints {
+@@ -27,6 +33,8 @@ final class BackgroundWorkSpec {
+     this.tag,
+     this.constraints = const BackgroundWorkConstraints(),
+     this.existingPolicy = BackgroundExistingWorkPolicy.keep,
++    this.backoffPolicy,
++    this.backoffPolicyDelay,
+   });
+ 
+   static final RegExp _safeKey = RegExp(r'^[a-z0-9_]{1,64}$');
+@@ -40,6 +48,11 @@ final class BackgroundWorkSpec {
+   final BackgroundWorkConstraints constraints;
+   final BackgroundExistingWorkPolicy existingPolicy;
+ 
++  /// Optional bounded-retry configuration (contract section 31).  Absent means
++  /// the platform default; delivery work that is allowed to retry sets both.
++  final BackgroundBackoffPolicy? backoffPolicy;
++  final Duration? backoffPolicyDelay;
++
+   void validate() {
+     if (tag != null && !_safeValue.hasMatch(tag!)) throw ArgumentError('Invalid background tag.');
+     if (!_safeValue.hasMatch(uniqueName) || !_safeValue.hasMatch(taskName)) {
+diff --git a/lib/core/background/workmanager_background_work_gateway.dart b/lib/core/background/workmanager_background_work_gateway.dart
+index b975d53..b9cfefd 100644
+--- a/lib/core/background/workmanager_background_work_gateway.dart
++++ b/lib/core/background/workmanager_background_work_gateway.dart
+@@ -1,8 +1,116 @@
++import 'dart:convert';
++
++import 'package:crypto/crypto.dart';
+ import 'package:rmplanner/core/background/background_work_gateway.dart';
+ import 'package:rmplanner/core/notifications/notification_payload.dart';
+ import 'package:rmplanner/features/notifications/application/reminder_background_runtime.dart';
++import 'package:rmplanner/features/notifications/application/reminder_delivery_service.dart';
+ import 'package:workmanager/workmanager.dart';
+ 
++/// The only permitted WorkManager delivery input (contract sections 12/14/32).
++///
++/// Exactly three technical keys are accepted:
++/// `stable_key`, `scheduled_utc_ms`, `source_revision`.
++/// Anything else — extra keys, missing keys, wrong types, or the legacy
++/// two-key delivery shape — is a terminal handled no-op that must never mutate
++/// domain state and must never be replayed.
++final class CanonicalReminderWorkSpec {
++  const CanonicalReminderWorkSpec({
++    required this.stableKey,
++    required this.scheduledUtcMs,
++    required this.sourceRevision,
++  });
++
++  static const String taskName = 'nt.reminder.delivery';
++  static const String stableKeyField = 'stable_key';
++  static const String scheduledUtcMsField = 'scheduled_utc_ms';
++  static const String sourceRevisionField = 'source_revision';
++
++  static const Set<String> allowedFields = <String>{
++    stableKeyField,
++    scheduledUtcMsField,
++    sourceRevisionField,
++  };
++
++  static final RegExp _stableKeyPattern = RegExp(
++    r'^reminder:[A-Za-z0-9_.:-]{1,240}$',
++  );
++  static final RegExp _revisionPattern = RegExp(r'^[A-Za-z0-9_.:-]{1,256}$');
++
++  final String stableKey;
++  final int scheduledUtcMs;
++  final String sourceRevision;
++
++  DateTime get scheduledAtUtc =>
++      DateTime.fromMillisecondsSinceEpoch(scheduledUtcMs, isUtc: true);
++
++  /// `nt.reminder.<platformId>.<utcMs>.<SHA256(revision)[0:16]>`
++  String uniqueNameFor(int platformNotificationId) => uniqueName(
++    platformNotificationId: platformNotificationId,
++    scheduledUtcMs: scheduledUtcMs,
++    sourceRevision: sourceRevision,
++  );
++
++  /// The one authoritative unique-name derivation.
++  ///
++  /// Both the enqueue path and the release/cancel path MUST call this, so a
++  /// cancellation always targets the exact generation that was registered.
++  /// Deriving the name anywhere else would let a release miss its own job and
++  /// leave two live delivery owners for one logical reminder (section 6/65).
++  static String uniqueName({
++    required int platformNotificationId,
++    required int scheduledUtcMs,
++    required String sourceRevision,
++  }) {
++    final digest = sha256.convert(utf8.encode(sourceRevision)).toString();
++    return 'nt.reminder.$platformNotificationId.$scheduledUtcMs.'
++        '${digest.substring(0, 16)}';
++  }
++
++  Map<String, Object?> toInputData() => <String, Object?>{
++    stableKeyField: stableKey,
++    scheduledUtcMsField: scheduledUtcMs,
++    sourceRevisionField: sourceRevision,
++  };
++
++  BackgroundWorkSpec toWorkSpec({
++    required int platformNotificationId,
++    required DateTime nowUtc,
++    BackgroundExistingWorkPolicy existingPolicy =
++        BackgroundExistingWorkPolicy.replace,
++  }) {
++    final delay = scheduledAtUtc.difference(nowUtc);
++    final spec = BackgroundWorkSpec(
++      uniqueName: uniqueNameFor(platformNotificationId),
++      taskName: taskName,
++      inputData: toInputData(),
++      initialDelay: delay.isNegative ? Duration.zero : delay,
++      existingPolicy: existingPolicy,
++    );
++    spec.validate();
++    return spec;
++  }
++
++  /// Strict three-key parse.  Returns null for malformed, extra-key or legacy
++  /// (two-key) input; callers treat null as a terminal handled no-op.
++  static CanonicalReminderWorkSpec? tryParse(Map<String, Object?>? input) {
++    if (input == null || input.length != allowedFields.length) return null;
++    if (input.keys.any((key) => !allowedFields.contains(key))) return null;
++    final key = input[stableKeyField];
++    final scheduled = input[scheduledUtcMsField];
++    final revision = input[sourceRevisionField];
++    if (key is! String || scheduled is! int || revision is! String) return null;
++    if (scheduled < 0) return null;
++    if (!_stableKeyPattern.hasMatch(key)) return null;
++    if (!_revisionPattern.hasMatch(revision)) return null;
++    return CanonicalReminderWorkSpec(
++      stableKey: key,
++      scheduledUtcMs: scheduled,
++      sourceRevision: revision,
++    );
++  }
++}
++
+ @pragma('vm:entry-point')
+ void nextTransferBackgroundDispatcher() {
+   Workmanager().executeTask((task, input) async {
+@@ -45,27 +153,25 @@ void nextTransferBackgroundDispatcher() {
+       if (input != null && input.isNotEmpty) return false;
+       return runReminderRuntime();
+     }
+-    if (task != 'nt.reminder.delivery' ||
+-        input == null ||
+-        input.keys.any(
+-          (key) => key != 'stable_key' && key != 'scheduled_utc_ms',
+-        )) {
++    if (task != CanonicalReminderWorkSpec.taskName) {
+       return false;
+     }
+-    final key = input['stable_key'];
+-    final timestamp = input['scheduled_utc_ms'];
+-    if (key is! String ||
+-        timestamp is! int ||
+-        !RegExp(r'^reminder:[A-Za-z0-9_.:-]{1,240}$').hasMatch(key)) {
+-      return false;
++    final spec = CanonicalReminderWorkSpec.tryParse(input);
++    if (spec == null) {
++      // Malformed, extra-key or legacy two-key delivery input is terminal:
++      // handled as a no-op so the OS stops retrying, with no domain mutation.
++      return true;
+     }
+-    return runReminderRuntime(
+-      deliveryKey: key,
+-      scheduledAtUtc: DateTime.fromMillisecondsSinceEpoch(
+-        timestamp,
+-        isUtc: true,
+-      ),
+-    );
++    // The dispatcher only validates and forwards the EXACT three technical
++    // fields.  No private text may enter this call, so it passes the typed spec
++    // rather than a raw map.
++    final outcome = await runCanonicalReminderDelivery(spec);
++    return switch (outcome) {
++      // A known pre-post transient failure is the only outcome that may ask the
++      // OS to retry; everything else is terminal for WorkManager (section 31).
++      ReminderDeliveryOutcome.retryable => false,
++      _ => true,
++    };
+   });
+ }
+ 
+@@ -101,6 +207,12 @@ final class WorkmanagerBackgroundWorkGateway implements BackgroundWorkGateway {
+         BackgroundExistingWorkPolicy.keep => ExistingWorkPolicy.keep,
+         BackgroundExistingWorkPolicy.replace => ExistingWorkPolicy.replace,
+       },
++      backoffPolicy: switch (work.backoffPolicy) {
++        BackgroundBackoffPolicy.linear => BackoffPolicy.linear,
++        BackgroundBackoffPolicy.exponential => BackoffPolicy.exponential,
++        null => null,
++      },
++      backoffPolicyDelay: work.backoffPolicyDelay,
+     );
+   }
+ 
+@@ -111,8 +223,21 @@ final class WorkmanagerBackgroundWorkGateway implements BackgroundWorkGateway {
+   @override
+   Future<BackgroundGatewayWorkState> inspect(String uniqueName) async {
+     final info = await _workmanager.getWorkInfo(uniqueName);
+-    return info == null
+-        ? BackgroundGatewayWorkState.absent
+-        : BackgroundGatewayWorkState.scheduled;
++    if (info == null) return BackgroundGatewayWorkState.absent;
++    // The installed plugin merges Android ENQUEUED and BLOCKED into
++    // WorkState.scheduled, and its Dart DTO exposes no Android attempt count
++    // (and no finish timestamp on Android).  Report exactly that combined
++    // pending meaning: never invent a distinct BLOCKED state, a retry count or
++    // a completion time from WorkInfo (contract sections 64/65).
++    //
++    // Terminal work is NOT pending, but it is also NOT proof that a
++    // notification was delivered — the durable row decides that.
++    return switch (info.state) {
++      WorkState.scheduled || WorkState.running =>
++        BackgroundGatewayWorkState.scheduled,
++      WorkState.succeeded ||
++      WorkState.failed ||
++      WorkState.cancelled => BackgroundGatewayWorkState.absent,
++    };
+   }
+ }
+diff --git a/lib/features/contacts/data/drift_contact_repository.dart b/lib/features/contacts/data/drift_contact_repository.dart
+index 38c463e..489aafa 100644
+--- a/lib/features/contacts/data/drift_contact_repository.dart
++++ b/lib/features/contacts/data/drift_contact_repository.dart
+@@ -1,12 +1,14 @@
+ import 'dart:async';
+ 
+ import 'package:drift/drift.dart';
++import 'package:rmplanner/core/background/reminder_recovery_request.dart';
+ import 'package:rmplanner/core/colors/vs11_color_system.dart';
+ import 'package:rmplanner/core/database/app_database.dart';
+ import 'package:rmplanner/core/ids/identifier_source.dart';
+ import 'package:rmplanner/core/time/app_clock.dart';
+ import 'package:rmplanner/features/contacts/application/contact_repository.dart';
+ import 'package:rmplanner/features/contacts/domain/contact.dart';
++import 'package:rmplanner/features/notifications/domain/reminder_policy.dart';
+ import 'package:rmplanner/features/planner/application/calendar_event_repository.dart';
+ import 'package:rmplanner/features/planner/data/calendar_event_time_zones.dart';
+ import 'package:rmplanner/features/planner/domain/calendar_event.dart';
+@@ -26,12 +28,20 @@ final class DriftContactRepository
+     required this.database,
+     required this.clock,
+     required this.identifiers,
++    this.reminderRepair,
+   });
+ 
+   final AppDatabase database;
+   final AppClock clock;
+   final IdentifierSource identifiers;
+ 
++  /// M7 section 27 repair-intent port.  A Contact lifecycle or rename mutation
++  /// can invalidate every calendarEvent/task reminder that names it, so the
++  /// intent to reconcile commits INSIDE the mutation's own transaction: a later
++  /// platform failure can no longer erase the fact that those reminders need a
++  /// fresh look.  Absent in pure-read/test compositions.
++  final ReminderRecoveryRequest? reminderRepair;
++
+   static const String seriesOccurrenceId = 'series';
+   static const String _activeEventContactStatus = 'active';
+   static const String _removedEventContactStatus = 'removed';
+@@ -271,6 +281,10 @@ final class DriftContactRepository
+         contactId: contactId,
+         windows: normalized.availability,
+       );
++      // Section 27/33: a rename or identity edit changes the CURRENT resolved
++      // Contact fingerprint that a deliverable follow-up reads at delivery
++      // time, so the repair intent commits with the edit.
++      await reminderRepair?.mark(database, profileId: profileId);
+       final detail = await readContactDetail(
+         profileId: profileId,
+         contactId: contactId,
+@@ -346,6 +360,8 @@ final class DriftContactRepository
+         contactId: contactId,
+         methods: normalized.methods,
+       );
++      // Rename/identity edit: same section 27/33 repair intent as updateContact.
++      await reminderRepair?.mark(database, profileId: profileId);
+       return (await readContactDetail(
+         profileId: profileId,
+         contactId: contactId,
+@@ -506,20 +522,35 @@ final class DriftContactRepository
+     required String profileId,
+     required String contactId,
+   }) async {
+-    await (database.update(database.contacts)..where(
+-          (table) =>
+-              table.profileId.equals(profileId) &
+-              table.id.equals(contactId) &
+-              table.lifecycleState.equals(ContactLifecycleState.active.name),
+-        ))
+-        .write(
+-          ContactsCompanion(
+-            lifecycleState: Value<String>(ContactLifecycleState.archived.name),
+-            archivedAtUtc: Value<DateTime?>(clock.nowUtc()),
+-            deletedAtUtc: const Value<DateTime?>(null),
+-            updatedAtUtc: Value<DateTime>(clock.nowUtc()),
+-          ),
+-        );
++    await database.transaction(() async {
++      await (database.update(database.contacts)..where(
++            (table) =>
++                table.profileId.equals(profileId) &
++                table.id.equals(contactId) &
++                table.lifecycleState.equals(
++                  ContactLifecycleState.active.name,
++                ),
++          ))
++          .write(
++            ContactsCompanion(
++              lifecycleState: Value<String>(
++                ContactLifecycleState.archived.name,
++              ),
++              archivedAtUtc: Value<DateTime?>(clock.nowUtc()),
++              deletedAtUtc: const Value<DateTime?>(null),
++              updatedAtUtc: Value<DateTime>(clock.nowUtc()),
++            ),
++          );
++      // Section 10/27: archiving removes the Contact from live link truth, so
++      // every reminder that named it is no longer deliverable as a follow-up.
++      // The purpose rows and the repair intent commit with the lifecycle change.
++      await _invalidateContactFollowUpPurposes(
++        database,
++        profileId: profileId,
++        contactIds: <String>[contactId],
++      );
++      await reminderRepair?.mark(database, profileId: profileId);
++    });
+   }
+ 
+   @override
+@@ -527,25 +558,31 @@ final class DriftContactRepository
+     required String profileId,
+     required String contactId,
+   }) async {
+-    final updated =
+-        await (database.update(database.contacts)..where(
+-              (table) =>
+-                  table.profileId.equals(profileId) &
+-                  table.id.equals(contactId) &
+-                  table.lifecycleState.equals(
+-                    ContactLifecycleState.archived.name,
++    final updated = await database.transaction(() async {
++      final rows =
++          await (database.update(database.contacts)..where(
++                (table) =>
++                    table.profileId.equals(profileId) &
++                    table.id.equals(contactId) &
++                    table.lifecycleState.equals(
++                      ContactLifecycleState.archived.name,
++                    ),
++              ))
++              .write(
++                ContactsCompanion(
++                  lifecycleState: Value<String>(
++                    ContactLifecycleState.active.name,
+                   ),
+-            ))
+-            .write(
+-              ContactsCompanion(
+-                lifecycleState: Value<String>(
+-                  ContactLifecycleState.active.name,
++                  archivedAtUtc: const Value<DateTime?>(null),
++                  deletedAtUtc: const Value<DateTime?>(null),
++                  updatedAtUtc: Value<DateTime>(clock.nowUtc()),
+                 ),
+-                archivedAtUtc: const Value<DateTime?>(null),
+-                deletedAtUtc: const Value<DateTime?>(null),
+-                updatedAtUtc: Value<DateTime>(clock.nowUtc()),
+-              ),
+-            );
++              );
++      // A restored Contact is live link truth again, so reminders whose
++      // follow-up target it become resolvable once more.
++      await reminderRepair?.mark(database, profileId: profileId);
++      return rows;
++    });
+     if (updated == 0) {
+       throw const ContactValidationException('Contact not found.');
+     }
+@@ -564,22 +601,35 @@ final class DriftContactRepository
+     final ids = contactIds.toSet().toList(growable: false);
+     if (ids.isEmpty) return;
+     final now = clock.nowUtc();
+-    await (database.update(database.contacts)..where(
+-          (table) =>
+-              table.profileId.equals(profileId) &
+-              table.id.isIn(ids) &
+-              table.lifecycleState.equals(ContactLifecycleState.active.name),
+-        ))
+-        .write(
+-          ContactsCompanion(
+-            lifecycleState: Value<String>(
+-              ContactLifecycleState.recentlyDeleted.name,
++    await database.transaction(() async {
++      await (database.update(database.contacts)..where(
++            (table) =>
++                table.profileId.equals(profileId) &
++                table.id.isIn(ids) &
++                table.lifecycleState.equals(
++                  ContactLifecycleState.active.name,
++                ),
++          ))
++          .write(
++            ContactsCompanion(
++              lifecycleState: Value<String>(
++                ContactLifecycleState.recentlyDeleted.name,
++              ),
++              archivedAtUtc: const Value<DateTime?>(null),
++              deletedAtUtc: Value<DateTime?>(now),
++              updatedAtUtc: Value<DateTime>(now),
+             ),
+-            archivedAtUtc: const Value<DateTime?>(null),
+-            deletedAtUtc: Value<DateTime?>(now),
+-            updatedAtUtc: Value<DateTime>(now),
+-          ),
+-        );
++          );
++      // Section 10/27: recently-deleted Contacts are likewise no longer live
++      // link truth, so their follow-up purposes are invalidated in the same
++      // transaction and the repair intent is committed alongside.
++      await _invalidateContactFollowUpPurposes(
++        database,
++        profileId: profileId,
++        contactIds: ids,
++      );
++      await reminderRepair?.mark(database, profileId: profileId);
++    });
+   }
+ 
+   @override
+@@ -587,24 +637,28 @@ final class DriftContactRepository
+     required String profileId,
+     required String contactId,
+   }) async {
+-    final updated =
+-        await (database.update(database.contacts)..where(
+-              (table) =>
+-                  table.profileId.equals(profileId) &
+-                  table.id.equals(contactId) &
+-                  table.lifecycleState.equals(
+-                    ContactLifecycleState.recentlyDeleted.name,
++    final updated = await database.transaction(() async {
++      final rows =
++          await (database.update(database.contacts)..where(
++                (table) =>
++                    table.profileId.equals(profileId) &
++                    table.id.equals(contactId) &
++                    table.lifecycleState.equals(
++                      ContactLifecycleState.recentlyDeleted.name,
++                    ),
++              ))
++              .write(
++                ContactsCompanion(
++                  lifecycleState: Value<String>(
++                    ContactLifecycleState.active.name,
+                   ),
+-            ))
+-            .write(
+-              ContactsCompanion(
+-                lifecycleState: Value<String>(
+-                  ContactLifecycleState.active.name,
++                  deletedAtUtc: const Value<DateTime?>(null),
++                  updatedAtUtc: Value<DateTime>(clock.nowUtc()),
+                 ),
+-                deletedAtUtc: const Value<DateTime?>(null),
+-                updatedAtUtc: Value<DateTime>(clock.nowUtc()),
+-              ),
+-            );
++              );
++      await reminderRepair?.mark(database, profileId: profileId);
++      return rows;
++    });
+     if (updated == 0) {
+       throw const ContactValidationException('Contact not found.');
+     }
+@@ -2498,6 +2552,42 @@ final class DriftContactRepository
+     });
+   }
+ 
++  /// Section 10 purpose invalidation, shared by every Contact mutation that can
++  /// remove a Contact from live link truth (archive, recently-deleted, merge).
++  ///
++  /// Delivery resolves a follow-up's Contact from CURRENT canonical truth every
++  /// time (an archived/deleted Contact simply does not resolve).  Invalidating
++  /// the durable purpose here keeps the stored policy row consistent with that
++  /// law instead of leaving an unresolvable `contactFollowUp` behind, and it
++  /// deliberately does NOT retarget the purpose at a merged survivor: a
++  /// follow-up names a specific human, so a merge retires the intent rather
++  /// than silently pointing it at somebody else (section 13).  Timing is never
++  /// touched — only the purpose/contact columns.
++  ///
++  /// Runs on [executor] so the invalidation commits inside the caller's own
++  /// transaction.  Pure data work: no platform call, no gateway, no history.
++  Future<void> _invalidateContactFollowUpPurposes(
++    DatabaseConnectionUser executor, {
++    required String profileId,
++    required Iterable<String> contactIds,
++  }) async {
++    final ids = contactIds.toSet().toList(growable: false);
++    if (ids.isEmpty) return;
++    await (executor.update(database.reminderPolicies)..where(
++          (table) =>
++              table.profileId.equals(profileId) &
++              table.purpose.equals(ReminderPurpose.contactFollowUp.name) &
++              table.contactId.isIn(ids),
++        ))
++        .write(
++          ReminderPoliciesCompanion(
++            purpose: Value<String>(ReminderPurpose.standard.name),
++            contactId: const Value<String?>(null),
++            updatedAtUtc: Value<DateTime>(clock.nowUtc()),
++          ),
++        );
++  }
++
+   Future<List<EventContactLinkRow>> _readEffectiveEventContactLinks({
+     required String profileId,
+     required String eventId,
+@@ -2649,6 +2739,27 @@ final class DriftContactRepository
+     });
+   }
+ 
++  /// Narrow live-link read shared with P19 (contract section 15/53).
++  ///
++  /// Returns the SAME effective link truth the People section renders — series
++  /// `active` rows overlaid by the exact occurrence's active/removed rows — and
++  /// deliberately NOT the historical fallback `readEventPeople` keeps for past
++  /// occurrences.  Delivery must never invent participation that the current
++  /// link truth does not hold, so this read exposes exactly one answer and does
++  /// not write anything.
++  Future<Set<String>> readEffectiveEventContactIds({
++    required String profileId,
++    required String eventId,
++    required String occurrenceId,
++  }) async {
++    final links = await _readEffectiveEventContactLinks(
++      profileId: profileId,
++      eventId: eventId,
++      occurrenceId: occurrenceId,
++    );
++    return <String>{for (final link in links) link.contactId};
++  }
++
+   @override
+   Future<List<ContactSummary>> readEventPeople({
+     required String profileId,
+@@ -3837,12 +3948,21 @@ final class DriftContactRepository
+         profileId: profileId,
+         contactId: survivorId,
+       );
++      // Section 10/27: a merge retires every absorbed Contact, so any reminder
++      // that named one of them must be re-resolved against current truth.  The
++      // absorbed purposes are invalidated (never retargeted to the survivor —
++      // section 13 forbids silently redirecting a follow-up at a different
++      // human) and the repair intent commits with the merge.
++      await _invalidateContactFollowUpPurposes(
++        database,
++        profileId: profileId,
++        contactIds: absorbedIds,
++      );
++      await reminderRepair?.mark(database, profileId: profileId);
+       return detail.contact;
+     });
+   }
+ 
+-  // -- Device import --------------------------------------------------------
+-
+   @override
+   Future<ContactImportResult> importDeviceContacts({
+     required String profileId,
+diff --git a/lib/features/contacts/presentation/contact_detail_screen.dart b/lib/features/contacts/presentation/contact_detail_screen.dart
+index dbda349..400c80e 100644
+--- a/lib/features/contacts/presentation/contact_detail_screen.dart
++++ b/lib/features/contacts/presentation/contact_detail_screen.dart
+@@ -22,6 +22,7 @@ import 'package:rmplanner/features/contacts/presentation/widgets/contact_timelin
+ import 'package:rmplanner/features/maps/application/map_coordinate_repository.dart';
+ import 'package:rmplanner/features/maps/application/map_providers.dart';
+ import 'package:rmplanner/features/maps/domain/map_coordinate.dart';
++import 'package:rmplanner/features/notifications/domain/contact_follow_up_creation_intent.dart';
+ import 'package:rmplanner/features/planner/application/event_type_providers.dart';
+ 
+ final contactProfileMapCoordinateProvider =
+@@ -613,8 +614,16 @@ final class _ProfileTab extends ConsumerWidget {
+     );
+   }
+ 
++  /// M7 entry action (contract section 8).  The chooser is the ONLY place that
++  /// creates [ContactFollowUpCreationIntent]: it forwards the explicitly chosen
++  /// Contact id through the existing Event/Task create routes in `extra`, while
++  /// `contacts=` keeps the ordinary preselection semantics untouched.
+   void _createFollowUp(BuildContext context) {
+     final contact = detail.contact;
++    // A malformed row cannot produce a valid provenance object; fail closed to
++    // ordinary creation instead of crashing (section 8).
++    final intent = ContactFollowUpCreationIntent(contactId: contact.id);
++    final extra = intent.isValid ? intent : null;
+     unawaited(
+       showModalBottomSheet<String>(
+         context: context,
+@@ -651,9 +660,13 @@ final class _ProfileTab extends ConsumerWidget {
+         if (value == 'event') {
+           await context.push(
+             '${RoutePaths.calendarEventCreate}?contacts=${contact.id}',
++            extra: extra,
+           );
+         } else {
+-          await context.push('${RoutePaths.taskCreate}?contacts=${contact.id}');
++          await context.push(
++            '${RoutePaths.taskCreate}?contacts=${contact.id}',
++            extra: extra,
++          );
+         }
+       }),
+     );
+diff --git a/lib/features/notifications/application/notification_providers.dart b/lib/features/notifications/application/notification_providers.dart
+index 6ab29ba..995b3e5 100644
+--- a/lib/features/notifications/application/notification_providers.dart
++++ b/lib/features/notifications/application/notification_providers.dart
+@@ -44,9 +44,33 @@ final reminderReconcilerProvider = Provider<ReminderReconciler>((ref) {
+     gateway: ref.read(notificationGatewayProvider),
+     clock: const SystemAppClock(),
+     deviceLocation: ref.watch(reminderDeviceLocationProvider) as tz.Location?,
++    // M7 section 6 transport selection.  The worker port is only supplied when
++    // the app installed a real background-work gateway, so a key can never be
++    // marked `m7w_` without a real worker registration behind it.  The
++    // composition that owns the strict three-key spec (section 12/14) builds
++    // the enqueue, keeping this service free of the WorkManager package.
++    scheduleWorker: ref.watch(reminderWorkerTransportProvider),
++    cancelWorker: ref.watch(reminderWorkerReleaseProvider),
+   );
+ });
+ 
++/// Canonical M7 worker-transport enqueue, or null when unavailable.
++///
++/// The app root and the headless runtime override this with the real
++/// WorkManager registration.  Tests override it with a fake to assert transport
++/// selection, exclusivity and the exact three-key input without a platform.
++final reminderWorkerTransportProvider = Provider<ScheduleCanonicalReminderWork?>(
++  (ref) => null,
++);
++
++/// Canonical M7 worker-transport release, or null when unavailable.
++///
++/// Paired with [reminderWorkerTransportProvider] so cancelling an obsolete
++/// worker row also cancels its queued WorkManager job (contract section 6).
++final reminderWorkerReleaseProvider = Provider<CancelCanonicalReminderWork?>(
++  (ref) => null,
++);
++
+ final notificationResponseControllerProvider =
+     Provider<NotificationResponseController>((ref) {
+       throw StateError(
+diff --git a/lib/features/notifications/application/reminder_background_runtime.dart b/lib/features/notifications/application/reminder_background_runtime.dart
+index 433b0cb..b13af59 100644
+--- a/lib/features/notifications/application/reminder_background_runtime.dart
++++ b/lib/features/notifications/application/reminder_background_runtime.dart
+@@ -8,11 +8,16 @@ import 'package:rmplanner/core/background/workmanager_background_work_gateway.da
+ import 'package:rmplanner/core/database/app_database.dart';
+ import 'package:rmplanner/core/notifications/flutter_local_notifications_gateway.dart';
+ import 'package:rmplanner/core/notifications/notification_payload.dart';
++import 'package:rmplanner/core/notifications/notification_preview_policy.dart';
+ import 'package:rmplanner/core/time/app_clock.dart';
+ import 'package:rmplanner/features/notifications/application/notification_privacy_refresh_provider.dart';
+ import 'package:rmplanner/features/notifications/application/notification_providers.dart';
++import 'package:rmplanner/features/notifications/application/reminder_delivery_service.dart';
++import 'package:rmplanner/features/notifications/application/reminder_delivery_source_reader.dart';
++import 'package:rmplanner/features/notifications/application/reminder_enrichment_resolver.dart';
+ import 'package:rmplanner/features/notifications/application/reminder_reconciler.dart';
+ import 'package:rmplanner/features/notifications/data/drift_notification_foundation_repository.dart';
++import 'package:rmplanner/features/notifications/data/drift_reminder_enrichment_source.dart';
+ import 'package:rmplanner/features/planner/application/calendar_event_providers.dart';
+ import 'package:rmplanner/features/planner/application/event_type_providers.dart';
+ import 'package:rmplanner/features/planner/application/planner_providers.dart';
+@@ -81,6 +86,99 @@ Future<void> enqueueReminderSnooze({
+   );
+ }
+ 
++/// Targeted enriched delivery entry point (contract section 32).
++///
++/// Unlike [runReminderRuntime], this does NOT run the whole-horizon
++/// reconciliation.  It composes the narrow delivery dependencies, delegates to
++/// [ReminderDeliveryService] for the one durable reminder the dispatcher handed
++/// us, and returns the outcome so the dispatcher can decide whether the OS
++/// should retry.
++///
++/// No onboarding, authentication, navigation or domain mutation occurs, and the
++/// worker never depends on `StartupReady` or any UI provider side effect.
++Future<ReminderDeliveryOutcome> runCanonicalReminderDelivery(
++  CanonicalReminderWorkSpec spec,
++) async {
++  final database = AppDatabase.defaults();
++  try {
++    const clock = SystemAppClock();
++    final profiles = await (database.select(
++      database.localProfiles,
++    )..where((table) => table.slot.equals('primary'))).get();
++    // No primary profile means there is nothing this key could own.  Terminal.
++    if (profiles.length != 1) return ReminderDeliveryOutcome.handledObsolete;
++    final profileId = profiles.single.id;
++    final zones = await IanaCalendarEventTimeZones.forDevice();
++    final repository = DriftNotificationFoundationRepository(
++      database: database,
++      clock: clock,
++    );
++    // Profile isolation: a key owned by another profile is never read, and its
++    // private source is never touched (contract section 35).
++    final durable = await repository.readWorkRequest(spec.stableKey);
++    if (durable == null) return ReminderDeliveryOutcome.handledObsolete;
++    if (durable.profileId != null && durable.profileId != profileId) {
++      return ReminderDeliveryOutcome.handledObsolete;
++    }
++    final gateway = FlutterLocalNotificationsGateway(
++      runningDeliveryPlatformId: durable.platformNotificationId,
++    );
++    await gateway.initialize();
++    final events = DriftCalendarEventRepository(
++      database: database,
++      clock: clock,
++      timeZones: zones,
++    );
++    final privacyRepository = DriftPrivacyRepository(
++      database: database,
++      clock: clock,
++    );
++    final service = ReminderDeliveryService(
++      repository: repository,
++      gateway: gateway,
++      source: DriftReminderDeliverySourceReader(
++        database: database,
++        clock: clock,
++        events: events,
++        zones: zones,
++        enrichment: ReminderEnrichmentResolver(
++          DriftReminderEnrichmentSource(database: database),
++        ),
++        tasks: DriftPlannerRepository(
++          database: database,
++          clock: clock,
++          calendarSource: events,
++        ),
++        privacy: () async {
++          // Re-read the CURRENT privacy settings; the worker must honour the
++          // Privacy Lock without ever requesting authentication in the
++          // background (contract section 16).
++          final settings = await privacyRepository.readSettings();
++          return resolveNotificationPreviewMode(
++                    settings: settings,
++                    privacyProtectionRequired: settings.lockEnabled,
++                  ) ==
++                  EffectiveNotificationPreviewMode.detailed
++              ? NotificationDeliveryPrivacy.detailed
++              : NotificationDeliveryPrivacy.generic;
++        },
++      ),
++      clock: clock,
++    );
++    return await service.deliver(
++      stableKey: spec.stableKey,
++      scheduledUtcMs: spec.scheduledUtcMs,
++      sourceRevision: spec.sourceRevision,
++    );
++  } on Object {
++    // Runtime composition failed: report conservatively without fabricating a
++    // delivery.  A later real trigger re-initializes.
++    return ReminderDeliveryOutcome.retryable;
++  } finally {
++    await database.close();
++  }
++}
++
+ /// Uses the same source-specific application reconciliation paths as the UI.
+ /// No onboarding, authentication, navigation, or source-domain mutation occurs.
+ Future<bool> runReminderRuntime({
+@@ -112,6 +210,18 @@ Future<bool> runReminderRuntime({
+     final deliveryWork = deliveryKey == null
+         ? null
+         : await repository.readWorkRequest(deliveryKey);
++    // The headless isolate is a second caller of the SAME transport ports.  It
++    // must use the one real WorkManager gateway so a recovery pass can neither
++    // double-register nor silently orphan a queued worker job (section 6/65).
++    const work = WorkmanagerBackgroundWorkGateway();
++    try {
++      await work.initialize();
++    } on Object {
++      // Without a usable background gateway recovery still runs, but no key is
++      // marked `m7w_` — an unbacked marker would claim a transport that does
++      // not exist and could suppress the native reminder entirely.
++      return true;
++    }
+     final gateway = FlutterLocalNotificationsGateway(
+       runningDeliveryPlatformId: deliveryWork?.platformNotificationId,
+     );
+@@ -136,6 +246,28 @@ Future<bool> runReminderRuntime({
+             snoozeIntent: snooze,
+             actionAtUtc: actionAtUtc,
+             deviceLocation: zones.deviceLocation,
++            // Recovery can itself gain or lose enrichment eligibility, so the
++            // headless pass owns the same transport ports as the app root.
++            // Section 6 keeps exactly one live delivery owner per key across
++            // both isolates.
++            scheduleWorker:
++                ({required stableKey,
++                  required scheduledAtUtc,
++                  required sourceRevision,
++                  required platformNotificationId}) async {
++                  final spec = CanonicalReminderWorkSpec(
++                    stableKey: stableKey,
++                    scheduledUtcMs: scheduledAtUtc.millisecondsSinceEpoch,
++                    sourceRevision: sourceRevision,
++                  );
++                  await work.enqueueUnique(
++                    spec.toWorkSpec(
++                      platformNotificationId: platformNotificationId,
++                      nowUtc: clock.nowUtc(),
++                    ),
++                  );
++                },
++            cancelWorker: (uniqueName) => work.cancelUnique(uniqueName),
+           ),
+         ),
+         calendarEventRepositoryProvider.overrideWithValue(events),
+diff --git a/lib/features/notifications/application/reminder_reconciler.dart b/lib/features/notifications/application/reminder_reconciler.dart
+index 0ef62f2..d2f6102 100644
+--- a/lib/features/notifications/application/reminder_reconciler.dart
++++ b/lib/features/notifications/application/reminder_reconciler.dart
+@@ -1,4 +1,5 @@
+ import 'package:rmplanner/core/background/background_work_request.dart';
++import 'package:rmplanner/core/background/workmanager_background_work_gateway.dart';
+ import 'package:rmplanner/core/notifications/canonical_reminder_delivery_gateway.dart';
+ import 'package:rmplanner/core/notifications/notification_gateway.dart';
+ import 'package:rmplanner/core/notifications/notification_payload.dart';
+@@ -10,6 +11,44 @@ import 'package:rmplanner/features/notifications/domain/reminder_policy.dart';
+ import 'package:timezone/timezone.dart' as tz;
+ import 'package:uuid/uuid.dart';
+ 
++/// Narrow port for scheduling canonical M7 worker delivery.
++///
++/// Injected by the composition layer so this application service never depends
++/// on the WorkManager package, and so the worker input can be built by the one
++/// component that owns the strict three-key contract (sections 6/14).
++typedef ScheduleCanonicalReminderWork =
++    Future<void> Function({
++      required String stableKey,
++      required DateTime scheduledAtUtc,
++      required String sourceRevision,
++      required int platformNotificationId,
++    });
++
++/// Narrow port for releasing an already-registered canonical M7 worker job.
++///
++/// Section 6 allows exactly one live delivery owner per logical reminder.  When
++/// a key that already owns worker transport becomes ineligible, the durable row
++/// is cancelled — but the queued WorkManager job would otherwise survive as a
++/// second, orphaned owner.  The composition layer supplies the real cancel; the
++/// application layer never depends on the WorkManager package.
++typedef CancelCanonicalReminderWork = Future<void> Function(String uniqueName);
++
++/// M7 transport markers persisted in the `sourceRevision` render suffix
++/// (contract section 6).  No new column and no private-content flag is added.
++///
++/// * [_workerTransportPrefix] — this key is owned by the targeted worker.
++/// * [_nativeTransportPrefix] — this key is owned by the ordinary native
++///   alarm.  Section 6 requires the transport choice to be *persisted* so that
++///   later comparisons know which transport owns the row; section 33 lists the
++///   `m7w_`/`m7n_` marker among the technical revision tokens.  Both markers
++///   therefore enter the render suffix.
++///
++/// Absent/legacy rows carry no marker and select their transport once from
++/// current truth; a row already carrying `m7w_` keeps worker transport forever
++/// for that key (section 6C stickiness).
++const String _workerTransportPrefix = 'm7w_';
++const String _nativeTransportPrefix = 'm7n_';
++
+ /// M2/M3's source-driven one-shot reminder boundary.  It owns neither Event
+ /// nor Task persistence: callers invoke it only after their canonical source
+ /// write has committed successfully.
+@@ -23,6 +62,8 @@ final class ReminderReconciler {
+     this.snoozeIntent,
+     this.actionAtUtc,
+     this.deviceLocation,
++    this.scheduleWorker,
++    this.cancelWorker,
+   });
+ 
+   final NotificationFoundationRepository repository;
+@@ -39,6 +80,28 @@ final class ReminderReconciler {
+   /// delayed targets onto the wrong wall clock.
+   final tz.Location? deviceLocation;
+ 
++  /// Optional M7 worker-transport port.  When absent the reconciler stays on
++  /// native ordinary transport, so a key is never marked `m7w_` without a real
++  /// worker registration behind it (contract sections 6/18).
++  final ScheduleCanonicalReminderWork? scheduleWorker;
++
++  /// Optional M7 worker-transport release port.  Paired with [scheduleWorker] so
++  /// a cancelled/obsolete worker row also releases its queued WorkManager job
++  /// and never leaves two live delivery owners behind (contract section 6).
++  final CancelCanonicalReminderWork? cancelWorker;
++
++  /// The persisted transport marker for a durable revision, if any.
++  static String? transportOf(String? sourceRevision) {
++    if (sourceRevision == null) return null;
++    if (sourceRevision.contains(_workerTransportPrefix)) {
++      return _workerTransportPrefix;
++    }
++    if (sourceRevision.contains(_nativeTransportPrefix)) {
++      return _nativeTransportPrefix;
++    }
++    return null;
++  }
++
+   static bool _sameInstant(DateTime? a, DateTime? b) =>
+       a == null ? b == null : b != null && a.isAtSameMomentAs(b);
+ 
+@@ -64,6 +127,12 @@ final class ReminderReconciler {
+     occurrenceId: occurrenceId,
+   );
+ 
++  /// Persists a reminder policy row.
++  ///
++  /// F02 fix (contract section 9): a timing-only write MUST preserve the
++  /// existing purpose/contactId.  Purpose only changes when the caller supplies
++  /// an explicit [purpose]; an explicit [ReminderPurpose.standard] clears the
++  /// Contact, and [clearPurpose] remains available for an explicit clear.
+   Future<ReminderPolicy> savePolicy({
+     required String profileId,
+     required ReminderSourceKind sourceKind,
+@@ -71,6 +140,9 @@ final class ReminderReconciler {
+     required String occurrenceId,
+     required ReminderPolicyMode mode,
+     int? offsetMinutes,
++    ReminderPurpose? purpose,
++    Object? contactId = ReminderPolicy.unsetContactId,
++    bool clearPurpose = false,
+   }) async {
+     final now = clock.nowUtc();
+     final existing = (await repository.readPolicies(
+@@ -78,16 +150,105 @@ final class ReminderReconciler {
+       sourceKind: sourceKind,
+       sourceId: sourceId,
+     )).where((policy) => policy.occurrenceId == occurrenceId).firstOrNull;
++    final base =
++        existing ??
++        ReminderPolicy(
++          id: const Uuid().v4(),
++          profileId: profileId,
++          sourceKind: sourceKind,
++          sourceId: sourceId,
++          occurrenceId: occurrenceId,
++          mode: mode,
++          offsetMinutes: mode == ReminderPolicyMode.offset
++              ? offsetMinutes
++              : null,
++          createdAtUtc: now,
++          updatedAtUtc: now,
++        );
++    final resolvedPurpose = clearPurpose
++        ? ReminderPurpose.standard
++        : (purpose ?? base.purpose);
++    final resolvedContactId = switch (resolvedPurpose) {
++      ReminderPurpose.standard => null,
++      ReminderPurpose.contactFollowUp =>
++        identical(contactId, ReminderPolicy.unsetContactId)
++            ? base.contactId
++            : contactId as String?,
++    };
+     return repository.upsertPolicy(
+       ReminderPolicy(
+-        id: existing?.id ?? const Uuid().v4(),
++        id: base.id,
+         profileId: profileId,
+         sourceKind: sourceKind,
+         sourceId: sourceId,
+         occurrenceId: occurrenceId,
++        purpose: resolvedPurpose,
++        contactId: resolvedContactId,
+         mode: mode,
+         offsetMinutes: mode == ReminderPolicyMode.offset ? offsetMinutes : null,
+-        createdAtUtc: existing?.createdAtUtc ?? now,
++        createdAtUtc: base.createdAtUtc,
++        updatedAtUtc: now,
++      ),
++    );
++  }
++
++  /// Applies ONLY a purpose change to an existing policy row, preserving its
++  /// timing mode and offset exactly (M7 sections 8/9).
++  ///
++  /// A follow-up is intent, not permission to invent or reset time: the series
++  /// policy that already controls when the reminder fires must keep that timing.
++  /// When no row exists yet, the caller's inherited/global timing governs and
++  /// this seeds an `inherit` row so purpose has a durable home.
++  Future<ReminderPolicy> updatePolicyPurpose({
++    required String profileId,
++    required ReminderSourceKind sourceKind,
++    required String sourceId,
++    required String occurrenceId,
++    required ReminderPurpose purpose,
++    String? contactId,
++    bool clearPurpose = false,
++  }) async {
++    final now = clock.nowUtc();
++    final existing = (await repository.readPolicies(
++      profileId: profileId,
++      sourceKind: sourceKind,
++      sourceId: sourceId,
++    )).where((policy) => policy.occurrenceId == occurrenceId).firstOrNull;
++    final resolvedPurpose = clearPurpose
++        ? ReminderPurpose.standard
++        : purpose;
++    final resolvedContactId = resolvedPurpose == ReminderPurpose.standard
++        ? null
++        : contactId;
++    final base =
++        existing ??
++        ReminderPolicy(
++          id: const Uuid().v4(),
++          profileId: profileId,
++          sourceKind: sourceKind,
++          sourceId: sourceId,
++          occurrenceId: occurrenceId,
++          // No timing has been chosen yet, so the existing inherited default
++          // keeps governing when this reminder fires.
++          mode: ReminderPolicyMode.inherit,
++          createdAtUtc: now,
++          updatedAtUtc: now,
++        );
++    return repository.upsertPolicy(
++      ReminderPolicy(
++        id: base.id,
++        profileId: profileId,
++        sourceKind: sourceKind,
++        sourceId: sourceId,
++        occurrenceId: occurrenceId,
++        purpose: resolvedPurpose,
++        contactId: resolvedContactId,
++        // Timing is carried over verbatim — never reset by a purpose write.
++        mode: base.mode,
++        offsetMinutes: base.mode == ReminderPolicyMode.offset
++            ? base.offsetMinutes
++            : null,
++        createdAtUtc: base.createdAtUtc,
+         updatedAtUtc: now,
+       ),
+     );
+@@ -107,6 +268,12 @@ final class ReminderReconciler {
+     if (existing?.platformNotificationId case final platformId?) {
+       await gateway.cancel(platformId);
+     }
++    // Section 6: one logical reminder has one live delivery owner.  A worker
++    // row is only truly released when its queued WorkManager job is also
++    // cancelled — otherwise the job survives and posts after the row is gone.
++    if (existing != null) {
++      await _releaseWorkerTransport(existing);
++    }
+     if (existing != null) {
+       await repository.upsertWorkRequest(
+         existing.copyWith(
+@@ -117,12 +284,39 @@ final class ReminderReconciler {
+     }
+   }
+ 
++  /// Cancels the WorkManager job behind a durable worker row, if one exists.
++  ///
++  /// The unique name is derived from the SAME three values the worker was
++  /// registered with, so the release always targets the exact queued job and
++  /// never a sibling generation (section 65 dispatch identity).
++  Future<void> _releaseWorkerTransport(BackgroundWorkRequest existing) async {
++    final release = cancelWorker;
++    final platformId = existing.platformNotificationId;
++    final fireAt = existing.scheduledForUtc;
++    final revision = existing.sourceRevision;
++    if (release == null ||
++        platformId == null ||
++        fireAt == null ||
++        revision == null) {
++      return;
++    }
++    if (transportOf(revision) != _workerTransportPrefix) return;
++    await release(
++      CanonicalReminderWorkSpec.uniqueName(
++        platformNotificationId: platformId,
++        scheduledUtcMs: fireAt.millisecondsSinceEpoch,
++        sourceRevision: revision,
++      ),
++    );
++  }
++
+   Future<void> reconcile({
+     required ReminderSourceKind sourceKind,
+     required String profileId,
+     required String sourceId,
+     required String occurrenceId,
+     required DateTime? startsAtUtc,
++    DateTime? endsAtUtc,
+     DateTime? scheduledAtUtc,
+     required int? globalOffsetMinutes,
+     required bool categoryEnabled,
+@@ -134,6 +328,7 @@ final class ReminderReconciler {
+     String? detailedBody,
+     bool showDetails = false,
+     bool refreshContent = false,
++    bool requiresEnrichment = false,
+     String? renderRevision,
+     int? sourceVersion,
+   }) async {
+@@ -167,9 +362,34 @@ final class ReminderReconciler {
+     final identity = sourceVersion == null
+         ? null
+         : 'm4_${sourceVersion}_${startsAtUtc?.microsecondsSinceEpoch ?? 0}_${offset ?? -1}_${policy?.updatedAtUtc.microsecondsSinceEpoch ?? 0}';
+-    final revision = identity == null
+-        ? renderRevision
+-        : '$identity.${renderRevision ?? 'generic'}';
++    // Section 6 transport selection.  Worker transport is sticky per stable
++    // work key once the durable revision already carries the m7w_ marker;
++    // otherwise current enrichment truth selects it.  The marker lives in the
++    // render suffix, so no new column or private-content flag is introduced.
++    //
++    // A key that has already been assigned worker transport keeps it across
++    // purpose unlink, location removal and privacy changes (section 6C).  It is
++    // never handed back to native, so an already-queued enriched job cannot be
++    // lost; its posting simply falls back to normal current copy (section 18).
++    //
++    // An already-persisted NATIVE marker (m7n_) is NOT sticky: enrichment
++    // appearing later legitimately promotes the key to worker transport, which
++    // is the "Absent/legacy rows select once from current truth" upgrade path.
++    final existingTransport = transportOf(existing?.sourceRevision);
++    final stickyWorkerTransport = existingTransport == _workerTransportPrefix;
++    final useWorkerTransport =
++        scheduleWorker != null &&
++        (stickyWorkerTransport || requiresEnrichment);
++    // Section 6: the transport choice for this durable row is persisted in the
++    // render suffix so later comparisons know which transport owns the key.
++    // Both markers are written — the native marker is not merely informational,
++    // it is the durable evidence that this key was deliberately left on the
++    // ordinary alarm rather than the targeted worker (section 33 technical
++    // revision tokens).
++    final renderToken = useWorkerTransport
++        ? '$_workerTransportPrefix${renderRevision ?? 'generic'}'
++        : '$_nativeTransportPrefix${renderRevision ?? 'generic'}';
++    final revision = identity == null ? renderToken : '$identity.$renderToken';
+     final sameSource = identity == null
+         ? existing?.sourceRevision == revision
+         : existing?.sourceRevision?.split('.').first == identity;
+@@ -232,13 +452,33 @@ final class ReminderReconciler {
+       );
+       if (allowed.isAfter(now)) fireAt = allowed;
+     }
+-    final eventObsolete =
++    // Section 64: when the current canonical Event bounds are known, relevance
++    // runs to the Event end (E) instead of the obsolete start-time suppression.
++    // Callers that cannot supply E keep the legacy decision, so no existing
++    // path regresses while the caller wiring is completed.
++    final hasEventWindow =
+         sourceKind == ReminderSourceKind.calendarEvent &&
+         startsAtUtc != null &&
+-        ((delivery && !startsAtUtc.isAfter(now)) ||
+-            (fireAt != null &&
+-                fireAt != baseFireAt &&
+-                !startsAtUtc.isAfter(fireAt)));
++        endsAtUtc != null &&
++        endsAtUtc.isAfter(startsAtUtc);
++    final eventRelevance = hasEventWindow
++        ? ReminderDeliveryEligibility.classifyEvent(
++            nowUtc: now,
++            startsAtUtc: startsAtUtc,
++            endsAtUtc: endsAtUtc,
++            targetUtc: baseFireAt ?? fireAt ?? now,
++            quietAdjustedUtc: fireAt ?? baseFireAt ?? now,
++          )
++        : null;
++    final eventObsolete = hasEventWindow
++        ? eventRelevance == ReminderEventRelevance.obsolete ||
++              eventRelevance == ReminderEventRelevance.quietSuppressed
++        : sourceKind == ReminderSourceKind.calendarEvent &&
++              startsAtUtc != null &&
++              ((delivery && !startsAtUtc.isAfter(now)) ||
++                  (fireAt != null &&
++                      fireAt != baseFireAt &&
++                      !startsAtUtc.isAfter(fireAt)));
+     final eligible =
+         preferences.systemNotificationsEnabled &&
+         _categoryEnabled(preferences, sourceKind) &&
+@@ -376,7 +616,17 @@ final class ReminderReconciler {
+     }
+ 
+     Future<void> cancelDisabled() async {
++      // An OFF/category-disable write must retire whichever transport owns the
++      // key.  Cancelling only the platform ID would leave a queued worker job
++      // alive that later posts a reminder the user explicitly switched off.
+       await gateway.cancel(platformId);
++      if (useWorkerTransport) {
++        // `durable` already carries this generation's revision and target, so
++        // the derived unique name is exactly the job that was registered.
++        await _releaseWorkerTransport(
++          durable.copyWith(platformNotificationId: platformId),
++        );
++      }
+       await repository.upsertWorkRequest(
+         durable.copyWith(
+           state: BackgroundWorkState.cancelledObsolete,
+@@ -395,6 +645,29 @@ final class ReminderReconciler {
+     if (deliverNow && platform is CanonicalReminderDeliveryGateway) {
+       await (platform as CanonicalReminderDeliveryGateway)
+           .showCanonicalReminder(request);
++    } else if (!deliverNow && useWorkerTransport) {
++      // Section 6 exclusivity, both directions:
++      //  * a key that was native (or legacy) has its old ordinary alarm
++      //    cancelled before the worker takes ownership, so the notice cannot
++      //    be posted twice;
++      //  * a key that was ALREADY a worker row keeps its queued job, but a
++      //    changed target/revision needs the previous generation released, or
++      //    the superseded job would still fire as a second owner.
++      if (!stickyWorkerTransport) {
++        final existingPlatformId = existing?.platformNotificationId;
++        if (existingPlatformId != null) {
++          await gateway.cancel(existingPlatformId);
++        }
++      } else {
++        await _releaseWorkerTransport(existing!);
++      }
++      await scheduleWorker!(
++        stableKey: key,
++        scheduledAtUtc: fireAt,
++        // Worker transport always mints the m7w_ token, so it is non-null.
++        sourceRevision: revision,
++        platformNotificationId: platformId,
++      );
+     } else {
+       await gateway.schedule(request);
+     }
+@@ -425,3 +698,94 @@ final class ReminderReconciler {
+       preferences.awaitingReportRemindersEnabled,
+   };
+ }
++
++/// How a current Event reminder target relates to its Event's relevance window.
++enum ReminderEventRelevance {
++  /// Before the (quiet-adjusted) target: register or rearm for it.
++  schedule,
++
++  /// Target reached, Event not yet ended: eligible for delivery or repair.
++  due,
++
++  /// Event end reached: obsolete, no new post.
++  obsolete,
++
++  /// Quiet Hours would delay delivery to/after the Event start: suppressed.
++  quietSuppressed,
++}
++
++/// Shared, pure Event relevance law (contract section 64).
++///
++/// This replaces the obsolete "suppress Event workers at/after start" rule.
++/// Let S = current canonical start, E = current canonical end (E > S),
++/// L = effective non-negative offset, T = S - L.  The relevance window is
++/// derived, not fixed: the reminder is deliverable while `T <= now < E`.
++/// There is deliberately no arbitrary 3/5-minute minimum lead and no fixed
++/// 15-minute expiry.
++///
++/// Shared by the reconciler, the targeted delivery service and horizon /
++/// recovery so the arithmetic exists in exactly one place.
++abstract final class ReminderDeliveryEligibility {
++  /// T = S - L.  [offsetMinutes] must already be validated as non-negative.
++  static DateTime eventTarget({
++    required DateTime startsAtUtc,
++    required int offsetMinutes,
++  }) {
++    if (offsetMinutes < 0) {
++      throw ArgumentError.value(
++        offsetMinutes,
++        'offsetMinutes',
++        'Event reminder offsets must be validated non-negative.',
++      );
++    }
++    return startsAtUtc.subtract(Duration(minutes: offsetMinutes));
++  }
++
++  /// Classifies [targetUtc] against the current Event window.
++  ///
++  /// [quietAdjustedUtc] is the target after the existing Quiet Hours delay
++  /// (equal to [targetUtc] when Quiet Hours do not move it).
++  static ReminderEventRelevance classifyEvent({
++    required DateTime nowUtc,
++    required DateTime startsAtUtc,
++    required DateTime endsAtUtc,
++    required DateTime targetUtc,
++    required DateTime quietAdjustedUtc,
++  }) {
++    if (!endsAtUtc.isAfter(startsAtUtc)) {
++      throw ArgumentError('Event end must be after its start.');
++    }
++    // Quiet Hours that would delay delivery to/after the Event start suppress
++    // the reminder.  Q == T is valid, so equality alone is never suppression.
++    if (quietAdjustedUtc.isAfter(targetUtc) &&
++        !quietAdjustedUtc.isBefore(startsAtUtc)) {
++      return ReminderEventRelevance.quietSuppressed;
++    }
++    // Strict end boundary: after the Event ends the time-range copy is no
++    // longer a current Event reminder.
++    if (!nowUtc.isBefore(endsAtUtc)) {
++      return ReminderEventRelevance.obsolete;
++    }
++    if (nowUtc.isBefore(quietAdjustedUtc)) {
++      return ReminderEventRelevance.schedule;
++    }
++    return ReminderEventRelevance.due;
++  }
++
++  /// `T <= now < E` after the Quiet Hours adjustment.
++  static bool isDeliverable({
++    required DateTime nowUtc,
++    required DateTime startsAtUtc,
++    required DateTime endsAtUtc,
++    required DateTime targetUtc,
++    required DateTime quietAdjustedUtc,
++  }) =>
++      classifyEvent(
++        nowUtc: nowUtc,
++        startsAtUtc: startsAtUtc,
++        endsAtUtc: endsAtUtc,
++        targetUtc: targetUtc,
++        quietAdjustedUtc: quietAdjustedUtc,
++      ) ==
++      ReminderEventRelevance.due;
++}
+diff --git a/lib/features/notifications/data/drift_notification_foundation_repository.dart b/lib/features/notifications/data/drift_notification_foundation_repository.dart
+index 31d5394..0a1723f 100644
+--- a/lib/features/notifications/data/drift_notification_foundation_repository.dart
++++ b/lib/features/notifications/data/drift_notification_foundation_repository.dart
+@@ -19,6 +19,14 @@ final class DriftNotificationFoundationRepository
+ 
+   static const int _maximumPlatformId = 0x7fffffff;
+ 
++  /// Badge/launcher platform ID owned by
++  /// `FlutterLocalNotificationsLauncherBadgeGateway.notificationId`
++  /// (0x7ffffffe).  Reminder rows must never occupy it: doing so would let a
++  /// reminder cancellation or re-show erase the badge and corrupt the badge
++  /// count.  It is skipped by every allocation probe and relocated away from
++  /// when a legacy row already holds it (contract section 29).
++  static const int reservedPlatformNotificationId = 0x7ffffffe;
++
+   final AppDatabase database;
+   final AppClock clock;
+   final PlatformNotificationIdSeed platformIdSeed;
+@@ -353,11 +361,20 @@ final class DriftNotificationFoundationRepository
+         throw StateError('Allocate IDs only for durable work requests.');
+       }
+       if (row.platformNotificationId != null) {
+-        return row.platformNotificationId!;
++        // A reminder occupying the badge's reserved ID must be relocated to a
++        // free ID before it is used again; otherwise the badge gateway and this
++        // reminder would fight over one platform ID (section 29).
++        if (row.platformNotificationId != reservedPlatformNotificationId) {
++          return row.platformNotificationId!;
++        }
+       }
+       var candidate = platformIdSeed(stableKey) & _maximumPlatformId;
+       if (candidate == 0) candidate = 1;
+       for (var probes = 0; probes < _maximumPlatformId; probes++) {
++        if (candidate == reservedPlatformNotificationId) {
++          candidate = candidate == _maximumPlatformId ? 1 : candidate + 1;
++          continue;
++        }
+         final collision =
+             await (database.select(database.backgroundWorkRequests)
+                   ..where(
+diff --git a/lib/features/notifications/domain/reminder_policy.dart b/lib/features/notifications/domain/reminder_policy.dart
+index e2889b0..2e01a38 100644
+--- a/lib/features/notifications/domain/reminder_policy.dart
++++ b/lib/features/notifications/domain/reminder_policy.dart
+@@ -58,22 +58,47 @@ final class ReminderPolicy {
+     }
+   }
+ 
++  /// Sentinel used by purpose-update APIs to distinguish "argument omitted"
++  /// from "explicitly set to null".
++  static const Object unsetContactId = Object();
++
++  /// Purpose/Contact law (contract section 9): an omitted [purpose] preserves
++  /// the current value; an explicit [ReminderPurpose.standard] clears
++  /// [contactId]; [ReminderPurpose.contactFollowUp] sets the supplied Contact,
++  /// or keeps the existing one when [contactId] is omitted.  [clearPurpose] is
++  /// an explicit escape hatch so null-ambiguity can never make clearing
++  /// impossible.
+   ReminderPolicy copyWith({
+     ReminderPolicyMode? mode,
+     int? offsetMinutes,
+     bool clearOffset = false,
+     DateTime? updatedAtUtc,
+-  }) => ReminderPolicy(
+-    id: id,
+-    profileId: profileId,
+-    sourceKind: sourceKind,
+-    sourceId: sourceId,
+-    occurrenceId: occurrenceId,
+-    purpose: purpose,
+-    contactId: contactId,
+-    mode: mode ?? this.mode,
+-    offsetMinutes: clearOffset ? null : offsetMinutes ?? this.offsetMinutes,
+-    createdAtUtc: createdAtUtc,
+-    updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
+-  );
++    ReminderPurpose? purpose,
++    Object? contactId = unsetContactId,
++    bool clearPurpose = false,
++  }) {
++    final resolvedPurpose = clearPurpose
++        ? ReminderPurpose.standard
++        : (purpose ?? this.purpose);
++    final resolvedContactId = switch (resolvedPurpose) {
++      ReminderPurpose.standard => null,
++      ReminderPurpose.contactFollowUp =>
++        identical(contactId, unsetContactId)
++            ? this.contactId
++            : contactId as String?,
++    };
++    return ReminderPolicy(
++      id: id,
++      profileId: profileId,
++      sourceKind: sourceKind,
++      sourceId: sourceId,
++      occurrenceId: occurrenceId,
++      purpose: resolvedPurpose,
++      contactId: resolvedContactId,
++      mode: mode ?? this.mode,
++      offsetMinutes: clearOffset ? null : offsetMinutes ?? this.offsetMinutes,
++      createdAtUtc: createdAtUtc,
++      updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
++    );
++  }
+ }
+diff --git a/lib/features/notifications/presentation/reminder_time_picker.dart b/lib/features/notifications/presentation/reminder_time_picker.dart
+index 4321ee3..a7ff40b 100644
+--- a/lib/features/notifications/presentation/reminder_time_picker.dart
++++ b/lib/features/notifications/presentation/reminder_time_picker.dart
+@@ -1,4 +1,5 @@
+ import 'package:flutter/material.dart';
++import 'package:rmplanner/features/notifications/domain/reminder_policy_label.dart';
+ 
+ Future<int?> showReminderTimePicker(BuildContext context) async {
+   const custom = -2;
+@@ -21,7 +22,7 @@ Future<int?> showReminderTimePicker(BuildContext context) async {
+           ),
+           for (final value in <int>[0, 5, 10, 15, 30, 45, 60])
+             ListTile(
+-              title: Text(value == 0 ? 'At time' : '$value minutes before'),
++              title: Text(ReminderPolicyLabel.offsetMinutes(value)),
+               onTap: () => Navigator.pop(context, value),
+             ),
+           ListTile(
+diff --git a/lib/features/planner/application/calendar_event_providers.dart b/lib/features/planner/application/calendar_event_providers.dart
+index 9da4268..95ecef4 100644
+--- a/lib/features/planner/application/calendar_event_providers.dart
++++ b/lib/features/planner/application/calendar_event_providers.dart
+@@ -91,6 +91,7 @@ final class CalendarEventController extends Notifier<String?> {
+     ReminderPolicyMode? reminderMode,
+     int? reminderOffsetMinutes,
+     String reminderOccurrenceId = ReminderPolicy.seriesOccurrenceId,
++    bool deferReminderReconciliation = false,
+   }) async {
+     try {
+       final saved = await _repository.saveEvent(
+@@ -108,7 +109,13 @@ final class CalendarEventController extends Notifier<String?> {
+           offsetMinutes: reminderOffsetMinutes,
+         );
+       }
+-      await reconcileEventHorizon(eventId: saved.id);
++      // M7 section 8: an explicit Contact follow-up save withholds this early
++      // scheduling until the caller has committed People and applied the
++      // source-level purpose.  Every other save keeps the existing immediate
++      // reconciliation (default false); this is a narrow, opt-in deferral.
++      if (!deferReminderReconciliation) {
++        await reconcileEventHorizon(eventId: saved.id);
++      }
+       await _refreshLauncherBadge();
+       if (awaitPlannerRefresh) {
+         await _refreshPlanner();
+@@ -152,6 +159,32 @@ final class CalendarEventController extends Notifier<String?> {
+   /// Reconcile a committed occurrence after a policy-only mutation. Event
+   /// forms save the Event first; this makes that saved policy effective on the
+   /// same edit/reschedule rather than waiting for a later unrelated write.
++  /// Whether the effective policy for this occurrence (exact occurrence row,
++  /// else the series row) carries an explicit Contact follow-up purpose.
++  ///
++  /// Section 6A: purpose is an ENRICHMENT request, not a separate scheduler —
++  /// it only selects which transport owns the reminder.
++  Future<bool> _hasFollowUpPurpose({
++    required String sourceId,
++    required String occurrenceId,
++  }) async {
++    final policies = await ref
++        .read(notificationFoundationRepositoryProvider)
++        .readPolicies(
++          profileId: _profileId,
++          sourceKind: ReminderSourceKind.calendarEvent,
++          sourceId: sourceId,
++        );
++    final effective =
++        policies.where((p) => p.occurrenceId == occurrenceId).firstOrNull ??
++        policies
++            .where(
++              (p) => p.occurrenceId == ReminderPolicy.seriesOccurrenceId,
++            )
++            .firstOrNull;
++    return effective?.purpose == ReminderPurpose.contactFollowUp;
++  }
++
+   Future<void> reconcileOccurrence({
+     required String eventId,
+     required PlannerDate originalDate,
+@@ -179,6 +212,18 @@ final class CalendarEventController extends Notifier<String?> {
+           privacyProtectionRequired: privacy.lockEnabled,
+         ) ==
+         EffectiveNotificationPreviewMode.detailed;
++    // Section 6A transport selection: this occurrence needs the targeted worker
++    // when its EFFECTIVE policy carries a Contact follow-up purpose or its
++    // current canonical occurrence has eligible human location text.  The
++    // choice is independent of preview mode — a Generic/Locked enriched source
++    // still uses the same live-read transport, so a privacy toggle never churns
++    // the transport that already owns the key.
++    final requiresEnrichment = occurrence.locationText?.trim().isNotEmpty ==
++            true ||
++        await _hasFollowUpPurpose(
++          sourceId: occurrence.eventId,
++          occurrenceId: occurrence.id,
++        );
+     await ref
+         .read(reminderReconcilerProvider)
+         .reconcile(
+@@ -187,6 +232,9 @@ final class CalendarEventController extends Notifier<String?> {
+           sourceId: occurrence.eventId,
+           occurrenceId: occurrence.id,
+           startsAtUtc: occurrence.startUtc,
++          // Section 64: relevance runs to the current canonical Event end, not
++          // to the obsolete start-time suppression.
++          endsAtUtc: occurrence.endUtc,
+           sourceVersion: occurrence.updatedAtUtc?.microsecondsSinceEpoch ?? 0,
+           globalOffsetMinutes: plannerSettings.defaultReminderMinutes,
+           categoryEnabled: preferences.eventRemindersEnabled,
+@@ -206,6 +254,7 @@ final class CalendarEventController extends Notifier<String?> {
+           detailedBody: _eventReminderBody(occurrence, occurrence.notes),
+           showDetails: showDetails,
+           refreshContent: refreshContent,
++          requiresEnrichment: requiresEnrichment,
+           // Correction: include the resolved title in the render revision so
+           // a title-display fix (or Event Type label change) refreshes the
+           // SAME notification identity in place instead of leaving a blank
+@@ -310,26 +359,57 @@ final class CalendarEventController extends Notifier<String?> {
+     );
+   }
+ 
++  /// Applies an explicit source-level purpose after the canonical Event and its
++  /// People links have committed, then reconciles the affected source.
++  ///
++  /// M7 section 8: purpose is written into the SERIES policy while its timing
++  /// is preserved, so a follow-up never silently disables or retimes the
++  /// reminder that was already configured for the source.
+   Future<void> saveReminderPolicyAndReconcile({
+     required String sourceId,
+     required String occurrenceId,
+     required ReminderPolicyMode mode,
+     int? offsetMinutes,
++    ReminderPurpose? purpose,
++    String? contactId,
+   }) async {
+     await _saveReminderPolicy(
+       sourceId: sourceId,
+       occurrenceId: occurrenceId,
+       mode: mode,
+       offsetMinutes: offsetMinutes,
++      purpose: purpose,
++      contactId: contactId,
+     );
+     await reconcileEventHorizon(eventId: sourceId);
+   }
+ 
++  /// Applies ONLY a source-level purpose change, preserving the existing timing
++  /// mode/offset of that policy row (M7 sections 8/9).
++  Future<void> applySeriesReminderPurpose({
++    required String sourceId,
++    required ReminderPurpose purpose,
++    String? contactId,
++  }) async {
++    await ref
++        .read(reminderReconcilerProvider)
++        .updatePolicyPurpose(
++          profileId: _profileId,
++          sourceKind: ReminderSourceKind.calendarEvent,
++          sourceId: sourceId,
++          occurrenceId: ReminderPolicy.seriesOccurrenceId,
++          purpose: purpose,
++          contactId: contactId,
++        );
++  }
++
+   Future<void> _saveReminderPolicy({
+     required String sourceId,
+     required String occurrenceId,
+     required ReminderPolicyMode mode,
+     int? offsetMinutes,
++    ReminderPurpose? purpose,
++    String? contactId,
+   }) async {
+     await ref
+         .read(reminderReconcilerProvider)
+@@ -340,6 +420,8 @@ final class CalendarEventController extends Notifier<String?> {
+           occurrenceId: occurrenceId,
+           mode: mode,
+           offsetMinutes: offsetMinutes,
++          purpose: purpose,
++          contactId: contactId,
+         );
+   }
+ 
+diff --git a/lib/features/planner/application/event_reminder_horizon_reconciler.dart b/lib/features/planner/application/event_reminder_horizon_reconciler.dart
+index 8832aa1..a984f65 100644
+--- a/lib/features/planner/application/event_reminder_horizon_reconciler.dart
++++ b/lib/features/planner/application/event_reminder_horizon_reconciler.dart
+@@ -60,7 +60,11 @@ final class EventReminderHorizonReconciler {
+           item.timing != PlannerEventTiming.timed ||
+           item.state != PlannerEventState.scheduled ||
+           startsAtUtc == null ||
+-          !startsAtUtc.isAfter(nowUtc) ||
++          !_withinEventRelevance(
++            nowUtc: nowUtc,
++            startUtc: startsAtUtc,
++            endUtc: item.endUtc,
++          ) ||
+           !processedOccurrenceIds.add(item.id)) {
+         continue;
+       }
+@@ -102,6 +106,18 @@ final class EventReminderHorizonReconciler {
+     }
+   }
+ 
++  /// Section 64: an occurrence stays in the horizon while its Event window is
++  /// still relevant (now < E), so a currently due Event is no longer discarded
++  /// by the obsolete `start > now` filter.  When E is unavailable the legacy
++  /// future-start rule is preserved.
++  static bool _withinEventRelevance({
++    required DateTime nowUtc,
++    required DateTime startUtc,
++    required DateTime? endUtc,
++  }) => endUtc != null && endUtc.isAfter(startUtc)
++      ? nowUtc.isBefore(endUtc)
++      : startUtc.isAfter(nowUtc);
++
+   static bool _isActive(BackgroundWorkState state) => switch (state) {
+     BackgroundWorkState.completed ||
+     BackgroundWorkState.queued ||
+diff --git a/lib/features/planner/application/event_type_providers.dart b/lib/features/planner/application/event_type_providers.dart
+index d6cc7b6..5d5b281 100644
+--- a/lib/features/planner/application/event_type_providers.dart
++++ b/lib/features/planner/application/event_type_providers.dart
+@@ -108,6 +108,20 @@ final eventTypeControllerProvider =
+ final class EventTypeController extends Notifier<EventTypeState> {
+   EventTypeRepository get _repository => ref.read(eventTypeRepositoryProvider);
+ 
++  /// The profile that produced the CURRENT [state], or null while the state is
++  /// only a pre-load placeholder.  Tracked so a warm entry can prove the data
++  /// it would reuse belongs to the same Local Profile (O1/O10 provenance law).
++  String? _loadedProfileId;
++
++  /// The single in-flight load for [_inflightProfileId], shared by concurrent
++  /// first callers so a warm/cold burst issues exactly one read set.
++  Future<void>? _inflight;
++  String? _inflightProfileId;
++  bool _inflightIncludeArchived = false;
++
++  /// Whether the last SUCCESSFUL load was read with archived types.
++  bool _loadedIncludeArchived = false;
++
+   String get _profileId {
+     final startup = ref.read(startupControllerProvider);
+     if (startup is! StartupReady) {
+@@ -122,18 +136,95 @@ final class EventTypeController extends Notifier<EventTypeState> {
+     return const EventTypeState.loading();
+   }
+ 
++  /// True when the current state is a SUCCESSFUL load for [profileId] — i.e.
++  /// it carries usable truth this profile may present as current creation
++  /// eligibility.  Loading, errored, or wrong-profile data never qualifies.
++  bool isReadyFor(String profileId) {
++    if (state.isLoading || state.message != null) {
++      return false;
++    }
++    return _loadedProfileId == profileId;
++  }
++
++  /// O1/O10 warm fast path: reuse the current successful same-profile load,
++  /// otherwise await the in-flight one, otherwise start exactly one.
++  ///
++  /// This is deliberately NOT "skip the load when the list is nonempty": a
++  /// cached list from another profile, a loading placeholder, or an errored
++  /// state can never establish current creation eligibility.  Existing
++  /// [load] callers keep their own explicit-reload behavior.
++  Future<void> ensureLoaded({
++    bool includeArchived = false,
++    bool requireArchived = false,
++  }) async {
++    // A not-yet-ready Local Profile is not a warm state: fall through to
++    // [load], whose existing error containment owns that outcome.
++    final profileId = _currentProfileIdOrNull();
++    if (profileId == null) {
++      await load(includeArchived: includeArchived);
++      return;
++    }
++    // A warm, trustworthy, same-profile state satisfies the caller.  An
++    // archived-inclusive request is only satisfied by an archived-inclusive
++    // load, since the narrow list may legitimately omit retired types.
++    if (isReadyFor(profileId) &&
++        (!requireArchived || _loadedIncludeArchived)) {
++      return;
++    }
++    final inflight = _inflight;
++    if (inflight != null &&
++        _inflightProfileId == profileId &&
++        (!requireArchived || _inflightIncludeArchived)) {
++      await inflight;
++      return;
++    }
++    await load(includeArchived: includeArchived);
++  }
++
+   Future<void> load({bool includeArchived = false}) async {
++    // Coalesce: while one load is in flight, a second caller for the SAME
++    // profile (and the same archive scope) awaits that work instead of issuing
++    // a duplicate read set.  A caller that needs a broader scope still starts
++    // its own read, so `load(includeArchived: true)` keeps its own behavior.
++    final inflight = _inflight;
++    final inflightProfileId = _inflightProfileId;
++    if (inflight != null &&
++        inflightProfileId != null &&
++        inflightProfileId == _currentProfileIdOrNull() &&
++        (!includeArchived || _inflightIncludeArchived)) {
++      await inflight;
++      return;
++    }
+     state = state.copyWith(isLoading: true, clearMessage: true);
++    final work = _performLoad(includeArchived: includeArchived);
++    _inflight = work;
+     try {
++      await work;
++    } finally {
++      if (identical(_inflight, work)) {
++        _inflight = null;
++        _inflightProfileId = null;
++        _inflightIncludeArchived = false;
++      }
++    }
++  }
++
++  Future<void> _performLoad({required bool includeArchived}) async {
++    try {
++      final profileId = _profileId;
++      _inflightProfileId = profileId;
++      _inflightIncludeArchived = includeArchived;
+       final results = await Future.wait<Object>(<Future<Object>>[
+         _repository.readEventTypes(
+-          profileId: _profileId,
++          profileId: profileId,
+           includeArchived: includeArchived,
+         ),
+-        _repository.readPlannerSettings(profileId: _profileId),
+-        _repository.readEventColorPreferences(profileId: _profileId),
+-        _repository.readContactGroupColors(profileId: _profileId),
++        _repository.readPlannerSettings(profileId: profileId),
++        _repository.readEventColorPreferences(profileId: profileId),
++        _repository.readContactGroupColors(profileId: profileId),
+       ]);
++      _loadedProfileId = profileId;
++      _loadedIncludeArchived = includeArchived;
+       state = EventTypeState(
+         isLoading: false,
+         eventTypes: results[0] as List<EventType>,
+@@ -142,6 +233,9 @@ final class EventTypeController extends Notifier<EventTypeState> {
+         groupColors: results[3] as Map<String, int>,
+       );
+     } on Object {
++      // The errored state is explicitly NOT ready for any profile: a failed
++      // read can never establish current creation eligibility.
++      _loadedProfileId = null;
+       state = state.copyWith(
+         isLoading: false,
+         message:
+@@ -150,6 +244,11 @@ final class EventTypeController extends Notifier<EventTypeState> {
+     }
+   }
+ 
++  String? _currentProfileIdOrNull() {
++    final startup = ref.read(startupControllerProvider);
++    return startup is StartupReady ? startup.profile.id : null;
++  }
++
+   Future<EventType?> exactTypeForIndicator(String indicatorKey) {
+     return _repository.readExactTypeForIndicator(
+       profileId: _profileId,
+diff --git a/lib/features/planner/application/planner_providers.dart b/lib/features/planner/application/planner_providers.dart
+index f6a0a20..f7baa47 100644
+--- a/lib/features/planner/application/planner_providers.dart
++++ b/lib/features/planner/application/planner_providers.dart
+@@ -704,6 +704,7 @@ final class PlannerController extends Notifier<PlannerState> {
+     bool confirmLinkedTypeTransfer = false,
+     ReminderPolicyMode? reminderMode,
+     int? reminderOffsetMinutes,
++    bool deferReminderReconciliation = false,
+   }) async {
+     try {
+       final saved = await _repository.saveTask(
+@@ -728,6 +729,14 @@ final class PlannerController extends Notifier<PlannerState> {
+       final minute = saved.dueMinute;
+       final occurrenceId = 'task:${saved.id}:${due?.iso8601 ?? 'none'}';
+       final reconciler = ref.read(reminderReconcilerProvider);
++      // M7 section 8: an explicit Contact follow-up save withholds this early
++      // scheduling until the caller has committed People and applied the
++      // source-level purpose.  Ordinary saves keep the immediate path.
++      if (deferReminderReconciliation) {
++        await _load(state.selectedDate, invalidateCache: true);
++        await _refreshLauncherBadge();
++        return true;
++      }
+       // A custom policy must become durable before this canonical Task is
+       // reconciled.  Saving it afterward leaves the just-created reminder on
+       // the global default until some unrelated later edit.
+@@ -791,6 +800,87 @@ final class PlannerController extends Notifier<PlannerState> {
+     }
+   }
+ 
++  /// Applies an explicit source-level purpose to a Task's SERIES policy,
++  /// preserving its timing, then reconciles the affected Task (M7 sections
++  /// 8/9).  A follow-up never disables or retimes an existing reminder.
++  Future<void> applySeriesReminderPurpose({
++    required String sourceId,
++    required ReminderPurpose purpose,
++    String? contactId,
++  }) async {
++    await ref
++        .read(reminderReconcilerProvider)
++        .updatePolicyPurpose(
++          profileId: _profileId,
++          sourceKind: ReminderSourceKind.task,
++          sourceId: sourceId,
++          occurrenceId: ReminderPolicy.seriesOccurrenceId,
++          purpose: purpose,
++          contactId: contactId,
++        );
++  }
++
++  /// Reconciles a Task's current projected reminder occurrence after its People
++  /// links and source-level purpose have committed (M7 section 8 step 5).
++  Future<void> reconcileTaskReminder(String taskId) async {
++    final saved = await _repository.readTask(
++      profileId: _profileId,
++      taskId: taskId,
++    );
++    if (saved == null) return;
++    final preferences = await ref
++        .read(notificationFoundationRepositoryProvider)
++        .readPreferences(profileId: _profileId);
++    final permission = await ref
++        .read(permissionGatewayProvider)
++        .status(OptionalPermission.notifications);
++    final privacy = await ref.read(privacyRepositoryProvider).readSettings();
++    final showDetails =
++        resolveNotificationPreviewMode(
++          settings: privacy,
++          privacyProtectionRequired: privacy.lockEnabled,
++        ) ==
++        EffectiveNotificationPreviewMode.detailed;
++    final due = saved.dueDate;
++    final minute = saved.dueMinute;
++    final occurrenceId = 'task:${saved.id}:${due?.iso8601 ?? 'none'}';
++    final startsAtUtc = due == null || minute == null
++        ? null
++        : DateTime(
++            due.year,
++            due.month,
++            due.day,
++            minute ~/ 60,
++            minute % 60,
++          ).toUtc();
++    await ref
++        .read(reminderReconcilerProvider)
++        .reconcile(
++          sourceKind: ReminderSourceKind.task,
++          profileId: _profileId,
++          sourceId: saved.id,
++          occurrenceId: occurrenceId,
++          startsAtUtc: startsAtUtc,
++          sourceVersion: saved.updatedAtUtc.microsecondsSinceEpoch,
++          renderRevision: showDetails
++              ? 'task_detailed_${saved.updatedAtUtc.microsecondsSinceEpoch}'
++              : 'task_generic',
++          globalOffsetMinutes: preferences.defaultTaskReminderMinutes,
++          categoryEnabled: preferences.taskRemindersEnabled,
++          systemEnabled: preferences.effectiveSystemEnabled(
++            androidPermissionGranted:
++                permission == OperatingSystemPermissionState.granted,
++          ),
++          sourceActive: saved.status == PlannerTaskStatus.incomplete,
++          genericTitle: '🔔 Next Transfer',
++          genericBody: 'You have a new notification.',
++          detailedTitle: '✅ Task reminder',
++          detailedBody: _taskReminderBody(saved, use24HourTime: false),
++          showDetails: showDetails,
++        );
++    await _refreshLauncherBadge();
++  }
++
+   static String _taskReminderBody(
+     PlannerTask task, {
+     required bool use24HourTime,
+diff --git a/lib/features/planner/data/drift_calendar_event_repository.dart b/lib/features/planner/data/drift_calendar_event_repository.dart
+index 6b53e89..c1c9138 100644
+--- a/lib/features/planner/data/drift_calendar_event_repository.dart
++++ b/lib/features/planner/data/drift_calendar_event_repository.dart
+@@ -1,4 +1,5 @@
+ import 'package:drift/drift.dart';
++import 'package:rmplanner/core/background/reminder_recovery_request.dart';
+ import 'package:rmplanner/core/database/app_database.dart';
+ import 'package:rmplanner/core/time/app_clock.dart';
+ import 'package:rmplanner/features/goals/data/live_goal_event_type_bindings.dart';
+@@ -55,6 +56,7 @@ final class DriftCalendarEventRepository
+     this.duplicateContextTransfer =
+         const EmptyCalendarEventDuplicateContextTransfer(),
+     this.writeGuard = const AllowCalendarEventWrites(),
++    this.reminderRepair,
+   });
+ 
+   final AppDatabase database;
+@@ -66,6 +68,12 @@ final class DriftCalendarEventRepository
+   final CalendarEventDuplicateContextTransfer duplicateContextTransfer;
+   final CalendarEventWriteGuard writeGuard;
+ 
++  /// M7 section 27 repair-intent port.  Every Event mutation below can change a
++  /// reminder's timing, eligibility or live link, so the intent to reconcile
++  /// commits INSIDE the mutation's own transaction.  Absent in read-only and
++  /// test compositions.
++  final ReminderRecoveryRequest? reminderRepair;
++
+   @override
+   String get displayTimeZoneId => timeZones.displayTimeZoneId;
+ 
+@@ -279,10 +287,17 @@ final class DriftCalendarEventRepository
+     final start = PlannerDate.parse(row.startDate);
+     // M2's scheduled occurrence horizon is 90 days; routing resolves the
+     // same bounded canonical projection rather than reversing UUIDv5 IDs.
++    //
++    // Section 64: an Event reminder's target is T = start - offset, which can
++    // fall on the PREVIOUS local day (an early-morning Event with a long lead).
++    // Starting the scan at today would make that occurrence unresolvable for
++    // report-reminder routes, so the window opens one day earlier.  The upper
++    // bound is unchanged; only the lower bound widens.
+     final today = PlannerDate.fromDateTime(clock.nowUtc().toLocal());
+-    final first = start.compareTo(today) < 0 ? today : start;
++    final scanFloor = today.addDays(-1);
++    final first = start.compareTo(scanFloor) < 0 ? scanFloor : start;
+     final rule = _ruleFromRow(row);
+-    for (var offset = 0; offset <= 90; offset++) {
++    for (var offset = 0; offset <= 91; offset++) {
+       final date = first.addDays(offset);
+       if (rule.occurrenceIndexOn(startDate: start, targetDate: date) == null) {
+         continue;
+@@ -337,6 +352,9 @@ final class DriftCalendarEventRepository
+         selectionContext: _CalendarEventSelectionContext.newSelection,
+         liveBindings: bindings,
+       );
++      // Section 27: a new/edited Event changes reminder eligibility and timing,
++      // so the repair intent commits with the source write.
++      await reminderRepair?.mark(database, profileId: profileId);
+       await writeGuard.beforeCommit();
+     });
+     return normalized;
+@@ -536,6 +554,9 @@ final class DriftCalendarEventRepository
+         occurrenceId: current.id,
+         command: 'edit:${resolvedScope.name}',
+       );
++      // Section 27: this mutation can change a reminder's timing, eligibility
++      // or live link, so the repair intent commits with the source write.
++      await reminderRepair?.mark(database, profileId: profileId);
+       await writeGuard.beforeCommit();
+       return CalendarEventMutationOutcome.changed;
+     });
+@@ -605,6 +626,9 @@ final class DriftCalendarEventRepository
+         occurrenceId: current.id,
+         command: 'cancel:${scope.name}',
+       );
++      // Section 27: this mutation can change a reminder's timing, eligibility
++      // or live link, so the repair intent commits with the source write.
++      await reminderRepair?.mark(database, profileId: profileId);
+       await writeGuard.beforeCommit();
+       return CalendarEventMutationOutcome.changed;
+     });
+@@ -675,6 +699,8 @@ final class DriftCalendarEventRepository
+           occurrenceId: current.id,
+           command: 'reschedule:occurrence',
+         );
++        // Section 27: same repair intent as the series reschedule.
++        await reminderRepair?.mark(database, profileId: profileId);
+         await writeGuard.beforeCommit();
+         return CalendarEventMutationOutcome.changed;
+       }
+@@ -745,6 +771,9 @@ final class DriftCalendarEventRepository
+         occurrenceId: current.id,
+         command: 'reschedule:${scope.name}',
+       );
++      // Section 27: this mutation can change a reminder's timing, eligibility
++      // or live link, so the repair intent commits with the source write.
++      await reminderRepair?.mark(database, profileId: profileId);
+       await writeGuard.beforeCommit();
+       return CalendarEventMutationOutcome.changed;
+     });
+@@ -862,6 +891,9 @@ final class DriftCalendarEventRepository
+         occurrenceId: current.id,
+         command: 'duplicate',
+       );
++      // Section 27: this mutation can change a reminder's timing, eligibility
++      // or live link, so the repair intent commits with the source write.
++      await reminderRepair?.mark(database, profileId: profileId);
+       await writeGuard.beforeCommit();
+       return CalendarEventMutationOutcome.changed;
+     });
+diff --git a/lib/features/planner/data/drift_event_type_repository.dart b/lib/features/planner/data/drift_event_type_repository.dart
+index 62d4d38..a5c7702 100644
+--- a/lib/features/planner/data/drift_event_type_repository.dart
++++ b/lib/features/planner/data/drift_event_type_repository.dart
+@@ -1,4 +1,5 @@
+ import 'package:drift/drift.dart';
++import 'package:rmplanner/core/background/reminder_recovery_request.dart';
+ import 'package:rmplanner/core/colors/vs11_color_system.dart';
+ import 'package:rmplanner/core/database/app_database.dart';
+ import 'package:rmplanner/core/time/app_clock.dart';
+@@ -29,11 +30,22 @@ final class EducationBackfillException implements Exception {
+ }
+ 
+ final class DriftEventTypeRepository implements EventTypeRepository {
+-  const DriftEventTypeRepository({required this.database, required this.clock});
++  const DriftEventTypeRepository({
++    required this.database,
++    required this.clock,
++    this.reminderRepair,
++  });
+ 
+   final AppDatabase database;
+   final AppClock clock;
+ 
++  /// M7 section 27 repair-intent port.  Used ONLY for a change to the
++  /// profile's global reminder default, because that default governs the
++  /// inherited timing of every reminder that has not overridden it.  Event
++  /// Type / colour / name architecture is deliberately NOT touched here
++  /// (contract section 53 P33).
++  final ReminderRecoveryRequest? reminderRepair;
++
+   @override
+   Future<List<EventType>> readEventTypes({
+     required String profileId,
+@@ -356,6 +368,12 @@ final class DriftEventTypeRepository implements EventTypeRepository {
+   }) async {
+     settings.validate();
+     final defaultTypeId = settings.defaultEventTypeId;
++    // The persisted preferences row is read once for the whole save: the
++    // default-type eligibility check below and the section 27 reminder-default
++    // comparison both need the CURRENT stored truth.
++    final stored = await (database.select(
++      database.plannerPreferences,
++    )..where((table) => table.profileId.equals(profileId))).getSingleOrNull();
+     if (defaultTypeId != null) {
+       final type = await readEventType(
+         profileId: profileId,
+@@ -369,9 +387,6 @@ final class DriftEventTypeRepository implements EventTypeRepository {
+       // default (unchanged from the persisted row) is retained even when its
+       // slot has since become hidden — changing unrelated settings must not
+       // fail. No Goal bootstrap, no passive preference mutation.
+-      final stored = await (database.select(
+-        database.plannerPreferences,
+-      )..where((table) => table.profileId.equals(profileId))).getSingleOrNull();
+       final storedDefaultTypeId = stored?.defaultActivityTypeId;
+       if (defaultTypeId != storedDefaultTypeId) {
+         final bindings = await readLiveGoalEventTypeBindings(
+@@ -391,6 +406,11 @@ final class DriftEventTypeRepository implements EventTypeRepository {
+         }
+       }
+     }
++    // Section 27: the global reminder default is INHERITED by every reminder
++    // that has no explicit timing of its own, so only a REAL change to it
++    // schedules a reconciliation.  The previous value is captured before
++    // the write so an unrelated settings save stays a no-op.
++    final previousReminderDefault = stored?.defaultReminderMinutes;
+     // Read/merge/write inside ONE transaction: the full-document settings
+     // write carries the CURRENT stored presentation JSON forward losslessly
+     // (event colors, group colors, Goal name overrides, and any invalid raw
+@@ -440,6 +460,9 @@ final class DriftEventTypeRepository implements EventTypeRepository {
+             updatedAtUtc: clock.nowUtc(),
+           ),
+         );
++    if (previousReminderDefault != settings.defaultReminderMinutes) {
++      await reminderRepair?.mark(database, profileId: profileId);
++    }
+     return settings;
+   }
+ 
+diff --git a/lib/features/planner/data/drift_outcome_reporting_repository.dart b/lib/features/planner/data/drift_outcome_reporting_repository.dart
+index d14ca82..f3de8d8 100644
+--- a/lib/features/planner/data/drift_outcome_reporting_repository.dart
++++ b/lib/features/planner/data/drift_outcome_reporting_repository.dart
+@@ -1,4 +1,5 @@
+ import 'package:drift/drift.dart';
++import 'package:rmplanner/core/background/reminder_recovery_request.dart';
+ import 'package:rmplanner/core/database/app_database.dart';
+ import 'package:rmplanner/core/time/app_clock.dart';
+ import 'package:rmplanner/features/planner/application/calendar_event_repository.dart';
+@@ -33,12 +34,19 @@ final class DriftOutcomeReportingRepository
+     required this.database,
+     required this.clock,
+     this.writeGuard = const AllowOutcomeReportingWrites(),
++    this.reminderRepair,
+   });
+ 
+   final AppDatabase database;
+   final AppClock clock;
+   final OutcomeReportingWriteGuard writeGuard;
+ 
++  /// M7 section 27 repair-intent port.  Submitting or clearing a Report
++  /// changes the Awaiting Report reminder's eligibility, so the intent to
++  /// reconcile commits INSIDE the report transaction.  Absent in read-only
++  /// and test compositions.
++  final ReminderRecoveryRequest? reminderRepair;
++
+   @override
+   Future<bool> hasReportOrLedgerEffect(String taskId) async {
+     final report =
+@@ -655,6 +663,8 @@ final class DriftOutcomeReportingRepository
+         operationId: operationId,
+         now: now,
+       );
++      // Section 27: a submission changes Awaiting Report eligibility.
++      await reminderRepair?.mark(database, profileId: profileId);
+       await writeGuard.beforeCommit();
+ 
+       final reportRow = await _requireReportRow(profileId, submittedId);
+@@ -730,6 +740,8 @@ final class DriftOutcomeReportingRepository
+               mode: InsertMode.insertOrIgnore,
+             );
+       }
++      // Section 27: clearing the submitted status re-opens Awaiting Report.
++      await reminderRepair?.mark(database, profileId: profileId);
+       return true;
+     });
+   }
+diff --git a/lib/features/planner/data/drift_planner_repository.dart b/lib/features/planner/data/drift_planner_repository.dart
+index c1e605d..3f6607d 100644
+--- a/lib/features/planner/data/drift_planner_repository.dart
++++ b/lib/features/planner/data/drift_planner_repository.dart
+@@ -1,6 +1,7 @@
+ import 'dart:convert';
+ 
+ import 'package:drift/drift.dart';
++import 'package:rmplanner/core/background/reminder_recovery_request.dart';
+ import 'package:rmplanner/core/database/app_database.dart';
+ import 'package:rmplanner/core/time/app_clock.dart';
+ import 'package:rmplanner/features/planner/application/planner_repository.dart';
+@@ -33,6 +34,7 @@ final class DriftPlannerRepository
+     this.taskContextSource = const EmptyPlannerTaskContextSource(),
+     this.historicalEffectReader = const NoTaskHistoricalEffects(),
+     this.writeGuard = const AllowTaskWrites(),
++    this.reminderRepair,
+   });
+ 
+   final AppDatabase database;
+@@ -42,6 +44,15 @@ final class DriftPlannerRepository
+   final TaskHistoricalEffectReader historicalEffectReader;
+   final TaskWriteGuard writeGuard;
+ 
++  /// M7 section 27 durable repair intent.
++  ///
++  /// When supplied, a canonical Task mutation that can change reminder timing,
++  /// eligibility or lifecycle persists the reminder reconciliation marker in the
++  /// SAME transaction as the mutation.  A later platform failure can therefore
++  /// not erase the committed intent to reconcile.  It is optional so read-only
++  /// and test compositions stay unaffected, and absent it changes nothing.
++  final ReminderRecoveryRequest? reminderRepair;
++
+   @override
+   Future<TaskStatusChangeOutcome> changeTaskStatus({
+     required String profileId,
+@@ -138,6 +149,9 @@ final class DriftPlannerRepository
+           // caller first returns the task to incomplete.
+           break;
+       }
++      // Section 27: completing, reopening or cancelling a Task changes reminder
++      // eligibility, so the repair intent commits with the status change.
++      await reminderRepair?.mark(database, profileId: profileId);
+       await writeGuard.beforeCommit();
+       return TaskStatusChangeOutcome.changed;
+     });
+@@ -274,6 +288,9 @@ final class DriftPlannerRepository
+           'Task $taskId disappeared before hard delete completed.',
+         );
+       }
++      // Section 27: a deleted Task can no longer justify a pending reminder, so
++      // the repair intent commits with the delete and recovery withdraws it.
++      await reminderRepair?.mark(database, profileId: profileId);
+       await writeGuard.beforeCommit();
+       return TaskHardDeleteOutcome.deleted;
+     });
+@@ -626,6 +643,11 @@ final class DriftPlannerRepository
+           changedAt: now,
+         );
+       }
++      // Section 27: a Task save can change reminder timing, recurrence,
++      // lifecycle or the linked Event Type, so the repair intent commits inside
++      // this SAME transaction.  If the caller's later platform registration
++      // fails, the durable marker still guarantees reconciliation happens.
++      await reminderRepair?.mark(database, profileId: profileId);
+       await writeGuard.beforeCommit();
+     });
+ 
+diff --git a/lib/features/planner/presentation/calendar_event_create_gate_screen.dart b/lib/features/planner/presentation/calendar_event_create_gate_screen.dart
+index ea5873e..924eadf 100644
+--- a/lib/features/planner/presentation/calendar_event_create_gate_screen.dart
++++ b/lib/features/planner/presentation/calendar_event_create_gate_screen.dart
+@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
+ import 'package:go_router/go_router.dart';
+ import 'package:rmplanner/app/router/route_names.dart';
+ import 'package:rmplanner/features/maps/domain/map_coordinate.dart';
++import 'package:rmplanner/features/notifications/domain/contact_follow_up_creation_intent.dart';
+ import 'package:rmplanner/features/planner/domain/planner_date.dart';
+ import 'package:rmplanner/features/planner/presentation/calendar_event_creation.dart';
+ import 'package:rmplanner/features/planner/presentation/event_type_picker_dialog.dart';
+@@ -18,6 +19,7 @@ final class CalendarEventCreateGateScreen extends ConsumerStatefulWidget {
+     this.initialEventTypeId,
+     this.sourceTaskId,
+     this.initialContactIds = const <String>[],
++    this.followUpContactId,
+     super.key,
+   });
+ 
+@@ -29,6 +31,11 @@ final class CalendarEventCreateGateScreen extends ConsumerStatefulWidget {
+   final String? sourceTaskId;
+   final List<String> initialContactIds;
+ 
++  /// M7 section 8 — the ONE Contact explicitly chosen in the Contact Detail
++  /// follow-up chooser, forwarded through the picker into the form.  Null for
++  /// every ordinary creation path.
++  final String? followUpContactId;
++
+   @override
+   ConsumerState<CalendarEventCreateGateScreen> createState() =>
+       _CalendarEventCreateGateScreenState();
+@@ -76,6 +83,13 @@ final class _CalendarEventCreateGateScreenState
+       return;
+     }
+     final router = GoRouter.of(context);
++    // M7 section 8 — the typed follow-up provenance survives whichever create
++    // path the picker resolves to, so choosing Task from this Event gate keeps
++    // the SAME explicitly selected Contact as the follow-up target.
++    final followUp = widget.followUpContactId;
++    final intent = followUp == null
++        ? null
++        : ContactFollowUpCreationIntent(contactId: followUp);
+     final saved = switch (selected) {
+       EventTypePickerEvent(:final eventType) =>
+         await showCalendarEventFormSheet<bool>(
+@@ -87,9 +101,20 @@ final class _CalendarEventCreateGateScreenState
+           sourceTaskId: widget.sourceTaskId,
+           initialContactIds: widget.initialContactIds,
+           initialCoordinate: widget.initialCoordinate,
++          followUpContactId: followUp,
+         ),
+       EventTypePickerTask() => await router.push<bool>(
+-        '${RoutePaths.taskCreate}?date=${widget.initialDate.iso8601}',
++        Uri(
++          path: RoutePaths.taskCreate,
++          queryParameters: <String, String>{
++            'date': widget.initialDate.iso8601,
++            // Preserve the Contact preselection already established by the
++            // follow-up chooser's `contacts=` argument.
++            if (widget.initialContactIds.isNotEmpty)
++              'contacts': widget.initialContactIds.join(','),
++          },
++        ).toString(),
++        extra: intent,
+       ),
+     };
+     if (!mounted) {
+diff --git a/lib/features/planner/presentation/calendar_event_creation.dart b/lib/features/planner/presentation/calendar_event_creation.dart
+index aaca9c2..23002c6 100644
+--- a/lib/features/planner/presentation/calendar_event_creation.dart
++++ b/lib/features/planner/presentation/calendar_event_creation.dart
+@@ -239,6 +239,11 @@ Future<T?> showCalendarEventFormSheet<T>({
+   String? sourceTaskId,
+   List<String> initialContactIds = const <String>[],
+   MapCoordinate? initialCoordinate,
++
++  /// M7 section 8 — typed follow-up provenance forwarded into the form so the
++  /// explicit chooser path can apply purpose after its People commit.  Null on
++  /// every ordinary creation path.
++  String? followUpContactId,
+ }) {
+   final sheetController = DraggableScrollableController();
+   const minChildSize = 0.36;
+@@ -273,6 +278,7 @@ Future<T?> showCalendarEventFormSheet<T>({
+                 initialEventTypeId: eventType.id,
+                 initialContactIds: initialContactIds,
+                 initialCoordinate: initialCoordinate,
++                followUpContactId: followUpContactId,
+                 sheetPresentation: true,
+                 sheetScrollController: scrollController,
+                 sheetController: sheetController,
+diff --git a/lib/features/planner/presentation/calendar_event_form_screen.dart b/lib/features/planner/presentation/calendar_event_form_screen.dart
+index dba9f20..77fe179 100644
+--- a/lib/features/planner/presentation/calendar_event_form_screen.dart
++++ b/lib/features/planner/presentation/calendar_event_form_screen.dart
+@@ -22,6 +22,7 @@ import 'package:rmplanner/features/maps/presentation/map_location_picker_screen.
+ import 'package:rmplanner/features/maps/presentation/map_pin_section.dart';
+ import 'package:rmplanner/features/notifications/application/notification_providers.dart';
+ import 'package:rmplanner/features/notifications/domain/reminder_policy.dart';
++import 'package:rmplanner/features/notifications/domain/reminder_policy_label.dart';
+ import 'package:rmplanner/features/notifications/presentation/reminder_time_picker.dart';
+ import 'package:rmplanner/features/planner/application/calendar_event_creation_draft_provider.dart';
+ import 'package:rmplanner/features/planner/application/calendar_event_providers.dart';
+@@ -62,6 +63,7 @@ final class CalendarEventFormScreen extends ConsumerStatefulWidget {
+     this.initialDurationMinutes,
+     this.onClose,
+     this.initialContactIds = const <String>[],
++    this.followUpContactId,
+     this.sheetPresentation = false,
+     this.sheetScrollController,
+     this.sheetController,
+@@ -103,7 +105,9 @@ final class CalendarEventFormScreen extends ConsumerStatefulWidget {
+        onClose = null,
+        initialTitle = null,
+        initialEventTypeLabel = null,
+-       initialStatusIntent = null;
++       initialStatusIntent = null,
++       // A Task->Event link is an ordinary creation, never a follow-up entry.
++       followUpContactId = null;
+ 
+   const CalendarEventFormScreen.edit({
+     required this.eventId,
+@@ -133,7 +137,10 @@ final class CalendarEventFormScreen extends ConsumerStatefulWidget {
+        initialDurationMinutes = null,
+        onClose = null,
+        sourceTaskId = null,
+-       initialContactIds = const <String>[];
++       initialContactIds = const <String>[],
++       // M7 adds no general UI for purpose reassignment: only the chooser
++       // establishes provenance, so edit never seeds it (section 9).
++       followUpContactId = null;
+ 
+   const CalendarEventFormScreen.reschedule({
+     required this.eventId,
+@@ -160,7 +167,8 @@ final class CalendarEventFormScreen extends ConsumerStatefulWidget {
+        initialContactIds = const <String>[],
+        initialTitle = null,
+        initialEventTypeLabel = null,
+-       initialStatusIntent = null;
++       initialStatusIntent = null,
++       followUpContactId = null;
+ 
+   final CalendarEventFormMode mode;
+   final PlannerDate? initialDate;
+@@ -190,6 +198,11 @@ final class CalendarEventFormScreen extends ConsumerStatefulWidget {
+   final String? sourceTaskId;
+   final List<String> initialContactIds;
+ 
++  /// M7 section 8 — the ONE Contact explicitly chosen in the Contact Detail
++  /// follow-up chooser.  Null on every ordinary creation path; never seeded by
++  /// edit or reschedule, because M7 adds no general purpose-reassignment UI.
++  final String? followUpContactId;
++
+   /// NX-06: identity seeds for the Edit Event loading shell (known from the
+   /// detail sheet at open time). Null keeps the previous blank-pause behavior
+   /// for deep-link/direct edit entries.
+@@ -240,6 +253,12 @@ final class _CalendarEventFormScreenState
+   // distinguish "same-type preservation" (no new-selection gate) from an
+   // explicit type change (must pass current eligibility) per contract E.
+   String? _loadedTypeId;
++
++  /// O9 (section 66): an explicit user selection flag.  Comparing the selected
++  /// id with the master [_loadedTypeId] is insufficient — re-selecting the
++  /// original type in the picker still counts as a deliberate selection and
++  /// must use the canonical current label, not the loaded snapshot.
++  bool _eventTypeSelectionChanged = false;
+   bool _isBackupAppointment = false;
+   String? _backupForEventId;
+   String? _backupRelationshipProvenance;
+@@ -365,7 +384,11 @@ final class _CalendarEventFormScreenState
+ 
+   Future<void> _loadConfiguration() async {
+     final controller = ref.read(eventTypeControllerProvider.notifier);
+-    await controller.load();
++    // O1/O10: a warm same-profile successful load is reused rather than forced
++    // through a redundant reload; a cold or foreign-profile state still waits
++    // truthfully here.  The narrow readiness gate below stays the authority on
++    // whether the data may seed creation eligibility.
++    await controller.ensureLoaded();
+     if (!mounted) {
+       return;
+     }
+@@ -448,7 +471,23 @@ final class _CalendarEventFormScreenState
+     // Eligible Other fallback (contract E), without any preference write.
+     // When eligibility never resolved, fall back to raw Other so the form
+     // stays usable without advertising an unvalidated slot type.
+-    selected ??= eligibilityReady
++    //
++    // O9 (section 66): for an EXISTING Event whose occurrence snapshot is the
++    // only truthful label, the Other slot must never be advertised as this
++    // Event's type.  A persisted `activityTypeId` that no longer resolves is
++    // unmapped, not "Other": the form keeps a null selection (honest
++    // "Edit Event" heading, raw label as the last-resort field wording) rather
++    // than claiming a semantic type the Event never had.
++    final loadedTypeIdentity =
++        existingDraft?.activityTypeId ?? widget.initialEventTypeId;
++    final suppressOtherFallback =
++        widget.mode != CalendarEventFormMode.create &&
++        loadedTypeIdentity != null &&
++        selected == null &&
++        (_loadedEventTypeLabel?.trim().isNotEmpty ?? false);
++    selected ??= suppressOtherFallback
++        ? null
++        : eligibilityReady
+         ? eligibleChoices
+               .where(
+                 (choice) =>
+@@ -559,6 +598,8 @@ final class _CalendarEventFormScreenState
+         .updateEventType(selected);
+     setState(() {
+       _selectedEventType = selected;
++      // A deliberate picker decision, even reselecting the original type.
++      _eventTypeSelectionChanged = true;
+       _applyEventTypeDefaults(selected);
+       if (selected.isLockedWliType) {
+         _linkedIndicatorKey = selected.exactIndicatorKey;
+@@ -669,27 +710,56 @@ final class _CalendarEventFormScreenState
+   /// keeps its loaded occurrence/master snapshot label until the user
+   /// explicitly changes the type. Resolver unavailability falls back to the
+   /// raw label — display only, identity stays on the raw type.
++  /// O9 (section 66): resolves the display label for this Event's type.
++  ///
++  /// Before any deliberate picker change the form must show the label of the
++  /// occurrence it ACTUALLY opened — the freshly loaded effective occurrence
++  /// label and identity — not the raw master row, whose `activityTypeId` can be
++  /// a retired/Other binding while the occurrence carries a truthful exception.
++  /// The master snapshot is only a fallback when the occurrence is unavailable,
++  /// and [widget.initialEventTypeLabel] stays a loading seed rather than an
++  /// eternal override of newer reads.
+   String _formTypeDisplayLabel() {
+     final selected = _selectedEventType;
+     if (selected == null) {
+       return 'Not selected';
+     }
+-    if (widget.mode == CalendarEventFormMode.create ||
+-        selected.id != _loadedTypeId) {
+-      final choices = ref
+-          .read(eventTypeCreationChoicesProvider)
+-          .value;
+-      if (choices != null) {
+-        for (final choice in choices) {
+-          if (choice.type.id == selected.id) {
+-            return choice.displayLabel;
+-          }
+-        }
++    // A deliberate selection always wins: it is the user's current intent, and
++    // its label comes from the canonical creation choice.
++    if (widget.mode == CalendarEventFormMode.create || _eventTypeSelectionChanged) {
++      final resolved = _creationChoiceLabelOf(selected.id);
++      if (resolved != null) {
++        return resolved;
+       }
++      return selected.label;
++    }
++    // Unchanged Edit: prefer the effective occurrence label captured at load.
++    final loaded = _loadedEventTypeLabel?.trim();
++    if (loaded != null && loaded.isNotEmpty) {
++      return loaded;
++    }
++    final resolved = _creationChoiceLabelOf(selected.id);
++    if (resolved != null) {
++      return resolved;
+     }
+     return selected.label;
+   }
+ 
++  /// The canonical creation-choice display label for [typeId], when the
++  /// provider currently exposes an eligible choice for it.
++  String? _creationChoiceLabelOf(String typeId) {
++    final choices = ref.read(eventTypeCreationChoicesProvider).value;
++    if (choices == null) {
++      return null;
++    }
++    for (final choice in choices) {
++      if (choice.type.id == typeId) {
++        return choice.displayLabel;
++      }
++    }
++    return null;
++  }
++
+   Widget _buildEventTypeField() {
+     return Material(
+       key: const Key('event-type-field'),
+@@ -929,6 +999,9 @@ final class _CalendarEventFormScreenState
+     _loadedEventTypeLabel =
+         occurrence?.activityTypeLabel ?? draft.activityTypeLabelSnapshot;
+     _loadedTypeId = draft.activityTypeId;
++    // O9: a fresh load is not a deliberate selection.  The displayed label
++    // follows the loaded effective occurrence until the user picks a type.
++    _eventTypeSelectionChanged = false;
+     // Owner fix: prefill Backup from the effective occurrence (which merges
+     // occurrence-scoped overrides) so a Backup set via "This event only" —
+     // or by an earlier edit — still shows ON when the form is reopened.
+@@ -2121,22 +2194,49 @@ final class _CalendarEventFormScreenState
+     ],
+   );
+ 
++  /// O9 (section 66): the Edit heading must agree with the type field, so it
++  /// resolves through the SAME effective display label rather than the raw
++  /// master row.  When no trustworthy label exists the form keeps the plain
++  /// "Edit Event" wording instead of inventing a semantic type.
+   String get _formHeading => switch (widget.mode) {
+     CalendarEventFormMode.create when widget.sourceTaskId != null =>
+       'Create Event from Task',
+     CalendarEventFormMode.create =>
+       _selectedEventType == null
+           ? 'Create Event'
+-          : 'Create ${_selectedEventType!.label}',
++          : 'Create ${_resolvedHeadingLabel()}',
+     CalendarEventFormMode.edit =>
+       _selectedEventType == null
+           ? widget.initialEventTypeLabel?.trim().isNotEmpty == true
+                 ? 'Edit ${widget.initialEventTypeLabel} Event'
+                 : 'Edit Event'
+-          : 'Edit ${_selectedEventType!.label} Event',
++          : _trustworthyTypeLabel() == null
++          ? 'Edit Event'
++          : 'Edit ${_resolvedHeadingLabel()} Event',
+     CalendarEventFormMode.reschedule => 'Reschedule Event',
+   };
+ 
++  /// The heading label, resolved exactly like [_formTypeDisplayLabel] so the
++  /// heading and the type field can never disagree about the same Event.
++  String _resolvedHeadingLabel() {
++    final label = _formTypeDisplayLabel();
++    return label == 'Not selected' ? 'Event' : label;
++  }
++
++  /// The type label for heading purposes, or null when the only available
++  /// wording would be an untrustworthy raw fallback for an existing type.
++  String? _trustworthyTypeLabel() {
++    if (widget.mode == CalendarEventFormMode.create ||
++        _eventTypeSelectionChanged) {
++      return _formTypeDisplayLabel();
++    }
++    final loaded = _loadedEventTypeLabel?.trim();
++    if (loaded != null && loaded.isNotEmpty) {
++      return loaded;
++    }
++    return _creationChoiceLabelOf(_selectedEventType!.id);
++  }
++
+   /// NX-06: truthful Edit loading shell. When the detail sheet has already
+   /// seeded the known identity, the loading state shows the seeded title
+   /// above the spinner instead of a bare blank pause; entries with no seeds
+@@ -2403,6 +2503,9 @@ final class _CalendarEventFormScreenState
+         awaitPlannerRefresh: false,
+         reminderMode: _reminderMode,
+         reminderOffsetMinutes: _reminderOffsetMinutes,
++        // M7 section 8: the explicit Contact follow-up path withholds the
++        // controller's early scheduling until People + purpose have committed.
++        deferReminderReconciliation: widget.followUpContactId != null,
+       ),
+       CalendarEventFormMode.edit => await _saveEdit(draft, controller),
+       CalendarEventFormMode.reschedule => await controller.rescheduleEvent(
+@@ -2534,6 +2637,13 @@ final class _CalendarEventFormScreenState
+           );
+         }
+       }
++      // M7 section 8 step 4/5: apply the explicit source-level purpose to the
++      // SERIES policy (preserving its timing) and then reconcile that source.
++      // This runs only for the chooser-created follow-up; every ordinary save
++      // already scheduled inside its own controller call above.
++      if (!await _finalizeFollowUp()) {
++        return;
++      }
+       if (!mounted) {
+         return;
+       }
+@@ -2545,6 +2655,67 @@ final class _CalendarEventFormScreenState
+     }
+   }
+ 
++  /// M7 section 8 step 1/4/5 — finalize an explicit Contact follow-up.
++  ///
++  /// Returns `true` when the save may continue closing the form.  Returns
++  /// `false` only when the follow-up could not be applied AFTER the canonical
++  /// Event commit: the form stays open with the exact truthful copy, its stable
++  /// ids are kept, and the user can retry the same source id idempotently.
++  ///
++  /// The Contact is validated against CURRENT canonical truth here, not against
++  /// the intent captured when the chooser opened.  If it is no longer an active
++  /// member of this profile the normal source save stands and the pending
++  /// follow-up intent is dropped with the exact "Saved without follow-up."
++  /// copy — no phantom Contact is created and no valid history is rolled back.
++  Future<bool> _finalizeFollowUp() async {
++    final contactId = widget.followUpContactId;
++    if (contactId == null) {
++      return true;
++    }
++    final profileId = ref.read(contactProfileIdProvider);
++    var contactIsActive = false;
++    try {
++      final detail = await ref
++          .read(contactRepositoryProvider)
++          .readContactDetail(profileId: profileId, contactId: contactId);
++      contactIsActive = detail.contact.isActive;
++    } on Object {
++      contactIsActive = false;
++    }
++    if (!mounted) {
++      return false;
++    }
++    if (!contactIsActive) {
++      ScaffoldMessenger.of(context).showSnackBar(
++        const SnackBar(content: Text('Saved without follow-up.')),
++      );
++      return true;
++    }
++    try {
++      final controller = ref.read(calendarEventControllerProvider.notifier);
++      await controller.applySeriesReminderPurpose(
++        sourceId: _draftId,
++        purpose: ReminderPurpose.contactFollowUp,
++        contactId: contactId,
++      );
++      await controller.reconcileEventHorizon(eventId: _draftId);
++      return true;
++    } on Object {
++      // The Event and its People links are committed; we must NOT claim the
++      // source was not saved.  Keep the stable id so a retry is idempotent.
++      if (mounted) {
++        ScaffoldMessenger.of(context).showSnackBar(
++          const SnackBar(
++            content: Text(
++              'Saved, but follow-up could not be applied. Try again.',
++            ),
++          ),
++        );
++      }
++      return false;
++    }
++  }
++
+   Future<void> _persistMapPin() async {
+     try {
+       final maps = ref.read(mapCoordinateRepositoryProvider);
+@@ -2801,13 +2972,11 @@ final class _CalendarEventFormScreenState
+         if (inherited == null) {
+           return 'Default (Off)  ›';
+         }
+-        return inherited == 0
+-            ? 'Default (At event time)  ›'
+-            : 'Default ($inherited min before)  ›';
++        return 'Default (${ReminderPolicyLabel.inheritedOffsetMinutes(inherited)})  ›';
+       case ReminderPolicyMode.off:
+         return 'Off  ›';
+       case ReminderPolicyMode.offset:
+-        return '${_reminderOffsetMinutes ?? 0} minutes before  ›';
++        return '${ReminderPolicyLabel.offsetMinutes(_reminderOffsetMinutes ?? 0)}  ›';
+     }
+   }
+ 
+diff --git a/lib/features/planner/presentation/event_type_picker_dialog.dart b/lib/features/planner/presentation/event_type_picker_dialog.dart
+index 10f64dd..32cf6da 100644
+--- a/lib/features/planner/presentation/event_type_picker_dialog.dart
++++ b/lib/features/planner/presentation/event_type_picker_dialog.dart
+@@ -40,7 +40,10 @@ Future<EventTypePickerSelection?> showEventTypePicker({
+   bool includeTask = true,
+ }) async {
+   final controller = ref.read(eventTypeControllerProvider.notifier);
+-  await controller.load();
++  // O1/O10: reuse a warm same-profile successful load; cold/foreign states
++  // still wait here.  The eligibility consumers below stay fail-closed on
++  // their own AsyncValue, so readiness is never inferred from this await.
++  await controller.ensureLoaded();
+   if (!context.mounted) {
+     return null;
+   }
+@@ -137,7 +140,9 @@ Future<EventType?> showEventTypeDropdown({
+     return null;
+   }
+   final controller = ref.read(eventTypeControllerProvider.notifier);
+-  await controller.load();
++  // O1/O10: opening the type dropdown on an already-warm same profile must not
++  // force a redundant reload before the options can render.
++  await controller.ensureLoaded();
+   if (!context.mounted) {
+     return null;
+   }
+diff --git a/lib/features/planner/presentation/task_form_screen.dart b/lib/features/planner/presentation/task_form_screen.dart
+index 5a80e22..12a533c 100644
+--- a/lib/features/planner/presentation/task_form_screen.dart
++++ b/lib/features/planner/presentation/task_form_screen.dart
+@@ -15,6 +15,7 @@ import 'package:rmplanner/features/goals/domain/goal.dart';
+ import 'package:rmplanner/features/goals/presentation/widgets/goal_icon.dart';
+ import 'package:rmplanner/features/notifications/application/notification_providers.dart';
+ import 'package:rmplanner/features/notifications/domain/reminder_policy.dart';
++import 'package:rmplanner/features/notifications/domain/reminder_policy_label.dart';
+ import 'package:rmplanner/features/notifications/presentation/reminder_time_picker.dart';
+ import 'package:rmplanner/features/planner/application/event_type_providers.dart';
+ import 'package:rmplanner/features/planner/application/planner_providers.dart';
+@@ -39,6 +40,7 @@ final class TaskFormScreen extends ConsumerStatefulWidget {
+     this.initialPeople = const <String>[],
+     this.initialRecurrence = PlannerTaskRecurrence.none,
+     this.initialGoalId,
++    this.followUpContactId,
+     this.sheetPresentation = false,
+     this.onClose,
+     this.sheetScrollController,
+@@ -66,7 +68,8 @@ final class TaskFormScreen extends ConsumerStatefulWidget {
+        initialDescription = null,
+        initialPeople = const <String>[],
+        initialRecurrence = PlannerTaskRecurrence.none,
+-       initialGoalId = null;
++       initialGoalId = null,
++       followUpContactId = null;
+ 
+   const TaskFormScreen.addToPlanner({required String taskId, Key? key})
+     : this.edit(taskId: taskId, addToPlanner: true, key: key);
+@@ -82,6 +85,13 @@ final class TaskFormScreen extends ConsumerStatefulWidget {
+   final List<String> initialPeople;
+   final PlannerTaskRecurrence initialRecurrence;
+   final String? initialGoalId;
++
++  /// M7 section 8 — the ONE Contact explicitly chosen in the Contact Detail
++  /// follow-up chooser.  Null for every ordinary creation path.  It is the
++  /// ephemeral provenance seed: it selects the purpose target that the form
++  /// applies to the source-level series policy AFTER the canonical source and
++  /// People commits have succeeded.
++  final String? followUpContactId;
+   final bool sheetPresentation;
+   final ValueChanged<bool>? onClose;
+   final ScrollController? sheetScrollController;
+@@ -1136,6 +1146,66 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen>
+     };
+   }
+ 
++  /// M7 section 8 step 1/4/5 — finalize an explicit Contact follow-up.
++  ///
++  /// Returns `true` when the save may continue closing the form.  Returns
++  /// `false` only when purpose could not be applied AFTER the canonical Task
++  /// commit: the form stays open with the exact truthful copy, its stable
++  /// `_stableTaskId` is kept, and retrying is idempotent.
++  ///
++  /// The Contact is validated against CURRENT canonical truth; if it is no
++  /// longer an active member of this profile, the normal source save stands and
++  /// the pending follow-up intent is dropped with the exact
++  /// "Saved without follow-up." copy.
++  Future<bool> _finalizeFollowUp() async {
++    final contactId = widget.followUpContactId;
++    if (contactId == null) {
++      return true;
++    }
++    final profileId = ref.read(contactProfileIdProvider);
++    var contactIsActive = false;
++    try {
++      final detail = await ref
++          .read(contactRepositoryProvider)
++          .readContactDetail(profileId: profileId, contactId: contactId);
++      contactIsActive = detail.contact.isActive;
++    } on Object {
++      contactIsActive = false;
++    }
++    if (!mounted) {
++      return false;
++    }
++    if (!contactIsActive) {
++      ScaffoldMessenger.of(context).showSnackBar(
++        const SnackBar(content: Text('Saved without follow-up.')),
++      );
++      return true;
++    }
++    try {
++      final controller = ref.read(plannerControllerProvider.notifier);
++      await controller.applySeriesReminderPurpose(
++        sourceId: _stableTaskId,
++        purpose: ReminderPurpose.contactFollowUp,
++        contactId: contactId,
++      );
++      await controller.reconcileTaskReminder(_stableTaskId);
++      return true;
++    } on Object {
++      // The Task and its Contact links are committed; never claim the source
++      // was not saved.  Keep the stable id so a retry is idempotent.
++      if (mounted) {
++        ScaffoldMessenger.of(context).showSnackBar(
++          const SnackBar(
++            content: Text(
++              'Saved, but follow-up could not be applied. Try again.',
++            ),
++          ),
++        );
++      }
++      return false;
++    }
++  }
++
+   Future<void> _save({bool confirmLinkedTypeTransfer = false}) async {
+     if (widget.addToPlanner &&
+         (_dueDate == null ||
+@@ -1184,6 +1254,9 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen>
+           confirmLinkedTypeTransfer: confirmLinkedTypeTransfer,
+           reminderMode: _reminderMode,
+           reminderOffsetMinutes: _reminderOffsetMinutes,
++          // M7 section 8: the explicit Contact follow-up path withholds the
++          // controller's early scheduling until People + purpose have committed.
++          deferReminderReconciliation: widget.followUpContactId != null,
+         );
+     if (!mounted) {
+       return;
+@@ -1193,13 +1266,33 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen>
+         return;
+       }
+       if (!widget.addToPlanner) {
+-        await ref
+-            .read(contactRepositoryProvider)
+-            .setTaskContacts(
+-              profileId: ref.read(contactProfileIdProvider),
+-              taskId: _stableTaskId,
+-              contactIds: _contactIds,
++        try {
++          await ref
++              .read(contactRepositoryProvider)
++              .setTaskContacts(
++                profileId: ref.read(contactProfileIdProvider),
++                taskId: _stableTaskId,
++                contactIds: _contactIds,
++              );
++        } on Object {
++          // The Task itself is already saved; never fail the save silently.
++          if (mounted) {
++            ScaffoldMessenger.of(context).showSnackBar(
++              const SnackBar(
++                content: Text(
++                  'Task saved, but Contacts could not be updated. Edit the '
++                  'task to retry.',
++                ),
++              ),
+             );
++          }
++        }
++      }
++      if (!mounted) {
++        return;
++      }
++      if (!await _finalizeFollowUp()) {
++        return;
+       }
+       if (!mounted) {
+         return;
+@@ -1266,7 +1359,10 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen>
+       case ReminderPolicyMode.off:
+         return 'Off';
+       case ReminderPolicyMode.offset:
+-        return '${_reminderOffsetMinutes ?? 0} minutes before';
++        return ReminderPolicyLabel.offsetMinutes(
++          _reminderOffsetMinutes ?? 0,
++          zeroLabel: 'At due time',
++        );
+     }
+   }
+ 
+diff --git a/lib/features/privacy/data/drift_privacy_repository.dart b/lib/features/privacy/data/drift_privacy_repository.dart
+index 641acd3..5121c77 100644
+--- a/lib/features/privacy/data/drift_privacy_repository.dart
++++ b/lib/features/privacy/data/drift_privacy_repository.dart
+@@ -1,4 +1,5 @@
+ import 'package:drift/drift.dart';
++import 'package:rmplanner/core/background/reminder_recovery_request.dart';
+ import 'package:rmplanner/core/database/app_database.dart';
+ import 'package:rmplanner/core/time/app_clock.dart';
+ import 'package:rmplanner/features/privacy/application/privacy_repository.dart';
+@@ -6,13 +7,24 @@ import 'package:rmplanner/features/privacy/domain/permission_summary.dart';
+ import 'package:rmplanner/features/privacy/domain/privacy_settings.dart';
+ 
+ final class DriftPrivacyRepository implements PrivacyRepository {
+-  const DriftPrivacyRepository({required this.database, required this.clock});
++  const DriftPrivacyRepository({
++    required this.database,
++    required this.clock,
++    this.reminderRepair,
++  });
+ 
+   static const String _primaryKey = 'primary';
+ 
+   final AppDatabase database;
+   final AppClock clock;
+ 
++  /// M7 section 27 repair-intent port.  Preview mode and Privacy Lock decide
++  /// whether a deliverable reminder may show its source copy, so changing
++  /// either must schedule a reconciliation of already-registered reminders.
++  /// This writes only the repair marker; it never creates a profile and
++  /// never touches reminder policy or source truth.
++  final ReminderRecoveryRequest? reminderRepair;
++
+   @override
+   Future<bool> isPrivacyLockEnabled() async {
+     return (await readSettings()).lockEnabled;
+@@ -82,6 +94,8 @@ final class DriftPrivacyRepository implements PrivacyRepository {
+       notificationPreviewMode: current.notificationPreviewMode,
+     );
+     await _writeSettings(updated);
++    // Section 27: the lock governs whether reminders may render source copy.
++    await _markRepair();
+     return updated;
+   }
+ 
+@@ -95,9 +109,32 @@ final class DriftPrivacyRepository implements PrivacyRepository {
+       notificationPreviewMode: mode,
+     );
+     await _writeSettings(updated);
++    // Section 27: a preview-mode change alters the rendered notification.
++    await _markRepair();
+     return updated;
+   }
+ 
++  /// Resolves the ONLY profile this device-global setting can affect.
++  ///
++  /// Privacy preferences are stored once per device, so the marker needs a
++  /// profile id.  This reads the existing Local Profile only and NEVER
++  /// creates one (contract section 53 P32: "no new profile creation"); when
++  /// no profile exists yet there is nothing registered to reconcile, so the
++  /// mark is a truthful no-op.
++  Future<void> _markRepair() async {
++    final repair = reminderRepair;
++    if (repair == null) return;
++    final profile =
++        await (database.select(database.localProfiles)
++              ..orderBy(<OrderClauseGenerator<$LocalProfilesTable>>[
++                (table) => OrderingTerm.asc(table.createdAtUtc),
++              ])
++              ..limit(1))
++            .getSingleOrNull();
++    if (profile == null) return;
++    await repair.mark(database, profileId: profile.id);
++  }
++
+   Future<void> _writePermissionAudit(
+     OptionalPermission permission, {
+     required bool requestedByApp,
+diff --git a/lib/features/settings/presentation/notifications_settings_screen.dart b/lib/features/settings/presentation/notifications_settings_screen.dart
+index 345d901..9454a8f 100644
+--- a/lib/features/settings/presentation/notifications_settings_screen.dart
++++ b/lib/features/settings/presentation/notifications_settings_screen.dart
+@@ -6,6 +6,7 @@ import 'package:rmplanner/app/theme/app_theme.dart';
+ import 'package:rmplanner/app/theme/internal_screen.dart';
+ import 'package:rmplanner/features/notifications/application/notification_providers.dart';
+ import 'package:rmplanner/features/notifications/domain/notification_preferences.dart';
++import 'package:rmplanner/features/notifications/domain/reminder_policy_label.dart';
+ import 'package:rmplanner/features/planner/application/event_type_providers.dart';
+ import 'package:rmplanner/features/privacy/application/privacy_providers.dart';
+ import 'package:rmplanner/features/privacy/domain/permission_summary.dart';
+@@ -394,9 +395,11 @@ final class _NotificationsSettingsScreenState
+ 
+   static String _leadLabel(int? minutes) {
+     if (minutes == null) return 'Off';
+-    if (minutes == 0) return 'At time';
++    // Existing "1 hour before" shorthand is preserved product copy (O8 keeps
++    // existing suffixes); every other numeric value goes through the shared
++    // formatter so 0/1 are never pluralised incorrectly.
+     if (minutes == 60) return '1 hour before';
+-    return '$minutes minutes before';
++    return ReminderPolicyLabel.offsetMinutes(minutes);
+   }
+ }
+ 
+diff --git a/lib/features/weekly_planning/data/drift_weekly_planning_repository.dart b/lib/features/weekly_planning/data/drift_weekly_planning_repository.dart
+index 80471e3..4aabadc 100644
+--- a/lib/features/weekly_planning/data/drift_weekly_planning_repository.dart
++++ b/lib/features/weekly_planning/data/drift_weekly_planning_repository.dart
+@@ -1,4 +1,5 @@
+ import 'package:drift/drift.dart';
++import 'package:rmplanner/core/background/reminder_recovery_request.dart';
+ import 'package:rmplanner/core/database/app_database.dart';
+ import 'package:rmplanner/core/ids/identifier_source.dart';
+ import 'package:rmplanner/core/time/app_clock.dart';
+@@ -31,6 +32,7 @@ final class DriftWeeklyPlanningRepository
+     required this.timeZones,
+     required this.indicators,
+     this.writeGuard = const AllowWeeklyPlanningWrites(),
++    this.reminderRepair,
+   });
+ 
+   final AppDatabase database;
+@@ -40,6 +42,12 @@ final class DriftWeeklyPlanningRepository
+   final IndicatorRepository indicators;
+   final WeeklyPlanningWriteGuard writeGuard;
+ 
++  /// M7 section 27 repair-intent port.  Completing a Weekly Review
++  /// retires the weekly-review reminder for that period, so the intent to
++  /// reconcile commits INSIDE the review transaction.  Absent in read-only
++  /// and test compositions.
++  final ReminderRecoveryRequest? reminderRepair;
++
+   @override
+   Future<PlannerDate> todayForProfile(String profileId) async {
+     final zone = await _profileTimeZone(profileId);
+@@ -198,6 +206,9 @@ final class DriftWeeklyPlanningRepository
+                 updatedAtUtc: Value<DateTime>(now),
+               ),
+             );
++        // Section 27: the reviewed period no longer needs a weekly-review
++        // reminder, so the repair intent commits with the state change.
++        await reminderRepair?.mark(database, profileId: profileId);
+         await writeGuard.beforeCommit();
+       });
+     }
+diff --git a/lib/main.dart b/lib/main.dart
+index d4313fe..e3a4c1f 100644
+--- a/lib/main.dart
++++ b/lib/main.dart
+@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
+ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+ import 'package:flutter_riverpod/flutter_riverpod.dart';
+ import 'package:rmplanner/app/next_transfer_app.dart';
++import 'package:rmplanner/core/background/reminder_recovery_request.dart';
+ import 'package:rmplanner/core/background/workmanager_background_work_gateway.dart';
+ import 'package:rmplanner/core/database/app_database.dart';
+ import 'package:rmplanner/core/diagnostics/sanitized_diagnostics.dart';
+@@ -96,9 +97,20 @@ Future<void> main() async {
+     backgroundWorkAvailable = false;
+     diagnostics.record('background_foundation_unavailable');
+   }
++  // M7 section 27: ONE repair-marker writer shared by every canonical mutation
++  // site, so a burst of source changes collapses into a single pending
++  // reconciliation instead of restarting a repair episode per repository.
++  final reminderRecoveryRequest = ReminderRecoveryRequest(
++    database: database,
++    clock: clock,
++    identifiers: const UuidIdentifierSource(),
++  );
+   final privacyRepository = DriftPrivacyRepository(
+     database: database,
+     clock: clock,
++    // M7 section 27: Privacy Lock / preview-mode changes alter how registered
++    // reminders may render, so they schedule a reconciliation.
++    reminderRepair: reminderRecoveryRequest,
+   );
+   final privacyGate = SessionPrivacyGate(settingsReader: privacyRepository);
+   final authTokenStore = SecureAuthTokenStore(FlutterSecureStorageDriver());
+@@ -110,15 +122,26 @@ Future<void> main() async {
+   final outcomeReportingRepository = DriftOutcomeReportingRepository(
+     database: database,
+     clock: clock,
++    // M7 section 27: submitting/clearing a Report changes Awaiting Report
++    // reminder eligibility, so the repair intent commits with the report.
++    reminderRepair: reminderRecoveryRequest,
+   );
+   final eventTypeRepository = DriftEventTypeRepository(
+     database: database,
+     clock: clock,
++    // M7 section 27: only a change to the global reminder default needs a
++    // reconciliation; Event Type/colour/name architecture is untouched.
++    reminderRepair: reminderRecoveryRequest,
+   );
+   final contactRepository = DriftContactRepository(
+     database: database,
+     clock: clock,
+     identifiers: const UuidIdentifierSource(),
++    // M7 section 27: archive / recently-delete / merge / rename mutations
++    // invalidate follow-up purposes and commit the repair intent in the same
++    // transaction, so a later platform failure cannot lose the need to
++    // re-resolve reminders against current Contact truth.
++    reminderRepair: reminderRecoveryRequest,
+   );
+   final calendarEventRepository = DriftCalendarEventRepository(
+     database: database,
+@@ -128,6 +151,9 @@ Future<void> main() async {
+     linkContextTransfer: taskEventLinkRepository,
+     duplicateContextTransfer: contactRepository,
+     reportSource: outcomeReportingRepository,
++    // M7 section 27: save/edit/cancel/reschedule/duplicate all commit the
++    // repair intent with the Event write.
++    reminderRepair: reminderRecoveryRequest,
+   );
+   final plannerRepository = DriftPlannerRepository(
+     database: database,
+@@ -135,6 +161,10 @@ Future<void> main() async {
+     calendarSource: calendarEventRepository,
+     taskContextSource: taskEventLinkRepository,
+     historicalEffectReader: outcomeReportingRepository,
++    // M7 section 27: Task mutations persist the reminder reconciliation marker
++    // in the same transaction, so a later platform failure cannot lose the
++    // committed intent to reconcile.
++    reminderRepair: reminderRecoveryRequest,
+   );
+   final indicatorRepository = DriftIndicatorRepository(
+     database: database,
+@@ -152,6 +182,9 @@ Future<void> main() async {
+     identifiers: const UuidIdentifierSource(),
+     timeZones: calendarEventTimeZones,
+     indicators: indicatorRepository,
++    // M7 section 27: completing a Weekly Review retires that period's
++    // weekly-review reminder, so the repair intent commits with the review.
++    reminderRepair: reminderRecoveryRequest,
+   );
+   final taskEventLinkCoordinator = DriftTaskEventLinkCoordinator(
+     database: database,
+@@ -199,6 +232,39 @@ Future<void> main() async {
+     diagnostics: diagnostics,
+   );
+ 
++  // M7 section 6 transport ownership.  The app root is the one composition that
++  // owns the strict three-key worker spec (sections 12/14), so it supplies the
++  // real WorkManager enqueue and release.  Both are derived from the SAME
++  // unique-name helper, which is what guarantees a release can never miss the
++  // job it was registered for and leave two live delivery owners behind.
++  //
++  // When background work is unavailable the ports stay null, so no key is ever
++  // marked `m7w_` without a real worker registration behind it.
++  Future<void> scheduleCanonicalReminderWork({
++    required String stableKey,
++    required DateTime scheduledAtUtc,
++    required String sourceRevision,
++    required int platformNotificationId,
++  }) async {
++    if (!backgroundWorkAvailable) return;
++    final spec = CanonicalReminderWorkSpec(
++      stableKey: stableKey,
++      scheduledUtcMs: scheduledAtUtc.millisecondsSinceEpoch,
++      sourceRevision: sourceRevision,
++    );
++    await backgroundWorkGateway.enqueueUnique(
++      spec.toWorkSpec(
++        platformNotificationId: platformNotificationId,
++        nowUtc: clock.nowUtc(),
++      ),
++    );
++  }
++
++  Future<void> cancelCanonicalReminderWork(String uniqueName) async {
++    if (!backgroundWorkAvailable) return;
++    await backgroundWorkGateway.cancelUnique(uniqueName);
++  }
++
+   runApp(
+     ProviderScope(
+       overrides: [
+@@ -225,6 +291,12 @@ Future<void> main() async {
+           notificationResponseController,
+         ),
+         backgroundWorkGatewayProvider.overrideWithValue(backgroundWorkGateway),
++        reminderWorkerTransportProvider.overrideWithValue(
++          scheduleCanonicalReminderWork,
++        ),
++        reminderWorkerReleaseProvider.overrideWithValue(
++          cancelCanonicalReminderWork,
++        ),
+         notificationPlatformFoundationProvider.overrideWithValue(
+           NotificationPlatformFoundation(
+             notificationsAvailable: notificationsAvailable,
+diff --git a/test/features/notifications/application/event_reminder_horizon_reconciler_test.dart b/test/features/notifications/application/event_reminder_horizon_reconciler_test.dart
+index 06ad42d..37f743c 100644
+--- a/test/features/notifications/application/event_reminder_horizon_reconciler_test.dart
++++ b/test/features/notifications/application/event_reminder_horizon_reconciler_test.dart
+@@ -407,6 +407,10 @@ final class _Harness {
+         scheduledForUtc: scheduledForUtc,
+         state: BackgroundWorkState.scheduled,
+         platformNotificationId: platformId,
++        // Section 6/33: a durable row records which transport owns it.  These
++        // fixtures model an ordinary native row, so the seeded revision carries
++        // the same m7n_ render token the reconciler writes.
++        sourceRevision: 'm7n_generic',
+         attemptCount: 0,
+         snoozeCount: 0,
+         createdAtUtc: DateTime.utc(2026, 9, 6, 9),
+diff --git a/test/features/notifications/application/reminder_reconciler_test.dart b/test/features/notifications/application/reminder_reconciler_test.dart
+index b8b9e80..62fd384 100644
+--- a/test/features/notifications/application/reminder_reconciler_test.dart
++++ b/test/features/notifications/application/reminder_reconciler_test.dart
+@@ -1,5 +1,6 @@
+ import 'package:flutter_test/flutter_test.dart';
+ import 'package:rmplanner/core/background/background_work_request.dart';
++import 'package:rmplanner/core/background/workmanager_background_work_gateway.dart';
+ import 'package:rmplanner/core/notifications/notification_gateway.dart';
+ import 'package:rmplanner/core/notifications/notification_payload.dart';
+ import 'package:rmplanner/features/notifications/application/reminder_reconciler.dart';
+@@ -89,6 +90,349 @@ void main() {
+     );
+   }
+ 
++  test(
++    'T4 timing-only policy save preserves existing purpose and Contact (F02)',
++    () async {
++      final database = openMemoryDatabase();
++      addTearDown(database.close);
++      final clock = FixedClock(DateTime.utc(2026, 9, 8, 10));
++      final repository = DriftNotificationFoundationRepository(
++        database: database,
++        clock: clock,
++      );
++      final reconciler = ReminderReconciler(
++        repository: repository,
++        gateway: FakeNotificationGateway(),
++        clock: clock,
++      );
++      final profile = await buildTestRepository(
++        database: database,
++      ).completeOnboarding();
++
++      final followUp = await reconciler.savePolicy(
++        profileId: profile.id,
++        sourceKind: ReminderSourceKind.task,
++        sourceId: 'task-follow-up',
++        occurrenceId: ReminderPolicy.seriesOccurrenceId,
++        mode: ReminderPolicyMode.offset,
++        offsetMinutes: 15,
++        purpose: ReminderPurpose.contactFollowUp,
++        contactId: 'contact-1',
++      );
++      expect(followUp.purpose, ReminderPurpose.contactFollowUp);
++      expect(followUp.contactId, 'contact-1');
++
++      // Timing-only write: no purpose argument supplied.
++      final retimed = await reconciler.savePolicy(
++        profileId: profile.id,
++        sourceKind: ReminderSourceKind.task,
++        sourceId: 'task-follow-up',
++        occurrenceId: ReminderPolicy.seriesOccurrenceId,
++        mode: ReminderPolicyMode.offset,
++        offsetMinutes: 45,
++      );
++      expect(retimed.id, followUp.id, reason: 'same v46 policy row is reused');
++      expect(retimed.offsetMinutes, 45);
++      expect(
++        retimed.purpose,
++        ReminderPurpose.contactFollowUp,
++        reason: 'F02: a timing-only save must not clear the follow-up purpose',
++      );
++      expect(retimed.contactId, 'contact-1');
++
++      // Explicit standard clears the Contact without touching timing.
++      final cleared = await reconciler.savePolicy(
++        profileId: profile.id,
++        sourceKind: ReminderSourceKind.task,
++        sourceId: 'task-follow-up',
++        occurrenceId: ReminderPolicy.seriesOccurrenceId,
++        mode: ReminderPolicyMode.offset,
++        offsetMinutes: 45,
++        purpose: ReminderPurpose.standard,
++      );
++      expect(cleared.purpose, ReminderPurpose.standard);
++      expect(cleared.contactId, isNull);
++      expect(cleared.offsetMinutes, 45);
++    },
++  );
++
++  test(
++    'T32 section 64: an Event reminder with a supplied end schedules normally',
++    () async {
++      final database = openMemoryDatabase();
++      addTearDown(database.close);
++      final clock = FixedClock(DateTime.utc(2026, 9, 6, 10));
++      final gateway = FakeNotificationGateway();
++      final repository = DriftNotificationFoundationRepository(
++        database: database,
++        clock: clock,
++      );
++      final reconciler = ReminderReconciler(
++        repository: repository,
++        gateway: gateway,
++        clock: clock,
++      );
++      final profile = await buildTestRepository(
++        database: database,
++      ).completeOnboarding();
++      await repository.savePreferences(
++        profileId: profile.id,
++        preferences: const NotificationPreferences.defaults().copyWith(
++          systemNotificationsEnabled: true,
++          eventRemindersEnabled: true,
++          taskRemindersEnabled: true,
++        ),
++      );
++
++      await reconciler.reconcile(
++        sourceKind: ReminderSourceKind.calendarEvent,
++        profileId: profile.id,
++        sourceId: 'event-64',
++        occurrenceId: 'occ-64',
++        startsAtUtc: DateTime.utc(2026, 9, 6, 10, 30),
++        endsAtUtc: DateTime.utc(2026, 9, 6, 11, 30),
++        globalOffsetMinutes: 0,
++        categoryEnabled: true,
++        systemEnabled: true,
++        sourceActive: true,
++        genericTitle: 'Event reminder',
++        genericBody: 'Upcoming event',
++      );
++
++      final key = ReminderReconciler.stableKey(
++        sourceKind: ReminderSourceKind.calendarEvent,
++        profileId: profile.id,
++        occurrenceId: 'occ-64',
++      );
++      expect(gateway.scheduledRequests, hasLength(1));
++      expect(
++        (await repository.readWorkRequest(key))?.state,
++        BackgroundWorkState.scheduled,
++      );
++      expect(
++        (await repository.readWorkRequest(key))?.scheduledForUtc?.toUtc(),
++        DateTime.utc(2026, 9, 6, 10, 30),
++      );
++    },
++  );
++
++  test(
++    'T21/T22/T24 section 6 transport selection is sticky and native-exclusive',
++    () async {
++      final database = openMemoryDatabase();
++      addTearDown(database.close);
++      final clock = FixedClock(DateTime.utc(2026, 9, 6, 10));
++      final gateway = FakeNotificationGateway();
++      final repository = DriftNotificationFoundationRepository(
++        database: database,
++        clock: clock,
++      );
++      final workerCalls = <Map<String, Object?>>[];
++      final reconciler = ReminderReconciler(
++        repository: repository,
++        gateway: gateway,
++        clock: clock,
++        scheduleWorker:
++            ({
++              required String stableKey,
++              required DateTime scheduledAtUtc,
++              required String sourceRevision,
++              required int platformNotificationId,
++            }) async {
++              workerCalls.add(<String, Object?>{
++                'stable_key': stableKey,
++                'scheduled_utc_ms': scheduledAtUtc.millisecondsSinceEpoch,
++                'source_revision': sourceRevision,
++                'platform_notification_id': platformNotificationId,
++              });
++            },
++      );
++      final profile = await buildTestRepository(
++        database: database,
++      ).completeOnboarding();
++      await repository.savePreferences(
++        profileId: profile.id,
++        preferences: const NotificationPreferences.defaults().copyWith(
++          systemNotificationsEnabled: true,
++          eventRemindersEnabled: true,
++          taskRemindersEnabled: true,
++        ),
++      );
++
++      Future<void> reconcile({required bool enriched}) => reconciler.reconcile(
++        sourceKind: ReminderSourceKind.task,
++        profileId: profile.id,
++        sourceId: 'task-transport',
++        occurrenceId: 'series',
++        startsAtUtc: DateTime.utc(2026, 9, 6, 11),
++        globalOffsetMinutes: 15,
++        categoryEnabled: true,
++        systemEnabled: true,
++        sourceActive: true,
++        genericTitle: '🔔 Next Transfer',
++        genericBody: 'You have a new notification.',
++        requiresEnrichment: enriched,
++        renderRevision: 'generic',
++      );
++
++      final key = ReminderReconciler.stableKey(
++        sourceKind: ReminderSourceKind.task,
++        profileId: profile.id,
++        occurrenceId: 'series',
++      );
++
++      // T21 — an enriched source takes worker transport and never native.
++      await reconcile(enriched: true);
++      expect(gateway.scheduledRequests, isEmpty);
++      expect(workerCalls, hasLength(1));
++      expect(
++        (await repository.readWorkRequest(key))?.sourceRevision,
++        'm7w_generic',
++      );
++      expect(workerCalls.single['stable_key'], key);
++      expect(
++        workerCalls.single.keys.toSet(),
++        <String>{
++          'stable_key',
++          'scheduled_utc_ms',
++          'source_revision',
++          'platform_notification_id',
++        },
++      );
++
++      // T24 — identical key/target/revision must not enqueue twice.
++      await reconcile(enriched: true);
++      expect(workerCalls, hasLength(1), reason: 'same dispatch is a no-op');
++
++      // T22 — sticky: enrichment removed, the key stays on worker transport.
++      await reconcile(enriched: false);
++      expect(gateway.scheduledRequests, isEmpty);
++      expect(
++        (await repository.readWorkRequest(key))?.sourceRevision,
++        'm7w_generic',
++      );
++    },
++  );
++
++  test(
++    'section 6 one live owner: native→worker promotion cancels the old alarm, '
++    'worker retarget releases the previous job, disable releases both',
++    () async {
++      final database = openMemoryDatabase();
++      addTearDown(database.close);
++      final clock = FixedClock(DateTime.utc(2026, 9, 6, 10));
++      final gateway = FakeNotificationGateway();
++      final repository = DriftNotificationFoundationRepository(
++        database: database,
++        clock: clock,
++      );
++      final workerCalls = <String>[];
++      final released = <String>[];
++      final reconciler = ReminderReconciler(
++        repository: repository,
++        gateway: gateway,
++        clock: clock,
++        scheduleWorker:
++            ({
++              required String stableKey,
++              required DateTime scheduledAtUtc,
++              required String sourceRevision,
++              required int platformNotificationId,
++            }) async {
++              workerCalls.add(
++                CanonicalReminderWorkSpec.uniqueName(
++                  platformNotificationId: platformNotificationId,
++                  scheduledUtcMs: scheduledAtUtc.millisecondsSinceEpoch,
++                  sourceRevision: sourceRevision,
++                ),
++              );
++            },
++        cancelWorker: (uniqueName) async => released.add(uniqueName),
++      );
++      final profile = await buildTestRepository(
++        database: database,
++      ).completeOnboarding();
++      await repository.savePreferences(
++        profileId: profile.id,
++        preferences: const NotificationPreferences.defaults().copyWith(
++          systemNotificationsEnabled: true,
++          eventRemindersEnabled: true,
++          taskRemindersEnabled: true,
++        ),
++      );
++      final key = ReminderReconciler.stableKey(
++        sourceKind: ReminderSourceKind.task,
++        profileId: profile.id,
++        occurrenceId: 'series',
++      );
++
++      Future<void> reconcile({
++        required bool enriched,
++        required DateTime start,
++        bool active = true,
++      }) => reconciler.reconcile(
++        sourceKind: ReminderSourceKind.task,
++        profileId: profile.id,
++        sourceId: 'task-owner',
++        occurrenceId: 'series',
++        startsAtUtc: start,
++        globalOffsetMinutes: 15,
++        categoryEnabled: true,
++        systemEnabled: true,
++        sourceActive: active,
++        genericTitle: '🔔 Next Transfer',
++        genericBody: 'You have a new notification.',
++        requiresEnrichment: enriched,
++        renderRevision: 'generic',
++      );
++
++      // A plain Task starts on native ordinary transport.  Section 6 requires
++      // the transport choice to be persisted in the render suffix, so the
++      // revision carries the m7n_ native marker.
++      await reconcile(enriched: false, start: DateTime.utc(2026, 9, 6, 11));
++      expect(gateway.scheduledRequests, hasLength(1));
++      expect(workerCalls, isEmpty);
++      final nativeRow = await repository.readWorkRequest(key);
++      expect(nativeRow?.sourceRevision, 'm7n_generic');
++      expect(
++        ReminderReconciler.transportOf(nativeRow?.sourceRevision),
++        'm7n_',
++        reason: 'the durable row records native ordinary ownership',
++      );
++      final nativePlatformId = nativeRow!.platformNotificationId!;
++
++      // Promotion: the ordinary alarm is cancelled BEFORE the worker is
++      // registered, so the notice can never be posted by both owners.
++      await reconcile(enriched: true, start: DateTime.utc(2026, 9, 6, 11));
++      expect(gateway.cancelledIds, contains(nativePlatformId));
++      expect(workerCalls, hasLength(1));
++      expect(
++        (await repository.readWorkRequest(key))?.sourceRevision,
++        'm7w_generic',
++      );
++
++      // Retarget: a worker row whose target changes must release the exact
++      // previous job (same three-value identity) before registering the new one.
++      await reconcile(enriched: true, start: DateTime.utc(2026, 9, 6, 12));
++      expect(workerCalls, hasLength(2));
++      expect(released, <String>[workerCalls.first]);
++      expect(workerCalls.first, isNot(workerCalls.last));
++
++      // Ineligible: BOTH transports are retired, never just the platform ID.
++      await reconcile(
++        enriched: true,
++        start: DateTime.utc(2026, 9, 6, 12),
++        active: false,
++      );
++      expect(released, hasLength(2));
++      expect(released.last, workerCalls.last);
++      expect(
++        (await repository.readWorkRequest(key))?.state,
++        BackgroundWorkState.cancelledObsolete,
++      );
++    },
++  );
++
+   test(
+     'M2/M3 reconciler schedules exactly one future eligible reminder and cancels it when inactive',
+     () async {
+@@ -248,7 +592,9 @@ void main() {
+           rows.single.platformNotificationId,
+           initial?.platformNotificationId,
+         );
+-        expect(rows.single.sourceRevision, 'generic');
++        // Both transports persist their ownership marker in the render suffix
++        // (section 6 / section 33): native keeps m7n_, worker carries m7w_.
++        expect(rows.single.sourceRevision, 'm7n_generic');
+         expect(rows.single.toJson().values, isNot(contains('Private title')));
+         expect(
+           rows.single.toJson().values,
+diff --git a/test/features/notifications/notification_foundation_domain_test.dart b/test/features/notifications/notification_foundation_domain_test.dart
+index 323d8b7..26f1dc3 100644
+--- a/test/features/notifications/notification_foundation_domain_test.dart
++++ b/test/features/notifications/notification_foundation_domain_test.dart
+@@ -5,9 +5,88 @@ import 'package:rmplanner/core/notifications/notification_payload.dart';
+ import 'package:rmplanner/core/notifications/notification_preview_policy.dart';
+ import 'package:rmplanner/core/notifications/notification_response_controller.dart';
+ import 'package:rmplanner/features/notifications/domain/notification_preferences.dart';
++import 'package:rmplanner/features/notifications/domain/reminder_policy.dart';
+ import 'package:rmplanner/features/privacy/domain/privacy_settings.dart';
+ 
+ void main() {
++  ReminderPolicy policy({
++    ReminderPurpose purpose = ReminderPurpose.standard,
++    String? contactId,
++  }) => ReminderPolicy(
++    id: 'policy-1',
++    profileId: 'profile-1',
++    sourceKind: ReminderSourceKind.task,
++    sourceId: 'task-1',
++    occurrenceId: ReminderPolicy.seriesOccurrenceId,
++    mode: ReminderPolicyMode.offset,
++    offsetMinutes: 15,
++    purpose: purpose,
++    contactId: contactId,
++    createdAtUtc: DateTime.utc(2026, 9, 1),
++    updatedAtUtc: DateTime.utc(2026, 9, 1),
++  );
++
++  test('T1/T2 contact follow-up purpose requires exactly one Contact id', () {
++    expect(
++      () => policy(purpose: ReminderPurpose.contactFollowUp).validate(),
++      throwsArgumentError,
++      reason: 'contactFollowUp without a Contact id is invalid',
++    );
++    expect(
++      () => policy(
++        purpose: ReminderPurpose.contactFollowUp,
++        contactId: '   ',
++      ).validate(),
++      throwsArgumentError,
++      reason: 'a blank Contact id is not a Contact identity',
++    );
++    expect(
++      () => policy(contactId: 'contact-1').validate(),
++      throwsArgumentError,
++      reason: 'standard purpose must not store a Contact id',
++    );
++    expect(
++      policy(
++        purpose: ReminderPurpose.contactFollowUp,
++        contactId: 'contact-1',
++      ).validate,
++      returnsNormally,
++    );
++  });
++
++  test('T3/T5 omitted purpose preserves; explicit standard clears Contact', () {
++    final followUp = policy(
++      purpose: ReminderPurpose.contactFollowUp,
++      contactId: 'contact-1',
++    );
++
++    final timingOnly = followUp.copyWith(
++      mode: ReminderPolicyMode.offset,
++      offsetMinutes: 30,
++      updatedAtUtc: DateTime.utc(2026, 9, 2),
++    );
++    expect(timingOnly.purpose, ReminderPurpose.contactFollowUp);
++    expect(timingOnly.contactId, 'contact-1');
++    expect(timingOnly.offsetMinutes, 30);
++
++    final cleared = followUp.copyWith(purpose: ReminderPurpose.standard);
++    expect(cleared.purpose, ReminderPurpose.standard);
++    expect(cleared.contactId, isNull);
++
++    final explicitlyCleared = followUp.copyWith(clearPurpose: true);
++    expect(explicitlyCleared.purpose, ReminderPurpose.standard);
++    expect(explicitlyCleared.contactId, isNull);
++
++    final retargeted = followUp.copyWith(
++      purpose: ReminderPurpose.contactFollowUp,
++      contactId: 'contact-2',
++    );
++    expect(retargeted.contactId, 'contact-2');
++
++    final kept = followUp.copyWith(purpose: ReminderPurpose.contactFollowUp);
++    expect(kept.contactId, 'contact-1');
++  });
++
+   test(
+     'master notification policy keeps saved category choices but gates effective state',
+     () {
+diff --git a/test/features/notifications/vs16_m4_platform_safety_test.dart b/test/features/notifications/vs16_m4_platform_safety_test.dart
+index 84b8830..3149a94 100644
+--- a/test/features/notifications/vs16_m4_platform_safety_test.dart
++++ b/test/features/notifications/vs16_m4_platform_safety_test.dart
+@@ -3,11 +3,14 @@
+ // Locks the M4 architecture boundaries: recovery via WorkManager only (no
+ // foreground service, no exact alarms, no background location), sanitized
+ // durable work payloads, and the canonical receiver set.
++import 'dart:convert';
+ import 'dart:io';
+ 
++import 'package:crypto/crypto.dart';
+ import 'package:flutter_test/flutter_test.dart';
+ import 'package:rmplanner/core/background/background_work_gateway.dart';
+ import 'package:rmplanner/core/background/background_work_request.dart';
++import 'package:rmplanner/core/background/workmanager_background_work_gateway.dart';
+ import 'package:rmplanner/core/notifications/notification_payload.dart';
+ import 'package:rmplanner/features/notifications/application/reminder_background_runtime.dart';
+ 
+@@ -134,14 +137,68 @@ void main() {
+       );
+     });
+ 
+-    test('delivery WorkManager input is stable-key-only', () {
+-      final spec = BackgroundWorkSpec(
+-        uniqueName: 'nt.reminder.42.1789000000000',
+-        taskName: 'nt.reminder.delivery',
+-        inputData: {'stable_key': 'reminder:calendarEvent:p:o:base'},
++    test('delivery WorkManager input is the strict three-field allowlist', () {
++      const canonical = CanonicalReminderWorkSpec(
++        stableKey: 'reminder:calendarEvent:p:o:base',
++        scheduledUtcMs: 1789000000000,
++        sourceRevision: 'm7w_m4_1_0_60',
++      );
++      final spec = canonical.toWorkSpec(
++        platformNotificationId: 42,
++        nowUtc: DateTime.utc(2026, 9, 11),
+       );
+       spec.validate();
+-      expect(spec.inputData.keys, <String>{'stable_key'});
++      expect(spec.taskName, 'nt.reminder.delivery');
++      expect(spec.inputData.keys, <String>{
++        'stable_key',
++        'scheduled_utc_ms',
++        'source_revision',
++      });
++      expect(
++        spec.inputData.keys.any(
++          (key) =>
++              key.contains('title') ||
++              key.contains('body') ||
++              key.contains('text') ||
++              key.contains('name') ||
++              key.contains('location'),
++        ),
++        isFalse,
++      );
++      expect(
++        spec.uniqueName,
++        'nt.reminder.42.1789000000000.'
++        '${sha256.convert(utf8.encode('m7w_m4_1_0_60')).toString().substring(0, 16)}',
++      );
++    });
++
++    test('legacy two-key and extra-key delivery input is a terminal no-op', () {
++      expect(
++        CanonicalReminderWorkSpec.tryParse(<String, Object?>{
++          'stable_key': 'reminder:calendarEvent:p:o:base',
++          'scheduled_utc_ms': 1789000000000,
++        }),
++        isNull,
++        reason: 'the legacy two-key delivery shape must not be replayed',
++      );
++      expect(
++        CanonicalReminderWorkSpec.tryParse(<String, Object?>{
++          'stable_key': 'reminder:calendarEvent:p:o:base',
++          'scheduled_utc_ms': 1789000000000,
++          'source_revision': 'm7w_1',
++          'title': 'Private',
++        }),
++        isNull,
++        reason: 'extra keys must be rejected, never silently ignored',
++      );
++      expect(
++        CanonicalReminderWorkSpec.tryParse(<String, Object?>{
++          'stable_key': 'reminder:calendarEvent:p:o:base',
++          'scheduled_utc_ms': 1789000000000,
++          'source_revision': 'm7w_1',
++        })?.sourceRevision,
++        'm7w_1',
++      );
+     });
+ 
+     test('recovery dispatch input carries no data at all', () {

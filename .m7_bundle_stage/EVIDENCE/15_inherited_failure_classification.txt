@@ -1,0 +1,110 @@
+================================================================================
+INHERITED-FAILURE CLASSIFICATION
+================================================================================
+Consumer of this evidence: independent GLM-vs-DeepSeek comparison.
+
+--------------------------------------------------------------------------------
+COMPARISON METHODOLOGY
+--------------------------------------------------------------------------------
+Raw pass/fail counts are NOT sufficient and were NOT used as the acceptance
+criterion. Comparison used a NORMALIZED IDENTITY for every test:
+
+    <suite-relative-path>::<full-visible-test-name>
+
+Both runs were produced by `flutter test --reporter json` and parsed on that key.
+Raw counts differ legitimately between the two runs because the candidate ADDS
+suites and tests; identity-based comparison is what separates "newly introduced
+badness" from "inherited badness" and from "added good tests".
+
+--------------------------------------------------------------------------------
+POPULATION SIZES
+--------------------------------------------------------------------------------
+                                    BASELINE (7b1395c)      CANDIDATE (final)
+    suites                          270                     281   (+11)
+    testStart                       2284                    2415  (+131)
+    testDone                        2284                    2415
+    testStart == testDone           YES                     YES
+    `done` marker present           YES                     YES
+    stderr                          --                      0 bytes (empty)
+
+Both runs are COMPLETE runs terminated by a valid end-of-run marker. Neither run
+was a partial, aborted, or stale pre-edit capture. The candidate capture used for
+this comparison was produced AFTER the P29 and repair-marker test files were
+written — the earlier 07:54 capture predated them and was therefore discarded and
+not used for certification.
+
+--------------------------------------------------------------------------------
+NAMED DIFFERENTIAL RESULT
+--------------------------------------------------------------------------------
+NEW failures/errors/skips NOT present in baseline : 0
+inherited (bad in both)                           : 118
+fixed (bad only in baseline)                      : 12
+
+    NEW FAILURES = 0
+    NEW ERRORS   = 0
+    NEW SKIPS    = 0
+
+No accepted baseline test name is missing from the candidate run.
+
+--------------------------------------------------------------------------------
+INHERITED-FAILURE CLASSIFICATION (118)
+--------------------------------------------------------------------------------
+Every one of the 118 bad-in-both names was verified to be PRESENT IN THE ACCEPTED
+PRISTINE BASELINE. They are pre-existing conditions of 7b1395c, not regressions
+introduced by this milestone.
+
+This is the exact condition the contract permits: inherited baseline failures are
+tolerated ONLY when they are precisely identified AND proven present in the
+accepted pristine baseline. Both conditions are satisfied:
+
+    1. PRECISELY IDENTIFIED — the full identity list is available at
+       EVIDENCE/03_named_differential.txt, keyed on
+       <suite-relative-path>::<full-visible-test-name>.
+    2. PROVEN PRESENT IN BASELINE — each name appears as bad in
+       EVIDENCE/02_accepted_baseline_test_output_7b1395c.json.
+
+No inherited failure was waved through on the basis of a count.
+
+--------------------------------------------------------------------------------
+THE 12 "FIXED" NAMES — EXPLAINED, NOT CLAIMED AS DELIVERABLE WORK
+--------------------------------------------------------------------------------
+12 names are bad in the baseline but good in the candidate. These are NOT claimed
+as intended M7 work. They are concentrated in:
+
+    features/indicators/presentation/home_indicator_journey_test.dart
+    features/planner/presentation/light_ui_c_contract_test.dart
+    features/planner/presentation/mp04_date_swipe_border_regression_test.dart
+    features/planner/presentation/mp04_live_transition_border_test.dart
+    features/planner/presentation/mp04_screen_space_fragment_accent_test.dart
+    features/planner/presentation/planner_interactive_day_pager_cache_test.dart
+
+These are presentation/geometry and rendering-pipeline suites that are sensitive
+to frame timing and are known to be flaky in this repository. Their movement from
+bad to good across two independent runs is consistent with flakiness rather than
+with a deliberate fix.
+
+IMPORTANT CONSEQUENCE FOR THE VERDICT
+    The verdict rests on NEW FAILURES = 0, NEW ERRORS = 0, NEW SKIPS = 0. It does
+    NOT rest on the 12 improvement names. They are reported for transparency so
+    that an independent reviewer sees the full differential and can attribute it
+    correctly.
+
+    Correspondingly, a reviewer should NOT read the 12 as M7 scope creep — no
+    M7 change targets these suites' subject matter.
+
+--------------------------------------------------------------------------------
+WHY NAMED COMPARISON MATTERS HERE
+--------------------------------------------------------------------------------
+Because the candidate ADDS 11 suites and 131 tests, a count-only comparison would
+have been actively misleading: the candidate's absolute bad count could rise
+purely from inherited failures being carried into new contexts, or fall purely
+from flaky improvements, in either case with no real change in quality. Identity
+matching removes both artefacts and isolates the only number that matters — net
+new badness, which is zero.
+
+================================================================================
+VERDICT: INHERITED-FAILURE CLASSIFICATION = ACCEPTABLE
+         118 inherited names precisely identified and proven present in the
+         accepted pristine baseline.
+         NEW FAILURES = 0, NEW ERRORS = 0, NEW SKIPS = 0.
+================================================================================

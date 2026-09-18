@@ -1,0 +1,36 @@
+================================================================================
+PROTECTED BOUNDARY — SCHEMA VERSION v46
+================================================================================
+
+File: lib/core/database/app_database.dart
+
+1331:    : _schemaVersionOverride = null,
+1350:    int? schemaVersionOverride,
+1365:  }) : _schemaVersionOverride = schemaVersionOverride,
+1390:  final int? _schemaVersionOverride;
+1407:  int get schemaVersion => _schemaVersionOverride ?? 46;
+1416:        if (schemaVersion >= 2) {
+1420:        if (schemaVersion >= 3) {
+1423:          if (schemaVersion >= 19) {
+1427:        if (schemaVersion >= 4) {
+1432:        if (schemaVersion >= 5) {
+1436:        if (schemaVersion >= 6) {
+1441:        if (schemaVersion >= 7) {
+1444:        if (schemaVersion >= 8) {
+1447:        if (schemaVersion >= 44) {
+1449:          if (schemaVersion >= 45) {
+1457:        if (schemaVersion >= 9) {
+1462:        if (schemaVersion >= 17) {
+1467:        if (schemaVersion >= 42) {
+1470:        if (schemaVersion >= 14) {
+1473:        if (schemaVersion >= 25) {
+1476:        if (schemaVersion >= 22) {
+1490:        if (schemaVersion >= 34) {
+1493:        if (schemaVersion >= 37) {
+1496:        if (schemaVersion >= 38) {
+
+--- git diff for this file vs 7b1395c (expect ZERO) ---
+(empty output above = file UNCHANGED)
+
+--- database directory files vs 7b1395c ---
+(empty output above = directory UNCHANGED)

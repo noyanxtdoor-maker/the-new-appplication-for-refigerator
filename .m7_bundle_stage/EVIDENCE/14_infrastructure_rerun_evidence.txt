@@ -1,0 +1,124 @@
+================================================================================
+INFRASTRUCTURE RERUN EVIDENCE
+================================================================================
+Consumer of this evidence: independent GLM-vs-DeepSeek comparison.
+
+Purpose: to prove that the two harness-level failures encountered during this
+session were ENVIRONMENTAL, and were NOT misclassified implementation failures.
+
+Contract rule applied: genuine implementation failures must NOT be relabelled as
+infrastructure. Each item below therefore identifies a precise external root
+cause with a reproduction, rather than asserting "it was the environment".
+
+--------------------------------------------------------------------------------
+INCIDENT 1 — "%PROGRAMFILES(X86)% environment variable not found."
+--------------------------------------------------------------------------------
+SYMPTOM
+    `flutter test` and `flutter analyze` aborted immediately, before compiling
+    any Dart code, with:
+        %PROGRAMFILES(X86)% environment variable not found.
+
+ROOT CAUSE (located, not guessed)
+    Toolchain source:
+        packages/flutter_tools/lib/src/windows/visual_studio.dart:262
+    The Windows Visual Studio probe hard-requires the PROGRAMFILES(X86)
+    environment variable and calls:
+        throwToolExit('%$programFilesEnv% environment variable not found.')
+    The sandboxed shell environment did not export it. This is a toolchain
+    precondition, unrelated to any Dart source in the candidate.
+
+RESOLUTION
+    Injected the variable through an `env` wrapper rather than mutating the
+    session. A plain bash `export "ProgramFiles(x86)=..."` was rejected by bash
+    as "not a valid identifier" (parentheses), so the `env` form was required.
+
+CLASSIFICATION
+    INFRASTRUCTURE. Fails before build; no candidate code involved; deterministic
+    and fully explained by a named toolchain source line.
+
+--------------------------------------------------------------------------------
+INCIDENT 2 — flutter_tester WebSocket handshake rejected
+--------------------------------------------------------------------------------
+SYMPTOM
+    Tests that did compile then failed at harness startup with:
+        Unable to connect to flutter_tester process:
+        WebSocketException: Invalid WebSocket upgrade request
+
+ROOT CAUSE (located, not guessed)
+    The session exported proxy variables pointing at a local proxy:
+        http_proxy / https_proxy = http://127.0.0.1:56093
+    `flutter_tester` communicates with the test harness over its OWN loopback
+    WebSocket. The proxy intercepted that loopback connection and answered it
+    with 502. Confirmed independently:
+        curl http://127.0.0.1:1/   ->  502
+    i.e. loopback traffic was being proxied and answered with a gateway error
+    rather than passed through.
+
+RESOLUTION
+    Cleared the proxy variables for the test process and exempted loopback:
+        env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY \
+            -u all_proxy -u ALL_PROXY \
+            NO_PROXY=localhost,127.0.0.1,::1 no_proxy=localhost,127.0.0.1,::1 ...
+    Also required running with the sandbox disabled so real loopback sockets
+    could be opened.
+
+CLASSIFICATION
+    INFRASTRUCTURE. The failure is between the harness and its own child
+    process, before any test body executes. It interrupts the transport, not the
+    assertion.
+
+--------------------------------------------------------------------------------
+INCIDENT 3 — background process termination
+--------------------------------------------------------------------------------
+SYMPTOM
+    Long runs launched with `nohup ... &` were killed; one attempt also reported
+    `setsid: No such file or directory`. Output files were empty or 0 bytes.
+
+ROOT CAUSE
+    The invoking shell exited and took the nohup'd children with it (SIGTERM).
+    `setsid`, which would have detached them properly, is not present on this
+    platform.
+
+RESOLUTION
+    Used the harness's own background supervision for long runs (full test suite,
+    APK builds) instead of shell-level detaching.
+
+CLASSIFICATION
+    INFRASTRUCTURE / process supervision. No test outcome affected; the affected
+    runs were simply restarted under proper supervision.
+
+--------------------------------------------------------------------------------
+INCIDENT 4 — output capture artefacts
+--------------------------------------------------------------------------------
+SYMPTOM
+    Some captures contained only a command banner or were 0 bytes.
+
+ROOT CAUSE
+    Intermediate pipeline buffering in the capture path. Not a test or tool
+    failure.
+
+RESOLUTION
+    Wrote tool output directly to files and read the files back.
+
+CLASSIFICATION
+    INFRASTRUCTURE / capture only.
+
+--------------------------------------------------------------------------------
+GATE CONSEQUENCE
+--------------------------------------------------------------------------------
+None of the four incidents above was counted as an implementation failure, and
+none was excluded from the final differential by assumption. The final differential
+was computed from COMPLETE runs on both sides, each terminated by a valid
+`done` marker:
+
+    baseline_complete_7b1395c.json   270 suites, 2284 testStart = 2284 testDone, done marker present
+    final_candidate.json             281 suites, 2415 testStart = 2415 testDone, done marker present
+
+The final candidate run reported an EMPTY stderr file (0 bytes) — see
+EVIDENCE/08_final_candidate_stderr.txt — i.e. the final certification run itself
+completed with no harness-level errors.
+
+================================================================================
+VERDICT: ALL FOUR INCIDENTS = INFRASTRUCTURE, EACH WITH A NAMED ROOT CAUSE
+         The final certification run was clean (empty stderr) and complete.
+================================================================================

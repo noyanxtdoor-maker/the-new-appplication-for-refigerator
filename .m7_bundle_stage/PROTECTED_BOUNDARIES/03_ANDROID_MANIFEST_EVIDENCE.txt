@@ -1,0 +1,22 @@
+================================================================================
+PROTECTED BOUNDARY — ANDROID / MANIFEST
+================================================================================
+
+--- git diff --stat -- android/ vs 7b1395c ---
+(empty output above = ENTIRE android/ TREE UNCHANGED)
+
+--- changed android files ---
+count: 0
+
+--- changed AndroidManifest.xml files ---
+count: 0
+
+--- changed gradle files ---
+count: 0
+
+--- android/ blob tree comparison (base vs head) ---
+base tree: b4c1aec740b37a1424a7e274e22b7937795ff14b
+head tree: b4c1aec740b37a1424a7e274e22b7937795ff14b
+
+INTERPRETATION: zero android/ changes at the tree level. No manifest edit, no
+gradle edit, no minSdk/targetSdk change, no added component or receiver.

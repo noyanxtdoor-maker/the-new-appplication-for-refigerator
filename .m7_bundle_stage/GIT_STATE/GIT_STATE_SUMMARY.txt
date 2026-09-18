@@ -1,0 +1,66 @@
+================================================================================
+GIT STATE AND WORKTREE TOPOLOGY
+================================================================================
+
+--- branch ---
+develop/vs16-m7-m8-deepseek-20260911
+
+--- HEAD ---
+7b1395c10232b51f7d59464214ffe915415c4bb1
+
+--- certified stable base ---
+7b1395c10232b51f7d59464214ffe915415c4bb1  (commit, object present)
+
+--- HEAD == BASE ? ---
+YES — HEAD is the base commit. All M7 work is UNCOMMITTED working-tree state.
+
+--- git status --short (counts) ---
+total entries          : 90
+tracked ' M' entries   : 64
+duplicate 'MM' entries : 0
+untracked '??' entries : 26
+staged entries         : 0
+
+--- ACTUAL content diffs vs base ---
+files with real content change: 32
+
+--- untracked, excluded from the bundle by design ---
+?? .flutter
+?? .flutter_tool_state
+?? .m7_bundle_stage/
+?? .m7_evidence/
+?? .workbuddy-ai/
+?? M7_ENGINEERING_REPORT_DEEPSEEK_20260911.md
+?? NEXT_TRANSFER_IMPLEMENTATION_REPORT_2026-09-12_VS16_M7_DEEPSEEK_FINAL_CERTIFICATION.txt
+?? lib/core/background/background_repair_decision.dart
+?? lib/core/background/reminder_recovery_request.dart
+?? lib/features/notifications/application/reminder_delivery_service.dart
+?? lib/features/notifications/application/reminder_delivery_source_reader.dart
+?? lib/features/notifications/application/reminder_enrichment_resolver.dart
+?? lib/features/notifications/application/reminder_notification_renderer.dart
+?? lib/features/notifications/data/drift_reminder_enrichment_source.dart
+?? lib/features/notifications/domain/contact_follow_up_creation_intent.dart
+?? lib/features/notifications/domain/reminder_policy_label.dart
+?? test/core/background/
+?? test/features/contacts/data/m7_contact_purpose_invalidation_test.dart
+?? test/features/contacts/presentation/m7_follow_up_creation_test.dart
+?? test/features/notifications/application/m7_contact_follow_up_test.dart
+?? test/features/notifications/application/m7_enriched_delivery_test.dart
+?? test/features/notifications/domain/
+?? test/features/planner/data/m7_event_reminder_repair_marker_test.dart
+?? test/features/planner/data/m7_occurrence_route_window_test.dart
+?? test/features/planner/presentation/m7_event_type_header_test.dart
+?? test/features/privacy/data/m7_privacy_repair_marker_test.dart
+
+--- worktree list ---
+C:/Users/sherl/Documents/Next Transfer                                                                                 cd9f567 [codex/vs-08-weekly-planning-lifecycle]
+C:/Users/sherl/AppData/Local/Temp/opencode/vs16-m7-m8/baseline-wt                                                      7b1395c (detached HEAD)
+C:/Users/sherl/Documents/Next Transfer-Temp                                                                            430fe4b [autonomous/stability-ux-pack-a-20260814]
+C:/Users/sherl/Downloads/NT_B5_DEVELOP                                                                                 0000000 [develop/vs16-m7-m8-20260910]
+C:/Users/sherl/Downloads/NT_B5_DEVELOP__baseline-7b1395c-20260910                                                      7b1395c (detached HEAD)
+C:/Users/sherl/Downloads/NT_B5_DEVELOP__clean-m7m8-20260911                                                            0000000 [develop/vs16-m7-m8-clean-20260911]
+C:/Users/sherl/Downloads/NT_B5_DEVELOP__deepseek-m7m8-20260911                                                         7b1395c [develop/vs16-m7-m8-deepseek-20260911]
+C:/Users/sherl/WorkBuddy/Worktrees/NT_B5_DEVELOP__deepseek-m7m8-20260911/develop-vs16-m7-m8-deepseek-20260911-2098624d 7b1395c [workbuddy/develop-vs16-m7-m8-deepseek-20260911-2098624d]
+
+--- git diff --check ---
+CLEAN (no whitespace errors, no conflict markers)

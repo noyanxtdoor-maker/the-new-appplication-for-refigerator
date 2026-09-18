@@ -1,0 +1,71 @@
+================================================================================
+CERTIFICATION RECORD — FINAL DEEPSEEK M7
+================================================================================
+
+Consolidated record of the acceptance evidence for this candidate. Each item
+below is backed by a file in the EVIDENCE, PROTECTED_BOUNDARIES or GIT_STATE
+sections of this bundle; where an item is backed by a command, the command is
+given so the result can be reproduced independently.
+
+--------------------------------------------------------------------------------
+IDENTITY
+--------------------------------------------------------------------------------
+  Branch              : develop/vs16-m7-m8-deepseek-20260911
+  HEAD                : 7b1395c10232b51f7d59464214ffe915415c4bb1
+  Certified base      : 7b1395c10232b51f7d59464214ffe915415c4bb1
+  HEAD == base        : YES (all M7 work is uncommitted working-tree state)
+  Commit status       : NOT COMMITTED
+  Push status         : NOT PUSHED
+
+--------------------------------------------------------------------------------
+GATES
+--------------------------------------------------------------------------------
+  P29 behavioral verification ............ PASS (7/7)
+  P29 fail-first on pristine base ........ CONFIRMED (test 1 FAILED on 7b1395c)
+  M7 new suites .......................... 106/106 PASS
+  Affected notification suites ........... 67/67 PASS
+  Affected contact/settings/planner/badge  64/64 PASS
+  Named differential NEW FAILURES ........ 0
+  Named differential NEW ERRORS .......... 0
+  Named differential NEW SKIPS ........... 0
+  Analyzer (--fatal-infos lib test) ...... exit 0, No issues found!
+  git diff --check ....................... CLEAN
+  Protected boundary ..................... ALL IDENTICAL (10/10 protected files)
+  Merged-manifest permission diff ........ ZERO DIFFERENCES (15 vs 15)
+  Worker privacy ......................... CLEAN
+  Snooze law ............................. HONOURED
+
+--------------------------------------------------------------------------------
+DELIVERABLE ARTEFACTS
+--------------------------------------------------------------------------------
+  APK bytes           : 240,957,877
+  APK SHA-256         : 183413420841c8b991748bea90a66146d4a0335db754946ec0da6a12dc24e7a0
+  APK build timestamp : 2026-09-12T07:59:22Z
+  Package             : com.nexttransfer.rmplanner
+  versionName         : 0.1.0
+  versionCode         : 1
+  minSdk / targetSdk  : 24 / 36
+  Flutter / Dart      : 3.44.7 / 3.12.2
+  JDK                 : Temurin 21.0.12.1+1
+
+--------------------------------------------------------------------------------
+CHANGE SUMMARY
+--------------------------------------------------------------------------------
+  Files with real content change vs base : 32
+  Production files changed (modified)    : 28
+  Production files added   (new)         :  9
+  Test suites changed   (modified)       :  4
+  Test suites added     (new)            : 11
+  Insertions / deletions                 : 2308 / 166
+  Diff hygiene                           : 32 stale-stat/CRLF-only entries classified separately
+
+--------------------------------------------------------------------------------
+STATUS FLAGS (as required by the contract)
+--------------------------------------------------------------------------------
+  M7 ENGINEERING GATE = PASSED
+  DEVICE STATUS       = NOT INSTALLED
+  COMMIT STATUS       = NOT COMMITTED
+  PUSH STATUS         = NOT PUSHED
+
+  No ADB was invoked. No device action of any kind was performed.
+  M8 was not started.

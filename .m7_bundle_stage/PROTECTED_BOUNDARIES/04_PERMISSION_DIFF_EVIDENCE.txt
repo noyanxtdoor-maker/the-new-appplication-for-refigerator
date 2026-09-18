@@ -1,0 +1,52 @@
+================================================================================
+PERMISSION DIFF — MERGED MANIFEST (DEFINITIVE)
+================================================================================
+
+METHOD
+  Both APKs are the SAME variant (debug) built from the SAME toolchain.
+  aapt2 36.0.0 dump badging was used to extract the MERGED manifest permission
+  set — i.e. permissions declared in source PLUS those inherited from every
+  dependency's manifest. This is the authoritative set that the platform
+  actually sees at install time.
+
+  A source-manifest comparison alone would NOT be sufficient: a new dependency
+  could inject a permission without any edit to our own AndroidManifest.xml.
+  Comparing the merged output closes that gap.
+
+APKS COMPARED
+  baseline : C:/Users/sherl/Downloads/NT_B5_DEVELOP__baseline-7b1395c-20260910/build/app/outputs/flutter-apk/app-debug.apk
+  candidate: C:/Users/sherl/Downloads/NT_B5_DEVELOP__deepseek-m7m8-20260911/build/app/outputs/flutter-apk/app-debug.apk
+
+RESULT
+  baseline  permission count: 15
+  candidate permission count: 15
+  diff: ZERO DIFFERENCES (set-identical, sorted comparison)
+
+  The 15 permissions, present identically on BOTH sides:
+    android.permission.ACCESS_COARSE_LOCATION
+    android.permission.ACCESS_FINE_LOCATION
+    android.permission.ACCESS_NETWORK_STATE
+    android.permission.ACCESS_WIFI_STATE
+    android.permission.FOREGROUND_SERVICE
+    android.permission.FOREGROUND_SERVICE_SHORT_SERVICE
+    android.permission.INTERNET
+    android.permission.POST_NOTIFICATIONS
+    android.permission.READ_CONTACTS
+    android.permission.RECEIVE_BOOT_COMPLETED
+    android.permission.USE_BIOMETRIC
+    android.permission.USE_FINGERPRINT
+    android.permission.VIBRATE
+    android.permission.WAKE_LOCK
+    com.nexttransfer.rmplanner.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
+
+WHY THIS IS CONSEQUENTIAL
+  This rules out each forbidden addition that would have surfaced as a
+  permission: no new exact-alarm permission (SCHEDULE_EXACT_ALARM /
+  USE_EXACT_ALARM), no new background-location permission
+  (ACCESS_BACKGROUND_LOCATION), no new foreground-service type permission
+  beyond the pre-existing pair, and no notification-permission redesign.
+
+  Note that FOREGROUND_SERVICE and FOREGROUND_SERVICE_SHORT_SERVICE are
+  PRE-EXISTING in the baseline — their presence here is inherited from the
+  baseline APK, not introduced by this milestone, which is exactly why the
+  baseline APK had to be built and compared rather than assumed.

@@ -1,0 +1,41 @@
+=== CRLF/STALE-STAT CLASSIFICATION ===
+
+Files listed ' M' by git status --short but with ZERO content change
+(verified individually with: git diff --quiet -- <path>; exit 0 == identical content).
+Classification: CRLF checkout / stale stat-cache noise, NOT implementation changes.
+
+lib/features/goals/data/live_goal_event_type_bindings.dart
+lib/features/goals/domain/assigned_event_type_draft.dart
+lib/features/goals/domain/goal_event_type_policy.dart
+lib/features/goals/presentation/assigned_event_type_draft_screen.dart
+lib/features/planner/application/event_type_creation_providers.dart
+lib/features/planner/data/planner_presentation_document_store.dart
+lib/features/planner/domain/event_type_creation_choice.dart
+lib/features/planner/domain/event_type_presentation.dart
+test/features/goals/data/assigned_event_type_atomic_save_test.dart
+test/features/goals/data/goal_slot_reoccupation_characterization_test.dart
+test/features/goals/data/live_goal_event_type_bindings_test.dart
+test/features/goals/domain/assigned_event_type_draft_test.dart
+test/features/goals/domain/goal_event_type_policy_test.dart
+test/features/goals/presentation/default_goal_fallback_blue_test.dart
+test/features/goals/presentation/goal_assignment_alias_test.dart
+test/features/goals/presentation/goal_edit_event_type_transition_test.dart
+test/features/goals/presentation/goal_icon_density_test.dart
+test/features/goals/presentation/goal_icon_widget_test.dart
+test/features/planner/application/event_type_creation_provider_test.dart
+test/features/planner/application/live_goal_settings_visibility_test.dart
+test/features/planner/data/education_event_type_backfill_test.dart
+test/features/planner/data/goal_event_type_snapshot_test.dart
+test/features/planner/data/planner_presentation_document_store_test.dart
+test/features/planner/domain/education_default_transition_test.dart
+test/features/planner/domain/education_event_type_color_test.dart
+test/features/planner/domain/event_color_preferences_v46_test.dart
+test/features/planner/domain/event_type_presentation_test.dart
+test/features/planner/presentation/contextual_create_foreground_test.dart
+test/features/planner/presentation/event_type_creation_guard_test.dart
+test/features/planner/presentation/event_type_save_latency_test.dart
+test/features/planner/presentation/goal_event_type_picker_visibility_test.dart
+test/support/gated_event_type_repository.dart
+
+TOTAL CLASSIFIED AS STALE-STAT/CRLF-ONLY: 32
+TOTAL STATUS-SHORT ENTRIES (non-untracked): 64
