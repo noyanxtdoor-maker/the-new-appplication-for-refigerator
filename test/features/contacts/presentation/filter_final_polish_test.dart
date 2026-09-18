@@ -375,7 +375,7 @@ void main() {
     (tester) async {
       await pumpFilter(tester);
 
-      await scrollTo(
+      await scrollToTappable(
         tester,
         find.byKey(const Key('filter-category-main-phone')),
       );
@@ -512,7 +512,7 @@ void main() {
 
       // Option rows (expanded) use regular body typography (no explicit
       // weight in the style resolves to the regular default).
-      await scrollTo(
+      await scrollToTappable(
         tester,
         find.byKey(const Key('filter-category-main-phone')),
       );
