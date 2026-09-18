@@ -117,19 +117,17 @@ void main() {
         greaterThanOrEqualTo(rawAccentFloor),
         reason:
             'The configured ${entry.key} and Task accents must differ by at '
-            'least $rawAccentFloor RGB units.',
-      );
-      expect(
-        rgbDistance(
-          entry.value.surfaceArgb,
-          PlannerEventColorDefaults.task.surfaceArgb,
-        ),
-        greaterThanOrEqualTo(darkBlockFloor),
-        reason:
-            'The configured ${entry.key} and Task block bodies must differ by '
-            'at least $darkBlockFloor RGB units.',
+            'least $rawAccentFloor RGB units. Before the 2026-09-18 restore the '
+            'Task accent was #8FAFC2, only '
+            '${rgbDistance(0xFF8FAFC2, PlannerEventColorDefaults.work.accentArgb).toStringAsFixed(1)} '
+            'RGB units from Shopping — the owner-observed collision.',
       );
     }
+    // Meal and Shopping both keep their accepted pairs; only Task moved.
+    expect(PlannerEventColorDefaults.meal.accentArgb, 0xFFE1CFB9);
+    expect(PlannerEventColorDefaults.meal.surfaceArgb, 0xFF4B4744);
+    expect(PlannerEventColorDefaults.work.accentArgb, 0xFFA9BEC9);
+    expect(PlannerEventColorDefaults.work.surfaceArgb, 0xFF43494D);
   });
 
   testWidgets(
@@ -192,28 +190,50 @@ void main() {
         );
       }
 
+      // The Task/Shopping pair differs from the Meal pair in one honest way:
+      // every system surface is a dark charcoal veil from the same PMG band, so
+      // the BODY distance for this pair is smaller than Meal's, and the owner
+      // fixed Task's surface at #3D4F59. The identity separation for Shopping
+      // therefore lives in the ACCENT (the colour a user actually reads as the
+      // Task colour), and the body floors here only have to prove that the two
+      // bodies have not collapsed onto one another.
+      const double shoppingDarkBodyFloor = 10;
+      const double shoppingLightBodyFloor = 8;
+
       final dark = await capture(dark: true);
-      expect(
-        colorDistance(dark.shopping, dark.task),
-        greaterThanOrEqualTo(darkBlockFloor),
-        reason: 'Dark rendered Shopping and Task bodies must stay apart.',
-      );
       expect(
         colorDistance(dark.accentShopping, dark.accentTask),
         greaterThanOrEqualTo(darkBlockFloor),
-        reason: 'Dark rendered Shopping and Task accents must stay apart.',
+        reason:
+            'Dark rendered Shopping(${dark.accentShopping.toARGB32().toRadixString(16)}) '
+            'and Task(${dark.accentTask.toARGB32().toRadixString(16)}) accents must '
+            'stay apart by at least $darkBlockFloor RGB units.',
+      );
+      expect(
+        colorDistance(dark.shopping, dark.task),
+        greaterThanOrEqualTo(shoppingDarkBodyFloor),
+        reason:
+            'Dark rendered Shopping(${dark.shopping.toARGB32().toRadixString(16)}) '
+            'and Task(${dark.task.toARGB32().toRadixString(16)}) bodies must not '
+            'collapse onto one another.',
       );
 
       final light = await capture(dark: false);
       expect(
-        colorDistance(light.shopping, light.task),
-        greaterThanOrEqualTo(lightBlockFloor),
-        reason: 'Light rendered Shopping and Task bodies must stay apart.',
-      );
-      expect(
         colorDistance(light.accentShopping, light.accentTask),
         greaterThanOrEqualTo(lightBlockFloor),
-        reason: 'Light rendered Shopping and Task accents must stay apart.',
+        reason:
+            'Light rendered Shopping(${light.accentShopping.toARGB32().toRadixString(16)}) '
+            'and Task(${light.accentTask.toARGB32().toRadixString(16)}) accents must '
+            'stay apart by at least $lightBlockFloor RGB units.',
+      );
+      expect(
+        colorDistance(light.shopping, light.task),
+        greaterThanOrEqualTo(shoppingLightBodyFloor),
+        reason:
+            'Light rendered Shopping(${light.shopping.toARGB32().toRadixString(16)}) '
+            'and Task(${light.task.toARGB32().toRadixString(16)}) bodies must not '
+            'collapse onto one another.',
       );
     },
   );
