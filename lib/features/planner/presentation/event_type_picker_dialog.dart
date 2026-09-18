@@ -88,14 +88,27 @@ Future<EventTypePickerSelection?> showEventTypePicker({
                 1.0,
                 math.min(672.0, constraints.maxHeight - topOffset - 16),
               );
-              final ordered = choicesAsync.maybeWhen(
-                data: (choices) => EventTypeCreationChoice.orderedForPicker(
-                  choices,
-                  recommendedEventTypeId: recommendedId,
-                  allowedStableKeys: allowedStableKeys,
-                ),
-                orElse: () => const <EventTypeCreationChoice>[],
-              );
+              // The projection is a FutureProvider, so EVERY re-resolution
+              // (raw controller change, Goal change stream emission,
+              // presentation-document write) publishes AsyncLoading while
+              // Riverpod keeps the previous list in `value`. Resolving through
+              // `maybeWhen(orElse:)` discarded that retained list, so an open
+              // selector collapsed to `choices.isEmpty` and rendered
+              // 'No active Event Types are available.' for one to five frames
+              // per refresh — a false statement about the profile's data.
+              // Render the retained list instead; `choicesReady` below keeps
+              // those rows non-actionable until the fresh projection lands, so
+              // the archive/reoccupation tap guard is preserved (and made
+              // strictly tighter, since it now also covers a failed
+              // projection carrying a stale value).
+              final retainedChoices = choicesAsync.value;
+              final ordered = retainedChoices == null
+                  ? const <EventTypeCreationChoice>[]
+                  : EventTypeCreationChoice.orderedForPicker(
+                      retainedChoices,
+                      recommendedEventTypeId: recommendedId,
+                      allowedStableKeys: allowedStableKeys,
+                    );
               return Align(
                 alignment: Alignment.topCenter,
                 child: Padding(
@@ -105,7 +118,10 @@ Future<EventTypePickerSelection?> showEventTypePicker({
                     height: cardHeight,
                     child: _EventTypePickerSheet(
                       choices: ordered,
-                      choicesReady: choicesAsync.hasValue,
+                      choicesReady:
+                          choicesAsync.hasValue &&
+                          !choicesAsync.isLoading &&
+                          !choicesAsync.hasError,
                       recommendedEventTypeId: recommendedId,
                       eventColorsByTypeId: ref
                           .read(eventTypeControllerProvider)
