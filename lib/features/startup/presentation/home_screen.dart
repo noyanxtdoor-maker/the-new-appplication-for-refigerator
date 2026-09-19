@@ -18,6 +18,7 @@ import 'package:rmplanner/features/planner/domain/planner_date.dart';
 import 'package:rmplanner/features/planner/presentation/calendar_event_creation.dart';
 import 'package:rmplanner/features/planner/presentation/contextual_create_fab.dart';
 import 'package:rmplanner/features/settings/application/start_of_week_providers.dart';
+import 'package:rmplanner/features/shell/application/planning_attention_providers.dart';
 import 'package:rmplanner/features/shell/messages/application/message_providers.dart';
 import 'package:rmplanner/features/weekly_planning/application/weekly_planning_providers.dart';
 
@@ -56,6 +57,34 @@ final class _HomeScreenState extends ConsumerState<HomeScreen> {
   /// external edit cannot make the optimistic value stale forever.
   final Map<String, int> _optimisticBases = <String, int>{};
 
+  /// PLANNING ATTENTION (owner law, 2026-09-20): a small red dot on the
+  /// hamburger whenever Tasks or Unreported has anything in it.  It is a dot,
+  /// never a number — the counts live on the drawer rows themselves.
+  ///
+  /// Subscribed AFTER the first frame, exactly like the accepted drawer
+  /// badges: walking the backlog's auto-disposing change-stream chain during
+  /// build would flush it mid-frame and the provider scope would schedule a
+  /// `setState` inside the build phase, which the framework rejects.
+  bool _planningAttention = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref.listenManual<AsyncValue<bool>>(planningAttentionRequiredProvider, (
+        _,
+        next,
+      ) {
+        // A pending Task re-read keeps the last known answer: the dot must
+        // not flash off while the canonical count is in flight.
+        final attention = next.value;
+        if (attention == null || attention == _planningAttention) return;
+        setState(() => _planningAttention = attention);
+      }, fireImmediately: true);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final plannerToday = ref.watch(plannerDateSourceProvider).today();
@@ -63,14 +92,9 @@ final class _HomeScreenState extends ConsumerState<HomeScreen> {
     // A2: form period-family keys only after the initial persisted
     // start-of-week read is confirmed, so a provisional Monday-keyed family
     // never starts for a configured non-Monday week.
-    final startOfWeekReady = ref.watch(
-      startOfWeekInitialReadProvider,
-    ).hasValue;
+    final startOfWeekReady = ref.watch(startOfWeekInitialReadProvider).hasValue;
     final PlannerDate? periodStart = startOfWeekReady
-        ? IndicatorPeriod.currentWeek(
-            plannerToday,
-            startDay: startOfWeek,
-          ).start
+        ? IndicatorPeriod.currentWeek(plannerToday, startDay: startOfWeek).start
         : null;
     final canonicalPlan = periodStart == null
         ? null
@@ -106,11 +130,34 @@ final class _HomeScreenState extends ConsumerState<HomeScreen> {
         ),
         title: const Text('Home', key: Key('home-title')),
         leading: Builder(
-          builder: (innerContext) => IconButton(
-            key: const Key('home-hamburger'),
-            tooltip: 'Open global navigation',
-            onPressed: () => GlobalDrawerScope.of(innerContext).open(),
-            icon: const Icon(Icons.menu),
+          builder: (innerContext) => Stack(
+            clipBehavior: Clip.none,
+            children: <Widget>[
+              IconButton(
+                key: const Key('home-hamburger'),
+                tooltip: 'Open global navigation',
+                onPressed: () => GlobalDrawerScope.of(innerContext).open(),
+                icon: const Icon(Icons.menu),
+              ),
+              // Same visual token as the accepted Messages dot: 8 dp circle in
+              // the error color, silent, and only while planning has content.
+              if (_planningAttention)
+                Positioned(
+                  top: 12,
+                  right: 12,
+                  child: IgnorePointer(
+                    child: Container(
+                      key: const Key('home-hamburger-attention-dot'),
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.error,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
           ),
         ),
         actions: <Widget>[
@@ -169,9 +216,9 @@ final class _HomeScreenState extends ConsumerState<HomeScreen> {
               }
               // MP-18: the controller retains the last confirmed value while
               // the refreshed read is in flight (no Set Schedule flash).
-              await ref.read(
-                nextTempleVisitControllerProvider.notifier,
-              ).refresh();
+              await ref
+                  .read(nextTempleVisitControllerProvider.notifier)
+                  .refresh();
             },
             child: ListView(
               key: const Key('home-indicator-list'),
@@ -352,11 +399,7 @@ final class _HomeScreenState extends ConsumerState<HomeScreen> {
     if (_dailyTargetQueues.containsKey(goalId)) {
       return;
     }
-    final next = _persistDailyTarget(
-      ref,
-      goalId: goalId,
-      today: today,
-    );
+    final next = _persistDailyTarget(ref, goalId: goalId, today: today);
     final handled = next.catchError((Object error, StackTrace stackTrace) {
       debugPrint('[NextTransfer] home_daily_target_write_failed');
       // Honest rollback: the canonical store did not move, so drop the
@@ -574,7 +617,10 @@ final class _CanonicalHomePlan extends StatelessWidget {
                       fontWeight: FontWeight.w500,
                     ),
                     foregroundColor: AppTheme.onFillTextOf(context, 0.70),
-                    side: BorderSide(color: AppTheme.outlineOf(context), width: 1),
+                    side: BorderSide(
+                      color: AppTheme.outlineOf(context),
+                      width: 1,
+                    ),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(19),
                     ),
@@ -823,8 +869,7 @@ final class _CanonicalIndicatorGrid extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
                 Expanded(
-                  child:
-                      _goalCard(context, plan.weekly[row], iconSize: 60),
+                  child: _goalCard(context, plan.weekly[row], iconSize: 60),
                 ),
                 if (row + 1 < plan.weekly.length) ...<Widget>[
                   const SizedBox(width: _rowGap),
@@ -853,8 +898,7 @@ final class _CanonicalIndicatorGrid extends StatelessWidget {
               context,
               monthly,
               iconSize: 64,
-              secondaryLabel:
-                  monthly.goal.indicatorKey == 'temple_visit'
+              secondaryLabel: monthly.goal.indicatorKey == 'temple_visit'
                   ? _templeSecondaryLabel(context, nextTempleVisit)
                   : null,
               onSecondaryTap:
@@ -864,14 +908,11 @@ final class _CanonicalIndicatorGrid extends StatelessWidget {
                   : null,
               hideSecondaryLine:
                   monthly.goal.indicatorKey == 'temple_visit' &&
-                      !nextTempleVisit.hasConfirmedValue &&
-                      !nextTempleVisit.isResolvedNull,
+                  !nextTempleVisit.hasConfirmedValue &&
+                  !nextTempleVisit.isResolvedNull,
               trailing: _AugustGoalInset(
                 label: monthGoalLabel,
-                value: _ratio(
-                  monthly.monthlyActual,
-                  monthly.monthlyTarget,
-                ),
+                value: _ratio(monthly.monthlyActual, monthly.monthlyTarget),
               ),
             ),
           ),
@@ -1133,10 +1174,7 @@ final class _IndicatorCard extends StatelessWidget {
             ],
           ),
         ),
-        if (trailing != null) ...<Widget>[
-          const SizedBox(width: 8),
-          trailing!,
-        ],
+        if (trailing != null) ...<Widget>[const SizedBox(width: 8), trailing!],
       ],
     );
   }

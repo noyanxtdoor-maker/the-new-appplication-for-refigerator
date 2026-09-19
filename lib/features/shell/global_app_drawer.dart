@@ -5,7 +5,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:rmplanner/app/router/route_names.dart';
+import 'package:rmplanner/app/shell/planning_navigation.dart';
 import 'package:rmplanner/app/theme/app_theme.dart';
+import 'package:rmplanner/features/planner/application/planner_providers.dart'
+    show incompleteTaskCountProvider;
+
 import 'package:rmplanner/features/unreported/application/unreported_providers.dart';
 
 /// How a drawer destination is opened (Pack 3, Phase 3).
@@ -29,6 +33,20 @@ enum GlobalDrawerNavigation {
   push,
 }
 
+/// Which canonical count, if any, a drawer row shows as a RED NUMBER.
+///
+/// One enum keeps the two planning badges on the same visual component while
+/// staying honest about what each number means.
+enum GlobalDrawerBadge {
+  none,
+
+  /// The canonical INCOMPLETE Task count (completed Tasks never contribute).
+  incompleteTasks,
+
+  /// The canonical awaiting-report Event backlog size.
+  unreported,
+}
+
 /// A single canonical drawer destination.
 @immutable
 final class GlobalDrawerEntry {
@@ -39,6 +57,7 @@ final class GlobalDrawerEntry {
     required this.group,
     required this.routePath,
     this.navigation = GlobalDrawerNavigation.selectRoot,
+    this.badge = GlobalDrawerBadge.none,
   });
 
   final String id;
@@ -47,6 +66,7 @@ final class GlobalDrawerEntry {
   final GlobalDrawerGroup group;
   final String routePath;
   final GlobalDrawerNavigation navigation;
+  final GlobalDrawerBadge badge;
 }
 
 enum GlobalDrawerGroup { planning, personal, account, support }
@@ -84,6 +104,7 @@ abstract final class GlobalDrawerCatalog {
       group: GlobalDrawerGroup.planning,
       routePath: RoutePaths.tasks,
       navigation: GlobalDrawerNavigation.openInShell,
+      badge: GlobalDrawerBadge.incompleteTasks,
     ),
     GlobalDrawerEntry._(
       id: 'drawer-unreported',
@@ -92,6 +113,7 @@ abstract final class GlobalDrawerCatalog {
       group: GlobalDrawerGroup.planning,
       routePath: RoutePaths.unreported,
       navigation: GlobalDrawerNavigation.openInShell,
+      badge: GlobalDrawerBadge.unreported,
     ),
     // B. Personal Tools -----------------------------------------------
     // Quick Notes and Personal Journal are omitted (no complete real
@@ -178,21 +200,25 @@ class GlobalAppDrawer extends ConsumerStatefulWidget {
 }
 
 class _GlobalAppDrawerState extends ConsumerState<GlobalAppDrawer> {
-  /// Owner law (2026-09-19): the Unreported row carries a RED NUMERIC
-  /// indicator derived from the same canonical backlog provider the hub and
-  /// the summary notification use.  No items means no number at all, and there
-  /// is deliberately no subtitle.
+  /// Owner law (2026-09-19, extended 2026-09-20): the PLANNING rows carry RED
+  /// NUMERIC indicators derived from the same canonical providers the hub and
+  /// the Tasks timeline use.  `Unreported` is the awaiting-report backlog size;
+  /// `Tasks` is the INCOMPLETE Task count (completed Tasks never contribute).
+  /// A zero count renders no number at all, and there are deliberately no
+  /// subtitles.
   ///
-  /// The subscription is created AFTER the frame, never inside initState.
+  /// The subscriptions are created AFTER the frame, never inside initState and
+  /// never during build.
   ///
-  /// Subscribing to this backlog walks a chain of auto-disposing change
+  /// Subscribing to the backlog walks a chain of auto-disposing change
   /// streams.  If that chain is already dirty when the drawer mounts, the
   /// flush happens inside the build phase and the provider scope schedules its
   /// refresh with `setState` mid-frame, which the framework rejects.  Deferring
   /// to a post-frame callback keeps the flush outside the build phase; the
-  /// drawer opens with an animation, so the number is in place for every frame
-  /// the user actually sees.
+  /// drawer opens with an animation, so the numbers are in place for every
+  /// frame the user actually sees.
   int _unreportedCount = 0;
+  int _incompleteTaskCount = 0;
 
   @override
   void initState() {
@@ -203,13 +229,37 @@ class _GlobalAppDrawerState extends ConsumerState<GlobalAppDrawer> {
         if (next == _unreportedCount) return;
         setState(() => _unreportedCount = next);
       }, fireImmediately: true);
+      ref.listenManual<AsyncValue<int>>(incompleteTaskCountProvider, (_, next) {
+        // A pending re-read keeps the last known number instead of flashing a
+        // zero (and hiding the badge) while the canonical read is in flight.
+        // The dot and the badges never flash to an empty state mid-refresh.
+        final count = next.value;
+        if (count == null || count == _incompleteTaskCount) return;
+        setState(() => _incompleteTaskCount = count);
+      }, fireImmediately: true);
     });
+  }
+
+  /// The canonical count this row shows, and what it counts.
+  ({int count, String noun}) _badgeFor(GlobalDrawerEntry entry) {
+    return switch (entry.badge) {
+      GlobalDrawerBadge.none => (count: 0, noun: ''),
+      GlobalDrawerBadge.incompleteTasks => (
+        count: _incompleteTaskCount,
+        noun: _incompleteTaskCount == 1
+            ? 'incomplete task'
+            : 'incomplete tasks',
+      ),
+      GlobalDrawerBadge.unreported => (
+        count: _unreportedCount,
+        noun: 'unreported',
+      ),
+    };
   }
 
   @override
   Widget build(BuildContext context) {
     final currentLocation = GoRouterState.of(context).matchedLocation;
-    final unreportedCount = _unreportedCount;
     // 84-88% of phone width, capped at ~360 dp on wider screens.
     final width = math.min(MediaQuery.sizeOf(context).width * 0.86, 360.0);
     return Drawer(
@@ -243,9 +293,8 @@ class _GlobalAppDrawerState extends ConsumerState<GlobalAppDrawer> {
                       _DrawerEntryTile(
                         entry: entry,
                         isCurrent: entry.routePath == currentLocation,
-                        badgeCount: entry.id == 'drawer-unreported'
-                            ? unreportedCount
-                            : 0,
+                        badgeCount: _badgeFor(entry).count,
+                        badgeNoun: _badgeFor(entry).noun,
                       ),
                     const SizedBox(height: 8),
                   ],
@@ -346,11 +395,51 @@ class _DrawerGroupHeader extends StatelessWidget {
   }
 }
 
+/// The ONE red numeric drawer badge (owner law, 2026-09-20).
+///
+/// Tasks and Unreported use this exact component: a number, never a word, and
+/// nothing at all when the count is zero.  The accessibility label is pluralised
+/// honestly by the caller.
+final class DrawerCountBadge extends StatelessWidget {
+  const DrawerCountBadge({required this.count, super.key});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: '$count',
+      child: Container(
+        constraints: const BoxConstraints(minWidth: 20),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.error,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: ExcludeSemantics(
+          child: Text(
+            '$count',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontFamily: 'Roboto',
+              fontSize: 12,
+              height: 16 / 12,
+              fontWeight: FontWeight.w700,
+              color: Theme.of(context).colorScheme.onError,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _DrawerEntryTile extends StatelessWidget {
   const _DrawerEntryTile({
     required this.entry,
     required this.isCurrent,
     this.badgeCount = 0,
+    this.badgeNoun,
   });
 
   final GlobalDrawerEntry entry;
@@ -358,10 +447,18 @@ class _DrawerEntryTile extends StatelessWidget {
 
   /// A RED NUMERIC indicator, shown only when it is greater than zero.
   ///
-  /// It is deliberately a number and never a count of something else: the
-  /// value is the canonical Unreported backlog size, and zero hides the
-  /// indicator entirely rather than rendering a zero.
+  /// It is deliberately a number and never a count of something else: the value
+  /// is the canonical count for this row's [GlobalDrawerBadge] kind, and zero
+  /// hides the indicator entirely rather than rendering a zero.
   final int badgeCount;
+
+  /// What the number counts, for the accessibility label only.
+  final String? badgeNoun;
+
+  /// The planning shell-child destinations record where they were opened FROM
+  /// so their explicit back arrow can return there (owner law, 2026-09-20).
+  static bool _recordsOrigin(String routePath) =>
+      routePath == RoutePaths.tasks || routePath == RoutePaths.unreported;
 
   void _open(BuildContext context) {
     final currentLocation = GoRouterState.of(context).matchedLocation;
@@ -375,6 +472,14 @@ class _DrawerEntryTile extends StatelessWidget {
     switch (entry.navigation) {
       case GlobalDrawerNavigation.selectRoot:
       case GlobalDrawerNavigation.openInShell:
+        if (_recordsOrigin(entry.routePath)) {
+          openPlanningDestinationFrom(
+            context,
+            entry.routePath,
+            currentLocation,
+          );
+          return;
+        }
         router.go(entry.routePath);
       case GlobalDrawerNavigation.push:
         unawaited(router.push(entry.routePath));
@@ -391,7 +496,7 @@ class _DrawerEntryTile extends StatelessWidget {
       selected: isCurrent,
       button: true,
       label: badgeCount > 0
-          ? '${entry.label}, $badgeCount unreported'
+          ? '${entry.label}, $badgeCount ${badgeNoun ?? ''}'.trimRight()
           : entry.label,
       child: InkWell(
         key: Key(entry.id),
@@ -454,28 +559,11 @@ class _DrawerEntryTile extends StatelessWidget {
               ),
               if (badgeCount > 0) ...<Widget>[
                 const SizedBox(width: 12),
-                Container(
-                  key: const Key('drawer-unreported-badge'),
-                  constraints: const BoxConstraints(minWidth: 20),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 2,
+                DrawerCountBadge(
+                  key: Key(
+                    'drawer-${entry.id.replaceFirst('drawer-', '')}-badge',
                   ),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.error,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Text(
-                    '$badgeCount',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontFamily: 'Roboto',
-                      fontSize: 12,
-                      height: 16 / 12,
-                      fontWeight: FontWeight.w700,
-                      color: Theme.of(context).colorScheme.onError,
-                    ),
-                  ),
+                  count: badgeCount,
                 ),
               ],
             ],
