@@ -7,6 +7,10 @@ enum NotificationSourceKind {
   awaitingReport,
   goalAchievement,
   contactFollowUp,
+  // Appended last (owner law, 2026-09-19): the persistent app-status/summary
+  // notification opens the canonical Unreported hub.  Never reorder or reuse
+  // an existing value — payloads persist across updates.
+  unreportedSummary,
 }
 
 enum NotificationResponseAction { open, snooze }

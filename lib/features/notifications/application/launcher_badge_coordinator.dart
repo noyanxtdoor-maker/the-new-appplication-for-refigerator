@@ -1,20 +1,23 @@
 import 'package:rmplanner/core/notifications/launcher_badge_gateway.dart';
 import 'package:rmplanner/features/planner/application/calendar_event_repository.dart';
-import 'package:rmplanner/features/planner/application/planner_repository.dart';
 import 'package:rmplanner/features/planner/domain/planner_date.dart';
-import 'package:rmplanner/features/planner/domain/planner_day.dart';
 
+/// Projects the ONE canonical UNREPORTED backlog to the platform.
+///
+/// Owner law (2026-09-19): the summary-notification count IS the Unreported
+/// hub's row count, read from the same awaiting-report source the hub uses.
+/// Tasks are absent by construction — they are not Events and now have their
+/// own canonical home — and upcoming Events are absent because the backlog
+/// only contains ELAPSED report-required occurrences.  The launcher badge and
+/// the app-status notification share this number, so the icon, the shade and
+/// the in-app indicator can never disagree.
 final class LauncherBadgeCoordinator {
   const LauncherBadgeCoordinator({
-    required this.calendarSource,
-    required this.taskSource,
+    required this.awaitingReports,
     required this.gateway,
   });
 
-  static const int horizonDays = 42;
-
-  final CalendarEventRangeSource calendarSource;
-  final PlannerBadgeTaskSource taskSource;
+  final CalendarEventAwaitingReportSource awaitingReports;
   final LauncherBadgeGateway gateway;
 
   Future<int> refresh({
@@ -22,37 +25,13 @@ final class LauncherBadgeCoordinator {
     required PlannerDate today,
     required DateTime nowUtc,
   }) async {
-    final endDate = today.addDays(horizonDays);
-    final results = await Future.wait<Object>(<Future<Object>>[
-      calendarSource.readRange(
-        profileId: profileId,
-        startDate: today,
-        endDate: endDate,
-      ),
-      taskSource.readActionableBadgeTasks(
-        profileId: profileId,
-        startDate: today,
-        endDate: endDate,
-      ),
-    ]);
-    final events = results[0] as List<PlannerCalendarItem>;
-    final tasks = results[1] as List<String>;
-    final eventIds = <String>{
-      for (final event in events)
-        if (_isActionableEvent(event, nowUtc)) event.id,
-    };
-    final count = eventIds.length + tasks.toSet().length;
-    await gateway.setCount(count);
+    final entries = await awaitingReports.readAwaitingReportEvents(
+      profileId: profileId,
+      today: today,
+      nowUtc: nowUtc,
+    );
+    final count = entries.length;
+    await gateway.setCount(profileId: profileId, count: count);
     return count;
-  }
-
-  static bool _isActionableEvent(PlannerCalendarItem event, DateTime nowUtc) {
-    if (event.state != PlannerEventState.scheduled || event.hasOutcomeReport) {
-      return false;
-    }
-    if (event.timing == PlannerEventTiming.allDay) return true;
-    final end = event.endUtc;
-    if (end == null) return false;
-    return end.isAfter(nowUtc) || event.requiresReport;
   }
 }

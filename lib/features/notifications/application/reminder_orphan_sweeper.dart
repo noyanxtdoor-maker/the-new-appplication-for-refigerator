@@ -172,15 +172,18 @@ final class ReminderOrphanSweeper {
       if (intent.profileId != profileId) continue;
       final occurrenceId = intent.occurrenceId;
       final kind = switch (intent.sourceKind) {
-        NotificationSourceKind.calendarEvent => ReminderSourceKind.calendarEvent,
+        NotificationSourceKind.calendarEvent =>
+          ReminderSourceKind.calendarEvent,
         NotificationSourceKind.task => ReminderSourceKind.task,
         NotificationSourceKind.weeklyReview => ReminderSourceKind.weeklyReview,
         NotificationSourceKind.awaitingReport =>
           ReminderSourceKind.awaitingReport,
         // Dormant kinds (Goal achievement, Contact follow-up) are never
-        // activated or swept by this milestone.
+        // activated or swept by this milestone, and the persistent
+        // app-status/summary notification is not a reminder at all.
         NotificationSourceKind.contactFollowUp ||
-        NotificationSourceKind.goalAchievement => null,
+        NotificationSourceKind.goalAchievement ||
+        NotificationSourceKind.unreportedSummary => null,
       };
       if (kind == null || occurrenceId == null) continue;
       final key = ReminderReconciler.stableKey(

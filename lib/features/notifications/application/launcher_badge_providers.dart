@@ -6,7 +6,6 @@ import 'package:rmplanner/features/notifications/application/launcher_badge_coor
 import 'package:rmplanner/features/planner/application/calendar_event_providers.dart';
 import 'package:rmplanner/features/planner/application/calendar_event_repository.dart';
 import 'package:rmplanner/features/planner/application/planner_providers.dart';
-import 'package:rmplanner/features/planner/application/planner_repository.dart';
 import 'package:rmplanner/features/startup/application/startup_providers.dart';
 import 'package:rmplanner/features/startup/domain/startup_state.dart';
 
@@ -27,8 +26,9 @@ typedef LauncherBadgeRefresh = Future<void> Function();
 ///   one trailing full-universe refresh (never a pile-up of queued reads);
 /// - a completion from a stale generation can never publish: each generation
 ///   checks it is still current before contacting the gateway;
-/// - the universe is ALWAYS the full 42-day Event range plus Tasks — a
-///   source-scoped Event projection is never treated as the badge universe;
+/// - the universe is ALWAYS the canonical UNREPORTED backlog (elapsed
+///   report-required Events, Tasks excluded) — the same source of truth as
+///   the Unreported hub and its hamburger indicator;
 /// - permission/platform failures keep the exact best-effort semantics:
 ///   canonical persistence has already committed and is never rolled back.
 final launcherBadgeRefreshProvider = Provider<LauncherBadgeRefresh>((ref) {
@@ -40,15 +40,12 @@ final launcherBadgeRefreshProvider = Provider<LauncherBadgeRefresh>((ref) {
     try {
       final startup = ref.read(startupControllerProvider);
       final calendar = ref.read(calendarEventRepositoryProvider);
-      final planner = ref.read(plannerRepositoryProvider);
       if (startup is! StartupReady ||
-          calendar is! CalendarEventRangeSource ||
-          planner is! PlannerBadgeTaskSource) {
+          calendar is! CalendarEventAwaitingReportSource) {
         return;
       }
       await LauncherBadgeCoordinator(
-        calendarSource: calendar as CalendarEventRangeSource,
-        taskSource: planner as PlannerBadgeTaskSource,
+        awaitingReports: calendar as CalendarEventAwaitingReportSource,
         gateway: ref.read(launcherBadgeGatewayProvider),
       ).refresh(
         profileId: startup.profile.id,

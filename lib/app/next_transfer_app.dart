@@ -275,6 +275,13 @@ final class _NextTransferAppState extends ConsumerState<NextTransferApp>
           originalDate: occurrence.originalDate,
           initialHeading: occurrence.displayTitle,
         );
+      case NotificationSourceKind.unreportedSummary:
+        // Owner law (2026-09-19): the persistent app-status/summary
+        // notification opens the canonical Unreported hub.  There is nothing
+        // to re-validate beyond profile readiness (already checked above): the
+        // hub re-reads canonical truth itself and shows an honest empty state
+        // when the backlog has drained since the notification was posted.
+        router.go(RoutePaths.unreported);
       default:
         return;
     }
