@@ -8,6 +8,7 @@ import 'package:rmplanner/features/goals/domain/goal_event_type_policy.dart';
 import 'package:rmplanner/features/planner/application/calendar_event_repository.dart';
 import 'package:rmplanner/features/planner/data/calendar_event_time_zones.dart';
 import 'package:rmplanner/features/planner/data/planner_presentation_document_store.dart';
+import 'package:rmplanner/features/planner/domain/awaiting_report_event.dart';
 import 'package:rmplanner/features/planner/domain/calendar_event.dart';
 import 'package:rmplanner/features/planner/domain/event_color_preferences.dart';
 import 'package:rmplanner/features/planner/domain/event_type.dart';
@@ -46,6 +47,7 @@ final class DriftCalendarEventRepository
         CalendarEventRepository,
         CalendarEventRangeSource,
         CalendarEventScopedRangeSource,
+        CalendarEventAwaitingReportSource,
         CalendarEventOccurrenceIdLookup {
   const DriftCalendarEventRepository({
     required this.database,
@@ -74,6 +76,12 @@ final class DriftCalendarEventRepository
   /// commits INSIDE the mutation's own transaction.  Absent in read-only and
   /// test compositions.
   final ReminderRecoveryRequest? reminderRepair;
+
+  /// Safety bound for the UNREPORTED backlog expansion, NOT a product
+  /// retention window: an occurrence whose series start is older than this is
+  /// only ever reached when the stored start date itself is corrupt or absurd
+  /// (a real beta backlog never approaches five years).
+  static const int awaitingReportBacklogMaxDays = 1830;
 
   @override
   String get displayTimeZoneId => timeZones.displayTimeZoneId;
@@ -122,6 +130,132 @@ final class DriftCalendarEventRepository
       endDate: endDate,
       eventIds: eventIds,
     );
+  }
+
+  /// Owner law (2026-09-19): the UNREPORTED backlog is the canonical set of
+  /// unresolved report-required occurrences with NO recent-only window, so an
+  /// older unresolved occurrence remains findable.  Candidate rows are
+  /// pre-filtered by `requires_report` (row OR any occurrence exception), so
+  /// expansion cost stays proportional to the Events that can actually be
+  /// unreported rather than to the whole Event universe.
+  ///
+  /// The projection is byte-for-byte the shared occurrence path
+  /// ([_buildOccurrence] + [_toPlannerItem]); only the window and the elapsed
+  /// filter are decided here, and the filter is exactly the canonical
+  /// awaiting-report rule (scheduled + requires report + elapsed, where a
+  /// submitted report already overlays the occurrence status).
+  @override
+  Future<List<AwaitingReportEvent>> readAwaitingReportEvents({
+    required String profileId,
+    required PlannerDate today,
+    required DateTime nowUtc,
+  }) async {
+    final rows =
+        await (database.select(database.calendarEvents)
+              ..where((table) => table.profileId.equals(profileId))
+              ..orderBy(<OrderingTerm Function(CalendarEvents)>[
+                (table) => OrderingTerm.asc(table.createdAtUtc),
+              ]))
+            .get();
+    if (rows.isEmpty) {
+      return const <AwaitingReportEvent>[];
+    }
+    final reportBatchSource = reportSource is CalendarEventReportBatchSource
+        ? reportSource as CalendarEventReportBatchSource
+        : null;
+    final reportsByEvent = reportBatchSource == null
+        ? null
+        : await reportBatchSource.readSeriesReportsForEvents(
+            rows.map((row) => row.id),
+          );
+    final exceptionsByEvent = await _latestExceptionsForEvents(
+      rows.map((row) => row.id),
+    );
+    final entries = <AwaitingReportEvent>[];
+    for (final row in rows) {
+      final exceptions =
+          exceptionsByEvent[row.id] ??
+          const <String, CalendarEventExceptionRow>{};
+      final rowRequiresReport =
+          row.requiresReport ||
+          exceptions.values.any((exception) => exception.requiresReport);
+      if (!rowRequiresReport) {
+        continue;
+      }
+      final reports = reportsByEvent == null
+          ? await reportSource.readSeriesReports(row.id)
+          : reportsByEvent[row.id] ?? const <CalendarEventReportSnapshot>[];
+      final reportById = <String, CalendarEventReportSnapshot>{
+        for (final report in reports) report.occurrenceId: report,
+      };
+      final rule = _ruleFromRow(row);
+      final start = PlannerDate.parse(row.startDate);
+      final floor = today.addDays(-awaitingReportBacklogMaxDays);
+      final first = start.compareTo(floor) < 0 ? floor : start;
+      // A timed occurrence's END can land on the day after its original date
+      // in another display time zone, so the expansion reaches one day past
+      // today; the elapsed filter still decides membership.
+      final last = today.addDays(1);
+      for (
+        var originalDate = first;
+        originalDate.compareTo(last) <= 0;
+        originalDate = originalDate.addDays(1)
+      ) {
+        final exception =
+            exceptions[CalendarEventOccurrenceIdentity.forDate(
+              eventId: row.id,
+              originalDate: originalDate,
+            )];
+        if (rule.occurrenceIndexOn(
+                  startDate: start,
+                  targetDate: originalDate,
+                ) ==
+                null &&
+            exception == null) {
+          continue;
+        }
+        final occurrence = await _buildOccurrence(
+          row: row,
+          originalDate: originalDate,
+          exception: exception,
+          reportById: reportById,
+        );
+        if (occurrence == null ||
+            occurrence.status != CalendarEventStatus.scheduled ||
+            !occurrence.requiresReport) {
+          continue;
+        }
+        final elapsed = occurrence.timing == CalendarEventTiming.allDay
+            ? occurrence.displayDate.compareTo(today) < 0
+            : occurrence.endUtc != null && occurrence.endUtc!.isBefore(nowUtc);
+        if (!elapsed) {
+          continue;
+        }
+        entries.add(
+          AwaitingReportEvent(
+            item: _toPlannerItem(occurrence),
+            goalId: row.goalId,
+            activityTypeStableKey: occurrence.activityTypeStableKey,
+          ),
+        );
+      }
+    }
+    entries.sort((left, right) {
+      final byDate = left.item.date.compareTo(right.item.date);
+      if (byDate != 0) return byDate;
+      final leftStart = left.item.startLocal;
+      final rightStart = right.item.startLocal;
+      if (leftStart != null && rightStart != null) {
+        final byStart = leftStart.compareTo(rightStart);
+        if (byStart != 0) return byStart;
+      } else if (leftStart != null) {
+        return -1;
+      } else if (rightStart != null) {
+        return 1;
+      }
+      return left.item.id.compareTo(right.item.id);
+    });
+    return List<AwaitingReportEvent>.unmodifiable(entries);
   }
 
   Future<List<PlannerCalendarItem>> _readRangeInternal({
@@ -378,10 +512,7 @@ final class DriftCalendarEventRepository
       // Type whose slot has no live Goal occupant. The eligibility read and
       // the alias snapshot are captured once, atomically, inside the same
       // transaction that writes the row.
-      final bindings = await readLiveGoalEventTypeBindings(
-        database,
-        profileId,
-      );
+      final bindings = await readLiveGoalEventTypeBindings(database, profileId);
       await _validateSelectionEligibility(
         profileId: profileId,
         bindings: bindings,
@@ -442,8 +573,7 @@ final class DriftCalendarEventRepository
       // change and must point at a live-occupied canonical slot. Same-type
       // writes are preservations and never gate, including a recurring
       // occurrence override carrying the same canonical type as its master.
-      final typeChanged =
-          normalized.activityTypeId != current.activityTypeId;
+      final typeChanged = normalized.activityTypeId != current.activityTypeId;
       final bindings = typeChanged
           ? await readLiveGoalEventTypeBindings(database, profileId)
           : null;
@@ -852,10 +982,7 @@ final class DriftCalendarEventRepository
       // Contract E/F: a duplicate is a NEW selection. Its type must pass
       // the same live-occupancy gate as any new Event, and its snapshot is
       // freshly captured (current live alias), never inherited stale.
-      final bindings = await readLiveGoalEventTypeBindings(
-        database,
-        profileId,
-      );
+      final bindings = await readLiveGoalEventTypeBindings(database, profileId);
       await _validateSelectionEligibility(
         profileId: profileId,
         bindings: bindings,

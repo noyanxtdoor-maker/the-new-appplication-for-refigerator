@@ -28,7 +28,8 @@ final class DriftPlannerRepository
         PlannerRepository,
         PlannerTaskReminderSource,
         PlannerTaskReminderOccurrenceSource,
-        PlannerBadgeTaskSource {
+        PlannerBadgeTaskSource,
+        PlannerTaskUniverseSource {
   const DriftPlannerRepository({
     required this.database,
     required this.clock,
@@ -304,45 +305,10 @@ final class DriftPlannerRepository
     required PlannerDate selectedDate,
     required PlannerDate today,
   }) async {
-    final taskRows =
-        await (database.select(database.plannerTasks)
-              ..where((table) => table.profileId.equals(profileId))
-              ..orderBy(<OrderingTerm Function(PlannerTasks)>[
-                (table) => OrderingTerm.asc(table.dueDate),
-                (table) => OrderingTerm.asc(table.createdAtUtc),
-              ]))
-            .get();
-    // S1A: when the Task context source supports it, load every Task's
-    // context in one/chunk set-based query instead of one query per Task.
-    // A missing map entry (a Task with no links) becomes an empty context so
-    // no per-Task fallback query is issued for the batched path.
-    final taskContextBatchSource =
-        taskContextSource is PlannerTaskContextBatchSource
-        ? taskContextSource as PlannerTaskContextBatchSource
-        : null;
-    final batchContexts = taskContextBatchSource == null
-        ? null
-        : await taskContextBatchSource.readContexts(
-            taskRows.map((row) => row.id),
-          );
-    final contextsByTask = batchContexts == null
-        ? null
-        : <String, PlannerTaskContext>{
-            for (final row in taskRows)
-              row.id: batchContexts[row.id] ?? const PlannerTaskContext(),
-          };
-    final outcomesByTask = await _readEffectiveTaskOutcomes(
+    final taskRows = await _readAllTaskRows(profileId);
+    final allTasks = await _mapTaskRows(
       profileId: profileId,
-      taskIds: taskRows.map((row) => row.id),
-    );
-    final allTasks = await Future.wait(
-      taskRows.map(
-        (row) => _mapTask(
-          row,
-          preloadedContext: contextsByTask?[row.id],
-          reportedOutcome: outcomesByTask[row.id],
-        ),
-      ),
+      taskRows: taskRows,
     );
     final calendarItems = await calendarSource.readDay(
       profileId: profileId,
@@ -417,6 +383,70 @@ final class DriftPlannerRepository
       completedTasks: completedTasks,
       awaitingReportEvents: awaiting,
       changes: changes,
+    );
+  }
+
+  /// Owner law (2026-09-19): the dedicated Tasks screen is the single
+  /// canonical Tasks home, so it reads EVERY persisted Task for the profile
+  /// — Incomplete and Completed alike — through the same context/outcome
+  /// batching the Planner day read already uses.  A source that does not
+  /// implement this capability has no universe (never a fabricated list).
+  @override
+  Future<List<PlannerTask>> readTaskUniverse({
+    required String profileId,
+  }) async {
+    final taskRows = await _readAllTaskRows(profileId);
+    return _mapTaskRows(profileId: profileId, taskRows: taskRows);
+  }
+
+  /// The canonical persisted Task order: due date first, then creation time.
+  /// Undated Tasks keep SQLite's NULL ordering and are re-ordered by callers
+  /// that must show them last.
+  Future<List<PlannerTaskRow>> _readAllTaskRows(String profileId) {
+    return (database.select(database.plannerTasks)
+          ..where((table) => table.profileId.equals(profileId))
+          ..orderBy(<OrderingTerm Function(PlannerTasks)>[
+            (table) => OrderingTerm.asc(table.dueDate),
+            (table) => OrderingTerm.asc(table.createdAtUtc),
+          ]))
+        .get();
+  }
+
+  /// Shared Task-row mapping: one/chunk set-based context and outcome reads
+  /// where the injected seams support batching, the legacy per-Task path
+  /// otherwise.  A missing context entry (a Task with no links) becomes an
+  /// empty context so no per-Task fallback query is issued.
+  Future<List<PlannerTask>> _mapTaskRows({
+    required String profileId,
+    required List<PlannerTaskRow> taskRows,
+  }) async {
+    final taskContextBatchSource =
+        taskContextSource is PlannerTaskContextBatchSource
+        ? taskContextSource as PlannerTaskContextBatchSource
+        : null;
+    final batchContexts = taskContextBatchSource == null
+        ? null
+        : await taskContextBatchSource.readContexts(
+            taskRows.map((row) => row.id),
+          );
+    final contextsByTask = batchContexts == null
+        ? null
+        : <String, PlannerTaskContext>{
+            for (final row in taskRows)
+              row.id: batchContexts[row.id] ?? const PlannerTaskContext(),
+          };
+    final outcomesByTask = await _readEffectiveTaskOutcomes(
+      profileId: profileId,
+      taskIds: taskRows.map((row) => row.id),
+    );
+    return Future.wait(
+      taskRows.map(
+        (row) => _mapTask(
+          row,
+          preloadedContext: contextsByTask?[row.id],
+          reportedOutcome: outcomesByTask[row.id],
+        ),
+      ),
     );
   }
 

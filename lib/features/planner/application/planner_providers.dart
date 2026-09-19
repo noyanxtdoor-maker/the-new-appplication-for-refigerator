@@ -33,6 +33,31 @@ final plannerIdentifierSourceProvider = Provider<IdentifierSource>((ref) {
   return const UuidIdentifierSource();
 });
 
+/// The dedicated Tasks screen universe: EVERY persisted Task for the ready
+/// profile, Incomplete and Completed alike (owner law, 2026-09-19: Tasks have
+/// one canonical home, and completed Tasks are never hidden behind a
+/// retention window).
+///
+/// Auto-disposed so re-entering the screen always re-reads canonical truth,
+/// and explicitly invalidated by the screen after a preview interaction that
+/// can complete or edit a Task.  A source that does not implement the
+/// universe capability yields an empty list, never fabricated Tasks.
+final taskUniverseProvider = FutureProvider.autoDispose<List<PlannerTask>>((
+  ref,
+) async {
+  final startup = ref.read(startupControllerProvider);
+  if (startup is! StartupReady) {
+    return const <PlannerTask>[];
+  }
+  final repository = ref.read(plannerRepositoryProvider);
+  if (repository is! PlannerTaskUniverseSource) {
+    return const <PlannerTask>[];
+  }
+  return (repository as PlannerTaskUniverseSource).readTaskUniverse(
+    profileId: startup.profile.id,
+  );
+});
+
 typedef TaskReminderHorizonOverride =
     Future<void> Function(bool refreshContent);
 

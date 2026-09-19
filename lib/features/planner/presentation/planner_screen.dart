@@ -26,8 +26,8 @@ import 'package:rmplanner/features/planner/domain/planner_task.dart';
 import 'package:rmplanner/features/planner/domain/planner_timeline_layout.dart';
 import 'package:rmplanner/features/planner/domain/planner_view.dart';
 import 'package:rmplanner/features/planner/presentation/calendar_event_creation.dart';
-import 'package:rmplanner/features/planner/presentation/calendar_event_detail_screen.dart';
 import 'package:rmplanner/features/planner/presentation/contextual_create_fab.dart';
+import 'package:rmplanner/features/planner/presentation/planner_event_open.dart';
 import 'package:rmplanner/features/planner/presentation/task_creation.dart';
 import 'package:rmplanner/features/planner/presentation/task_preview_sheet.dart';
 import 'package:rmplanner/features/planner/presentation/widgets/anchored_top_bar_popup.dart';
@@ -7273,33 +7273,11 @@ final class _PlannerSearchDelegate extends SearchDelegate<void> {
   }
 }
 
-void _openCalendarEvent(BuildContext context, PlannerCalendarItem event) {
-  final eventId = event.eventId;
-  final originalDate = event.originalDate;
-  if (eventId == null || originalDate == null) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'This external calendar item has no editable local record.',
-        ),
-      ),
-    );
-    return;
-  }
-  unawaited(
-    showCalendarEventDetailSheet<void>(
-      context: context,
-      eventId: eventId,
-      originalDate: originalDate,
-      // NX-05: the tapped planner item already knows the activity identity, so
-      // the sheet title is truthful from the first rendered frame (no generic
-      // 'Calendar Event' -> activity-label morph while the record loads).
-      initialHeading: event.activityTypeLabel?.trim().isNotEmpty == true
-          ? event.activityTypeLabel
-          : event.displayTitle,
-    ),
-  );
-}
+/// The shared canonical Event-opening law lives in `planner_event_open.dart`
+/// so the Unreported hub reaches the SAME detail/report flow.  Every existing
+/// Planner call site keeps using this name.
+void _openCalendarEvent(BuildContext context, PlannerCalendarItem event) =>
+    openPlannerCalendarEvent(context, event);
 
 final class _EmptySectionMessage extends StatelessWidget {
   const _EmptySectionMessage(this.message);

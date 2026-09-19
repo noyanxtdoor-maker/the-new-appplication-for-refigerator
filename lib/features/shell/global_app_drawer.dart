@@ -2,9 +2,11 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:rmplanner/app/router/route_names.dart';
 import 'package:rmplanner/app/theme/app_theme.dart';
+import 'package:rmplanner/features/unreported/application/unreported_providers.dart';
 
 /// How a drawer destination is opened (Pack 3, Phase 3).
 ///
@@ -67,38 +69,29 @@ enum GlobalDrawerGroup { planning, personal, account, support }
 /// for now while remaining fully resolvable by route.
 abstract final class GlobalDrawerCatalog {
   static const List<GlobalDrawerEntry> entries = <GlobalDrawerEntry>[
-    // A. Planning and Records -----------------------------------------
+    // A. PLANNING -----------------------------------------------------
+    //
+    // Owner law (2026-09-19): the planning area becomes exactly two rows —
+    // Tasks and Unreported.  The Planner, Goal Planning, Plan History and
+    // Activity History rows are removed from the DRAWER ONLY: their screens,
+    // routes, data and deep links are untouched (the Planner stays reachable
+    // through the permanent bottom navigation, and the removed planning
+    // surfaces remain fully resolvable by route).
     GlobalDrawerEntry._(
-      id: 'drawer-planner',
-      label: 'Planner',
-      icon: Icons.calendar_month_outlined,
+      id: 'drawer-tasks',
+      label: 'Tasks',
+      icon: Icons.task_alt_outlined,
       group: GlobalDrawerGroup.planning,
-      routePath: RoutePaths.planner,
-      navigation: GlobalDrawerNavigation.selectRoot,
-    ),
-    GlobalDrawerEntry._(
-      id: 'drawer-planning',
-      label: 'Goal Planning',
-      icon: Icons.calendar_view_week_outlined,
-      group: GlobalDrawerGroup.planning,
-      routePath: RoutePaths.weeklyPlanning,
+      routePath: RoutePaths.tasks,
       navigation: GlobalDrawerNavigation.openInShell,
     ),
     GlobalDrawerEntry._(
-      id: 'drawer-plan-history',
-      label: 'Plan History',
-      icon: Icons.history_outlined,
+      id: 'drawer-unreported',
+      label: 'Unreported',
+      icon: Icons.assignment_late_outlined,
       group: GlobalDrawerGroup.planning,
-      routePath: RoutePaths.weeklyPlanningHistory,
+      routePath: RoutePaths.unreported,
       navigation: GlobalDrawerNavigation.openInShell,
-    ),
-    GlobalDrawerEntry._(
-      id: 'drawer-activity-history',
-      label: 'Activity History',
-      icon: Icons.fact_check_outlined,
-      group: GlobalDrawerGroup.planning,
-      routePath: RoutePaths.activityHistory,
-      navigation: GlobalDrawerNavigation.push,
     ),
     // B. Personal Tools -----------------------------------------------
     // Quick Notes and Personal Journal are omitted (no complete real
@@ -159,7 +152,8 @@ abstract final class GlobalDrawerCatalog {
 
   static String labelFor(GlobalDrawerGroup group) {
     return switch (group) {
-      GlobalDrawerGroup.planning => 'Planning and Records',
+      // Owner law (2026-09-19): the planning area heading is PLANNING.
+      GlobalDrawerGroup.planning => 'PLANNING',
       GlobalDrawerGroup.personal => 'Personal Tools',
       GlobalDrawerGroup.account => 'Account and App',
       GlobalDrawerGroup.support => 'Support',
@@ -176,12 +170,46 @@ abstract final class GlobalDrawerCatalog {
 /// It opens over the current root, dims the background with the platform
 /// scrim, closes on tap-outside and Android Back, stays transient (never
 /// restored open after restart), and scrolls when contents overflow.
-class GlobalAppDrawer extends StatelessWidget {
+class GlobalAppDrawer extends ConsumerStatefulWidget {
   const GlobalAppDrawer({super.key});
+
+  @override
+  ConsumerState<GlobalAppDrawer> createState() => _GlobalAppDrawerState();
+}
+
+class _GlobalAppDrawerState extends ConsumerState<GlobalAppDrawer> {
+  /// Owner law (2026-09-19): the Unreported row carries a RED NUMERIC
+  /// indicator derived from the same canonical backlog provider the hub and
+  /// the summary notification use.  No items means no number at all, and there
+  /// is deliberately no subtitle.
+  ///
+  /// The subscription is created AFTER the frame, never inside initState.
+  ///
+  /// Subscribing to this backlog walks a chain of auto-disposing change
+  /// streams.  If that chain is already dirty when the drawer mounts, the
+  /// flush happens inside the build phase and the provider scope schedules its
+  /// refresh with `setState` mid-frame, which the framework rejects.  Deferring
+  /// to a post-frame callback keeps the flush outside the build phase; the
+  /// drawer opens with an animation, so the number is in place for every frame
+  /// the user actually sees.
+  int _unreportedCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref.listenManual<int>(unreportedCountProvider, (_, next) {
+        if (next == _unreportedCount) return;
+        setState(() => _unreportedCount = next);
+      }, fireImmediately: true);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final currentLocation = GoRouterState.of(context).matchedLocation;
+    final unreportedCount = _unreportedCount;
     // 84-88% of phone width, capped at ~360 dp on wider screens.
     final width = math.min(MediaQuery.sizeOf(context).width * 0.86, 360.0);
     return Drawer(
@@ -215,6 +243,9 @@ class GlobalAppDrawer extends StatelessWidget {
                       _DrawerEntryTile(
                         entry: entry,
                         isCurrent: entry.routePath == currentLocation,
+                        badgeCount: entry.id == 'drawer-unreported'
+                            ? unreportedCount
+                            : 0,
                       ),
                     const SizedBox(height: 8),
                   ],
@@ -316,10 +347,21 @@ class _DrawerGroupHeader extends StatelessWidget {
 }
 
 class _DrawerEntryTile extends StatelessWidget {
-  const _DrawerEntryTile({required this.entry, required this.isCurrent});
+  const _DrawerEntryTile({
+    required this.entry,
+    required this.isCurrent,
+    this.badgeCount = 0,
+  });
 
   final GlobalDrawerEntry entry;
   final bool isCurrent;
+
+  /// A RED NUMERIC indicator, shown only when it is greater than zero.
+  ///
+  /// It is deliberately a number and never a count of something else: the
+  /// value is the canonical Unreported backlog size, and zero hides the
+  /// indicator entirely rather than rendering a zero.
+  final int badgeCount;
 
   void _open(BuildContext context) {
     final currentLocation = GoRouterState.of(context).matchedLocation;
@@ -348,7 +390,9 @@ class _DrawerEntryTile extends StatelessWidget {
     return Semantics(
       selected: isCurrent,
       button: true,
-      label: entry.label,
+      label: badgeCount > 0
+          ? '${entry.label}, $badgeCount unreported'
+          : entry.label,
       child: InkWell(
         key: Key(entry.id),
         onTap: () => _open(context),
@@ -408,6 +452,32 @@ class _DrawerEntryTile extends StatelessWidget {
                   ),
                 ),
               ),
+              if (badgeCount > 0) ...<Widget>[
+                const SizedBox(width: 12),
+                Container(
+                  key: const Key('drawer-unreported-badge'),
+                  constraints: const BoxConstraints(minWidth: 20),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.error,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    '$badgeCount',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontFamily: 'Roboto',
+                      fontSize: 12,
+                      height: 16 / 12,
+                      fontWeight: FontWeight.w700,
+                      color: Theme.of(context).colorScheme.onError,
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         ),

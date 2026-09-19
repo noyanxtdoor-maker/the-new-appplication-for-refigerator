@@ -89,6 +89,17 @@ abstract interface class PlannerBadgeTaskSource {
   });
 }
 
+/// Optional canonical capability for the dedicated Tasks screen.
+///
+/// Returns EVERY persisted Task for the profile — Incomplete, Completed and
+/// historical alike — ordered by due date then creation time.  There is no
+/// retention window: a completed Task stays findable, exactly like the
+/// Planner day projection that produced it.  A source that does not
+/// implement this capability has no universe.
+abstract interface class PlannerTaskUniverseSource {
+  Future<List<PlannerTask>> readTaskUniverse({required String profileId});
+}
+
 enum TaskHardDeleteOutcome { deleted, notFound, integrityFailure }
 
 final class TaskHardDeleteIntegrityException implements Exception {
