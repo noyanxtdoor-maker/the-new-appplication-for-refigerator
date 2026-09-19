@@ -6,6 +6,7 @@ import 'package:rmplanner/app/theme/internal_screen.dart';
 import 'package:rmplanner/features/privacy/application/privacy_providers.dart';
 import 'package:rmplanner/features/privacy/domain/deletion_impact.dart';
 import 'package:rmplanner/features/privacy/domain/privacy_settings.dart';
+import 'package:rmplanner/features/privacy/presentation/privacy_policy_link.dart';
 
 final class PrivacyCenterScreen extends ConsumerWidget {
   const PrivacyCenterScreen({super.key});
@@ -146,10 +147,49 @@ final class PrivacyCenterScreen extends ConsumerWidget {
                 ],
               ),
             ),
+            const SizedBox(height: 18),
+            _SectionTitle(title: 'Legal'),
+            const SizedBox(height: 8),
+            // Google Play's User Data policy expects our published Privacy
+            // Policy to be reachable from inside the application, not only
+            // from the store listing. The row opens the canonical page in the
+            // user's own browser; nothing is loaded in-app and no permission
+            // is involved.
+            Card(
+              child: ListTile(
+                key: const Key('privacy-policy-link'),
+                leading: const Icon(Icons.policy_outlined),
+                title: const Text('Privacy Policy'),
+                subtitle: const Text(
+                  'Read how Next Transfer handles your data.',
+                ),
+                trailing: const Icon(Icons.open_in_new),
+                onTap: () => _openPrivacyPolicy(context, ref),
+              ),
+            ),
           ],
         ),
       ),
     );
+  }
+
+  /// Opens the published Privacy Policy externally.
+  ///
+  /// The URL is the canonical page from [privacyPolicyUrl]; nothing about the
+  /// user or device is appended. A handoff that no installed app accepts is
+  /// reported as ordinary feedback rather than an exception.
+  Future<void> _openPrivacyPolicy(BuildContext context, WidgetRef ref) async {
+    final opened = await ref.read(externalUriLauncherProvider)(
+      Uri.parse(privacyPolicyUrl),
+    );
+    if (opened || !context.mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(content: Text('Unable to open the Privacy Policy.')),
+      );
   }
 
   Future<void> _showDeletionImpact(BuildContext context) {
