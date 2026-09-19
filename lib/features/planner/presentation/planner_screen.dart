@@ -3778,14 +3778,19 @@ class _DaySwipeCoordinator {
 ///
 /// The coordinator is intentionally decoupled from the
 /// [_DaySwipeCoordinator]; the two share no state because
-/// their lifetimes and responsibilities differ. The
-/// coordinator is reset on the first pointer-down of each
-/// fresh gesture, so a previous two-pointer pinch cannot
-/// leave stale state behind that would suppress a future
-/// one-finger scroll.
+/// their lifetimes and responsibilities differ.
+///
+/// HOTFIX (2026-09-19) — this doc used to claim the coordinator "is reset on the
+/// first pointer-down of each fresh gesture". It was not: the reset ([begin]) had
+/// no call site anywhere, so a missed pointer-up/cancel left the count >= 2 for
+/// good and pinned both planner scroll views to `NeverScrollableScrollPhysics`.
+/// The timeline now resets the coordinator when the subtree that owns the raw
+/// pointer tracking is disposed, which is the only point at which a missed event
+/// is provably unrecoverable.
 class _PinchCoordinator {
   int _pointerCount = 0;
   bool _externalCancel = false;
+  bool _notifyScheduled = false;
   // Listeners are notified whenever the pinch state changes
   // (pointer count transitions across 2, or cancel is
   // invoked). The parent state subscribes to rebuild the
@@ -3807,9 +3812,36 @@ class _PinchCoordinator {
     }
   }
 
+  /// Drops every tracked pointer and restores ordinary scrolling.
+  ///
+  /// HOTFIX (2026-09-19) — this is the pinch equivalent of
+  /// [_DaySwipeCoordinator]'s fresh-gesture reset, and it is what makes the
+  /// suppression self-healing.
+  ///
+  /// `_pointerCount` is maintained ONLY by pointer-up/cancel events delivered to
+  /// the timeline surface. Before this fix `begin()` existed but was never called
+  /// anywhere, so a single missed up/cancel left the count >= 2 forever and pinned
+  /// BOTH planner scroll views to `NeverScrollableScrollPhysics` — the reported
+  /// "hanging of the app where I can't swipe it up or down" (the app stays alive;
+  /// drags simply stop reaching the scrollable).
+  ///
+  /// The notification is deferred to the next frame so a reset can be requested
+  /// from a dispose/build phase without calling back into the parent's build.
   void begin() {
+    if (_pointerCount == 0 && !_externalCancel) return;
     _pointerCount = 0;
     _externalCancel = false;
+    _notifyAfterFrame();
+  }
+
+  /// Notifies listeners once, on the next frame.
+  void _notifyAfterFrame() {
+    if (_notifyScheduled) return;
+    _notifyScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _notifyScheduled = false;
+      _notify();
+    });
   }
 
   /// Called by the timeline's pointer Listener on every
@@ -4157,6 +4189,13 @@ final class _TimedEventTimelineState extends State<_TimedEventTimeline> {
   void dispose() {
     _pendingPinchHourHeight = null;
     _pendingPinchScrollOffset = null;
+    // HOTFIX (2026-09-19): this subtree is the ONLY owner of the raw pointer
+    // tracking that feeds [_PinchCoordinator]. Once it is gone — planner refresh,
+    // loading/loaded branch swap, day-pager swap, route change — any pointer-up or
+    // cancel it never received is unrecoverable here, and the stale count would
+    // otherwise keep the whole Planner unscrollable forever. Drop it so the parent
+    // re-reads the scroll physics on the next frame.
+    widget.pinchCoordinator.begin();
     super.dispose();
   }
 

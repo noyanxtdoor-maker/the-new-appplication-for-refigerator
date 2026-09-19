@@ -376,11 +376,9 @@ final class ReminderReconciler {
       sourceKind: sourceKind,
       sourceId: sourceId,
     );
-    final policy =
-        policies.where((p) => p.occurrenceId == occurrenceId).firstOrNull ??
-        policies
-            .where((p) => p.occurrenceId == ReminderPolicy.seriesOccurrenceId)
-            .firstOrNull;
+    // ONE resolution law, shared with the Event form (owner hotfix 2026-09-19):
+    // this occurrence's own row first, otherwise the series row.
+    final policy = policies.resolveForOccurrence(occurrenceId);
     final offset = switch (policy?.mode) {
       ReminderPolicyMode.offset => policy!.offsetMinutes,
       ReminderPolicyMode.off => null,

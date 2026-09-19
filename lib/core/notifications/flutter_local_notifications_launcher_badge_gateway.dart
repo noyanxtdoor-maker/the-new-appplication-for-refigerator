@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:rmplanner/core/notifications/flutter_local_notifications_gateway.dart';
 import 'package:rmplanner/core/notifications/launcher_badge_gateway.dart';
 
 final class FlutterLocalNotificationsLauncherBadgeGateway
@@ -42,6 +43,8 @@ final class FlutterLocalNotificationsLauncherBadgeGateway
           channelId,
           'App status',
           channelDescription: 'Actionable Next Transfer item count.',
+          // HOTFIX: never depend on the startup-registered default icon.
+          icon: ntNotificationIconResource,
           importance: Importance.low,
           priority: Priority.low,
           playSound: false,
