@@ -268,7 +268,7 @@ void main() {
           .getSingle();
       // M7 reconciliation (2026-09-16): the frozen schema law is 47 (M6), not
       // the retired 39 literal this assertion still carried.
-      expect(version.read<int>('user_version'), 47);
+      expect(version.read<int>('user_version'), 48);
     },
   );
 }

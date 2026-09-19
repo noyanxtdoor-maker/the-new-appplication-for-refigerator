@@ -5165,6 +5165,21 @@ class $NotificationPreferencesTable extends NotificationPreferences
     type: DriftSqlType.int,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _detailedContentEnabledMeta =
+      const VerificationMeta('detailedContentEnabled');
+  @override
+  late final GeneratedColumn<bool> detailedContentEnabled =
+      GeneratedColumn<bool>(
+        'detailed_content_enabled',
+        aliasedName,
+        false,
+        type: DriftSqlType.bool,
+        requiredDuringInsert: false,
+        defaultConstraints: GeneratedColumn.constraintIsAlways(
+          'CHECK ("detailed_content_enabled" IN (0, 1))',
+        ),
+        defaultValue: const Constant(true),
+      );
   static const VerificationMeta _detailedShowTitleMeta = const VerificationMeta(
     'detailedShowTitle',
   );
@@ -5264,6 +5279,7 @@ class $NotificationPreferencesTable extends NotificationPreferences
     quietHoursEnabled,
     quietStartMinute,
     quietEndMinute,
+    detailedContentEnabled,
     detailedShowTitle,
     detailedShowDescription,
     detailedShowTime,
@@ -5399,6 +5415,15 @@ class $NotificationPreferencesTable extends NotificationPreferences
         ),
       );
     }
+    if (data.containsKey('detailed_content_enabled')) {
+      context.handle(
+        _detailedContentEnabledMeta,
+        detailedContentEnabled.isAcceptableOrUnknown(
+          data['detailed_content_enabled']!,
+          _detailedContentEnabledMeta,
+        ),
+      );
+    }
     if (data.containsKey('detailed_show_title')) {
       context.handle(
         _detailedShowTitleMeta,
@@ -5519,6 +5544,10 @@ class $NotificationPreferencesTable extends NotificationPreferences
         DriftSqlType.int,
         data['${effectivePrefix}quiet_end_minute'],
       ),
+      detailedContentEnabled: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}detailed_content_enabled'],
+      )!,
       detailedShowTitle: attachedDatabase.typeMapping.read(
         DriftSqlType.bool,
         data['${effectivePrefix}detailed_show_title'],
@@ -5569,6 +5598,7 @@ class NotificationPreferenceRow extends DataClass
   final bool quietHoursEnabled;
   final int? quietStartMinute;
   final int? quietEndMinute;
+  final bool detailedContentEnabled;
   final bool detailedShowTitle;
   final bool detailedShowDescription;
   final bool detailedShowTime;
@@ -5589,6 +5619,7 @@ class NotificationPreferenceRow extends DataClass
     required this.quietHoursEnabled,
     this.quietStartMinute,
     this.quietEndMinute,
+    required this.detailedContentEnabled,
     required this.detailedShowTitle,
     required this.detailedShowDescription,
     required this.detailedShowTime,
@@ -5630,6 +5661,7 @@ class NotificationPreferenceRow extends DataClass
     if (!nullToAbsent || quietEndMinute != null) {
       map['quiet_end_minute'] = Variable<int>(quietEndMinute);
     }
+    map['detailed_content_enabled'] = Variable<bool>(detailedContentEnabled);
     map['detailed_show_title'] = Variable<bool>(detailedShowTitle);
     map['detailed_show_description'] = Variable<bool>(detailedShowDescription);
     map['detailed_show_time'] = Variable<bool>(detailedShowTime);
@@ -5663,6 +5695,7 @@ class NotificationPreferenceRow extends DataClass
       quietEndMinute: quietEndMinute == null && nullToAbsent
           ? const Value.absent()
           : Value(quietEndMinute),
+      detailedContentEnabled: Value(detailedContentEnabled),
       detailedShowTitle: Value(detailedShowTitle),
       detailedShowDescription: Value(detailedShowDescription),
       detailedShowTime: Value(detailedShowTime),
@@ -5709,6 +5742,9 @@ class NotificationPreferenceRow extends DataClass
       quietHoursEnabled: serializer.fromJson<bool>(json['quietHoursEnabled']),
       quietStartMinute: serializer.fromJson<int?>(json['quietStartMinute']),
       quietEndMinute: serializer.fromJson<int?>(json['quietEndMinute']),
+      detailedContentEnabled: serializer.fromJson<bool>(
+        json['detailedContentEnabled'],
+      ),
       detailedShowTitle: serializer.fromJson<bool>(json['detailedShowTitle']),
       detailedShowDescription: serializer.fromJson<bool>(
         json['detailedShowDescription'],
@@ -5752,6 +5788,7 @@ class NotificationPreferenceRow extends DataClass
       'quietHoursEnabled': serializer.toJson<bool>(quietHoursEnabled),
       'quietStartMinute': serializer.toJson<int?>(quietStartMinute),
       'quietEndMinute': serializer.toJson<int?>(quietEndMinute),
+      'detailedContentEnabled': serializer.toJson<bool>(detailedContentEnabled),
       'detailedShowTitle': serializer.toJson<bool>(detailedShowTitle),
       'detailedShowDescription': serializer.toJson<bool>(
         detailedShowDescription,
@@ -5777,6 +5814,7 @@ class NotificationPreferenceRow extends DataClass
     bool? quietHoursEnabled,
     Value<int?> quietStartMinute = const Value.absent(),
     Value<int?> quietEndMinute = const Value.absent(),
+    bool? detailedContentEnabled,
     bool? detailedShowTitle,
     bool? detailedShowDescription,
     bool? detailedShowTime,
@@ -5809,6 +5847,8 @@ class NotificationPreferenceRow extends DataClass
     quietEndMinute: quietEndMinute.present
         ? quietEndMinute.value
         : this.quietEndMinute,
+    detailedContentEnabled:
+        detailedContentEnabled ?? this.detailedContentEnabled,
     detailedShowTitle: detailedShowTitle ?? this.detailedShowTitle,
     detailedShowDescription:
         detailedShowDescription ?? this.detailedShowDescription,
@@ -5860,6 +5900,9 @@ class NotificationPreferenceRow extends DataClass
       quietEndMinute: data.quietEndMinute.present
           ? data.quietEndMinute.value
           : this.quietEndMinute,
+      detailedContentEnabled: data.detailedContentEnabled.present
+          ? data.detailedContentEnabled.value
+          : this.detailedContentEnabled,
       detailedShowTitle: data.detailedShowTitle.present
           ? data.detailedShowTitle.value
           : this.detailedShowTitle,
@@ -5905,6 +5948,7 @@ class NotificationPreferenceRow extends DataClass
           ..write('quietHoursEnabled: $quietHoursEnabled, ')
           ..write('quietStartMinute: $quietStartMinute, ')
           ..write('quietEndMinute: $quietEndMinute, ')
+          ..write('detailedContentEnabled: $detailedContentEnabled, ')
           ..write('detailedShowTitle: $detailedShowTitle, ')
           ..write('detailedShowDescription: $detailedShowDescription, ')
           ..write('detailedShowTime: $detailedShowTime, ')
@@ -5930,6 +5974,7 @@ class NotificationPreferenceRow extends DataClass
     quietHoursEnabled,
     quietStartMinute,
     quietEndMinute,
+    detailedContentEnabled,
     detailedShowTitle,
     detailedShowDescription,
     detailedShowTime,
@@ -5958,6 +6003,7 @@ class NotificationPreferenceRow extends DataClass
           other.quietHoursEnabled == this.quietHoursEnabled &&
           other.quietStartMinute == this.quietStartMinute &&
           other.quietEndMinute == this.quietEndMinute &&
+          other.detailedContentEnabled == this.detailedContentEnabled &&
           other.detailedShowTitle == this.detailedShowTitle &&
           other.detailedShowDescription == this.detailedShowDescription &&
           other.detailedShowTime == this.detailedShowTime &&
@@ -5981,6 +6027,7 @@ class NotificationPreferencesCompanion
   final Value<bool> quietHoursEnabled;
   final Value<int?> quietStartMinute;
   final Value<int?> quietEndMinute;
+  final Value<bool> detailedContentEnabled;
   final Value<bool> detailedShowTitle;
   final Value<bool> detailedShowDescription;
   final Value<bool> detailedShowTime;
@@ -6002,6 +6049,7 @@ class NotificationPreferencesCompanion
     this.quietHoursEnabled = const Value.absent(),
     this.quietStartMinute = const Value.absent(),
     this.quietEndMinute = const Value.absent(),
+    this.detailedContentEnabled = const Value.absent(),
     this.detailedShowTitle = const Value.absent(),
     this.detailedShowDescription = const Value.absent(),
     this.detailedShowTime = const Value.absent(),
@@ -6024,6 +6072,7 @@ class NotificationPreferencesCompanion
     this.quietHoursEnabled = const Value.absent(),
     this.quietStartMinute = const Value.absent(),
     this.quietEndMinute = const Value.absent(),
+    this.detailedContentEnabled = const Value.absent(),
     this.detailedShowTitle = const Value.absent(),
     this.detailedShowDescription = const Value.absent(),
     this.detailedShowTime = const Value.absent(),
@@ -6047,6 +6096,7 @@ class NotificationPreferencesCompanion
     Expression<bool>? quietHoursEnabled,
     Expression<int>? quietStartMinute,
     Expression<int>? quietEndMinute,
+    Expression<bool>? detailedContentEnabled,
     Expression<bool>? detailedShowTitle,
     Expression<bool>? detailedShowDescription,
     Expression<bool>? detailedShowTime,
@@ -6079,6 +6129,8 @@ class NotificationPreferencesCompanion
       if (quietHoursEnabled != null) 'quiet_hours_enabled': quietHoursEnabled,
       if (quietStartMinute != null) 'quiet_start_minute': quietStartMinute,
       if (quietEndMinute != null) 'quiet_end_minute': quietEndMinute,
+      if (detailedContentEnabled != null)
+        'detailed_content_enabled': detailedContentEnabled,
       if (detailedShowTitle != null) 'detailed_show_title': detailedShowTitle,
       if (detailedShowDescription != null)
         'detailed_show_description': detailedShowDescription,
@@ -6106,6 +6158,7 @@ class NotificationPreferencesCompanion
     Value<bool>? quietHoursEnabled,
     Value<int?>? quietStartMinute,
     Value<int?>? quietEndMinute,
+    Value<bool>? detailedContentEnabled,
     Value<bool>? detailedShowTitle,
     Value<bool>? detailedShowDescription,
     Value<bool>? detailedShowTime,
@@ -6137,6 +6190,8 @@ class NotificationPreferencesCompanion
       quietHoursEnabled: quietHoursEnabled ?? this.quietHoursEnabled,
       quietStartMinute: quietStartMinute ?? this.quietStartMinute,
       quietEndMinute: quietEndMinute ?? this.quietEndMinute,
+      detailedContentEnabled:
+          detailedContentEnabled ?? this.detailedContentEnabled,
       detailedShowTitle: detailedShowTitle ?? this.detailedShowTitle,
       detailedShowDescription:
           detailedShowDescription ?? this.detailedShowDescription,
@@ -6208,6 +6263,11 @@ class NotificationPreferencesCompanion
     if (quietEndMinute.present) {
       map['quiet_end_minute'] = Variable<int>(quietEndMinute.value);
     }
+    if (detailedContentEnabled.present) {
+      map['detailed_content_enabled'] = Variable<bool>(
+        detailedContentEnabled.value,
+      );
+    }
     if (detailedShowTitle.present) {
       map['detailed_show_title'] = Variable<bool>(detailedShowTitle.value);
     }
@@ -6262,6 +6322,7 @@ class NotificationPreferencesCompanion
           ..write('quietHoursEnabled: $quietHoursEnabled, ')
           ..write('quietStartMinute: $quietStartMinute, ')
           ..write('quietEndMinute: $quietEndMinute, ')
+          ..write('detailedContentEnabled: $detailedContentEnabled, ')
           ..write('detailedShowTitle: $detailedShowTitle, ')
           ..write('detailedShowDescription: $detailedShowDescription, ')
           ..write('detailedShowTime: $detailedShowTime, ')
@@ -39418,6 +39479,7 @@ typedef $$NotificationPreferencesTableCreateCompanionBuilder =
       Value<bool> quietHoursEnabled,
       Value<int?> quietStartMinute,
       Value<int?> quietEndMinute,
+      Value<bool> detailedContentEnabled,
       Value<bool> detailedShowTitle,
       Value<bool> detailedShowDescription,
       Value<bool> detailedShowTime,
@@ -39441,6 +39503,7 @@ typedef $$NotificationPreferencesTableUpdateCompanionBuilder =
       Value<bool> quietHoursEnabled,
       Value<int?> quietStartMinute,
       Value<int?> quietEndMinute,
+      Value<bool> detailedContentEnabled,
       Value<bool> detailedShowTitle,
       Value<bool> detailedShowDescription,
       Value<bool> detailedShowTime,
@@ -39549,6 +39612,11 @@ class $$NotificationPreferencesTableFilterComposer
 
   ColumnFilters<int> get quietEndMinute => $composableBuilder(
     column: $table.quietEndMinute,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get detailedContentEnabled => $composableBuilder(
+    column: $table.detailedContentEnabled,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -39677,6 +39745,11 @@ class $$NotificationPreferencesTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<bool> get detailedContentEnabled => $composableBuilder(
+    column: $table.detailedContentEnabled,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<bool> get detailedShowTitle => $composableBuilder(
     column: $table.detailedShowTitle,
     builder: (column) => ColumnOrderings(column),
@@ -39802,6 +39875,11 @@ class $$NotificationPreferencesTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<bool> get detailedContentEnabled => $composableBuilder(
+    column: $table.detailedContentEnabled,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<bool> get detailedShowTitle => $composableBuilder(
     column: $table.detailedShowTitle,
     builder: (column) => column,
@@ -39910,6 +39988,7 @@ class $$NotificationPreferencesTableTableManager
                 Value<bool> quietHoursEnabled = const Value.absent(),
                 Value<int?> quietStartMinute = const Value.absent(),
                 Value<int?> quietEndMinute = const Value.absent(),
+                Value<bool> detailedContentEnabled = const Value.absent(),
                 Value<bool> detailedShowTitle = const Value.absent(),
                 Value<bool> detailedShowDescription = const Value.absent(),
                 Value<bool> detailedShowTime = const Value.absent(),
@@ -39932,6 +40011,7 @@ class $$NotificationPreferencesTableTableManager
                 quietHoursEnabled: quietHoursEnabled,
                 quietStartMinute: quietStartMinute,
                 quietEndMinute: quietEndMinute,
+                detailedContentEnabled: detailedContentEnabled,
                 detailedShowTitle: detailedShowTitle,
                 detailedShowDescription: detailedShowDescription,
                 detailedShowTime: detailedShowTime,
@@ -39957,6 +40037,7 @@ class $$NotificationPreferencesTableTableManager
                 Value<bool> quietHoursEnabled = const Value.absent(),
                 Value<int?> quietStartMinute = const Value.absent(),
                 Value<int?> quietEndMinute = const Value.absent(),
+                Value<bool> detailedContentEnabled = const Value.absent(),
                 Value<bool> detailedShowTitle = const Value.absent(),
                 Value<bool> detailedShowDescription = const Value.absent(),
                 Value<bool> detailedShowTime = const Value.absent(),
@@ -39979,6 +40060,7 @@ class $$NotificationPreferencesTableTableManager
                 quietHoursEnabled: quietHoursEnabled,
                 quietStartMinute: quietStartMinute,
                 quietEndMinute: quietEndMinute,
+                detailedContentEnabled: detailedContentEnabled,
                 detailedShowTitle: detailedShowTitle,
                 detailedShowDescription: detailedShowDescription,
                 detailedShowTime: detailedShowTime,

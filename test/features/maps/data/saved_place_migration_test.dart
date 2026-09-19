@@ -6,7 +6,7 @@ import 'package:sqlite3/sqlite3.dart';
 import '../../../support/test_dependencies.dart';
 
 void main() {
-  test('v33 to current (v47) adds Saved Place customization + boundary '
+  test('v33 to current (v48) adds Saved Place customization + boundary '
       'columns without losing profile data', () async {
     final sqlite = sqlite3.openInMemory();
     try {
@@ -30,9 +30,10 @@ void main() {
       expect(
         (await version35.customSelect('PRAGMA user_version').getSingle())
             .read<int>('user_version'),
-        // The current application schema is v47. This path must preserve the
-        // Saved Place migration contract through every later additive upgrade.
-        47,
+        // The current application schema is v48 (the owner-authorized Detailed
+        // Content master). This path must preserve the Saved Place migration
+        // contract through every later additive upgrade.
+        48,
       );
       await version35.close();
     } finally {

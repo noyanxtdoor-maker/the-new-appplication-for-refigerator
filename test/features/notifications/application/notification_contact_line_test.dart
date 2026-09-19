@@ -427,6 +427,98 @@ void main() {
     );
   });
 
+  group(
+    'the Detailed Content master suppresses detail, never configuration',
+    () {
+      test(
+        'Case B / P2 — master OFF delivers the neutral Generic copy',
+        () async {
+          await seedContact(id: 'contact-juan', name: 'Juan Dela Cruz');
+          await attachEventContact('contact-juan');
+          await foundation.saveDetailedContent(
+            profileId: profileId,
+            preferences: const DetailedContentPreferences(enabled: false),
+          );
+
+          final snapshot = await readEvent();
+          expect(
+            snapshot.showDetails,
+            isTrue,
+            reason:
+                'privacy still permits detail; the master is what forbids it',
+          );
+          expect(snapshot.detailOptions.isEmpty, isTrue);
+          expect(render(snapshot), ReminderNotificationRenderer.generic);
+          expect(render(snapshot).body, isNot(contains('Juan Dela Cruz')));
+        },
+      );
+
+      test(
+        'C4 — master OFF conceals contacts even with Show contacts ON',
+        () async {
+          await seedContact(id: 'contact-juan', name: 'Juan Dela Cruz');
+          await attachEventContact('contact-juan');
+          await foundation.saveDetailedContent(
+            profileId: profileId,
+            preferences: const DetailedContentPreferences(enabled: false),
+          );
+
+          final stored = await foundation.readDetailedContent(
+            profileId: profileId,
+          );
+          expect(
+            stored.showContacts,
+            isTrue,
+            reason: 'the owner never turned Show contacts off',
+          );
+          expect(
+            render(await readEvent()).body,
+            isNot(contains('Juan Dela Cruz')),
+          );
+        },
+      );
+
+      test(
+        'P8 — a master off/on round trip returns the field choices',
+        () async {
+          await foundation.saveDetailedContent(
+            profileId: profileId,
+            preferences: const DetailedContentPreferences(showLocation: false),
+          );
+          final before = await foundation.readDetailedContent(
+            profileId: profileId,
+          );
+
+          await foundation.saveDetailedContent(
+            profileId: profileId,
+            preferences: before.copyWith(enabled: false),
+          );
+          final off = await foundation.readDetailedContent(
+            profileId: profileId,
+          );
+          expect(off.enabled, isFalse);
+          expect(
+            off.showLocation,
+            isFalse,
+            reason: 'the master must not rewrite the field switches',
+          );
+
+          final back = await foundation.saveDetailedContent(
+            profileId: profileId,
+            preferences: off.copyWith(enabled: true),
+          );
+          expect(back.enabled, isTrue);
+          expect(
+            back.showLocation,
+            isFalse,
+            reason: "the owner's own choice returns; it is not reset to true",
+          );
+          expect(back.showTitle, isTrue);
+        },
+      );
+    },
+  );
+
   group('the canonical renderer still gates each field independently', () {
     RenderedReminder preview(ReminderDetailOptions options) =>
         buildDetailedPreview(

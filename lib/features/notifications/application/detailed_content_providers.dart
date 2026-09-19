@@ -43,8 +43,9 @@ final detailedContentPreferencesProvider =
     });
 
 /// Writes the five options.
-final detailedContentControllerProvider =
-    Provider<DetailedContentController>(DetailedContentController.new);
+final detailedContentControllerProvider = Provider<DetailedContentController>(
+  DetailedContentController.new,
+);
 
 final class DetailedContentController {
   const DetailedContentController(this._ref);
@@ -60,6 +61,16 @@ final class DetailedContentController {
         .saveDetailedContent(profileId: profileId, preferences: next);
     _ref.invalidate(detailedContentPreferencesProvider);
   }
+
+  /// Toggles the DETAILED CONTENT MASTER, preserving all five fields.
+  ///
+  /// The master is separate storage precisely so this write cannot touch the
+  /// owner's field choices: turning detail off and back on must return exactly
+  /// the configuration that was there before.
+  Future<void> setEnabled({
+    required DetailedContentPreferences current,
+    required bool enabled,
+  }) => save(current.copyWith(enabled: enabled));
 
   /// Toggles ONE field, preserving the other four.
   Future<void> setField({

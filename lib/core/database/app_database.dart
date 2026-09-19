@@ -255,6 +255,23 @@ class NotificationPreferences extends Table {
   // preferences therefore belong here, in typed columns, alongside every other
   // notification preference.
   //
+  // v48 — the DETAILED CONTENT MASTER (owner pass 2026-09-19, item E).
+  //
+  // The five per-field switches below answer "which details?", but nothing
+  // answered "may any detail be previewed at all?".  The saved privacy preview
+  // already gates delivery, yet the screen still presented those five as live
+  // choices.  This is the missing master, and it is deliberately a SEPARATE
+  // column rather than "all five off": turning the master off must force the
+  // generic copy while the owner's own field choices are preserved untouched,
+  // and must return them when it is switched back on.  Modelling OFF as five
+  // falses would destroy that configuration, which is exactly the data loss the
+  // per-field columns were introduced to stop.
+  //
+  // DEFAULT LAW: TRUE, so a profile that never touches it keeps the richest
+  // Detailed behaviour and an upgrading profile is unaffected.
+  BoolColumn get detailedContentEnabled =>
+      boolean().withDefault(const Constant(true))();
+
   // DEFAULT LAW: all five default to TRUE. A profile that has never touched
   // these settings keeps the richest Detailed behaviour and keeps the exact
   // pre-options behaviour on upgrade.
@@ -1412,7 +1429,9 @@ final class AppDatabase extends _$AppDatabase {
       _injectSavedPlaceCustomizationMigrationFailure = false,
       _injectMapsPreferencesMigrationFailure = false,
       _injectNotificationFoundationMigrationFailure = false,
-      super(driftDatabase(name: 'next_transfer', native: kAppDatabaseNativeOptions));
+      super(
+        driftDatabase(name: 'next_transfer', native: kAppDatabaseNativeOptions),
+      );
 
   AppDatabase.forTesting(
     super.executor, {
@@ -1473,7 +1492,7 @@ final class AppDatabase extends _$AppDatabase {
   final bool _injectNotificationFoundationMigrationFailure;
 
   @override
-  int get schemaVersion => _schemaVersionOverride ?? 47;
+  int get schemaVersion => _schemaVersionOverride ?? 48;
 
   @override
   MigrationStrategy get migration {
@@ -2559,10 +2578,7 @@ final class AppDatabase extends _$AppDatabase {
                   notificationPreferences.detailedShowLocation,
             };
             for (final entry in detailedColumns.entries) {
-              if (!await _columnExists(
-                'notification_preferences',
-                entry.key,
-              )) {
+              if (!await _columnExists('notification_preferences', entry.key)) {
                 await migrator.addColumn(notificationPreferences, entry.value);
               }
             }
@@ -2570,6 +2586,31 @@ final class AppDatabase extends _$AppDatabase {
             // existing row the default (TRUE) without a second write, and a
             // profile with no notification_preferences row stays absent until
             // the app first saves — exactly as before.
+          }
+          if (from < 48 && to >= 48) {
+            // v48 — the DETAILED CONTENT MASTER. Additive and boolean-only,
+            // exactly like the v47 repair: one typed column on the EXISTING
+            // notification_preferences row, no INSERT/UPDATE/DELETE, no
+            // backfill of any other column, so no Event, Task, Contact, Goal,
+            // Planner, Privacy or other notification value can be affected.
+            //
+            // The default is TRUE, so an upgrading profile keeps precisely the
+            // behaviour it had: detail was permitted before this column existed
+            // and remains permitted.  Existing per-field choices are untouched,
+            // which is the whole reason the master is its own column.
+            //
+            // Same idempotency guard as v47: a database that already carries
+            // the column (for example a v48 image restored as v47) must not
+            // throw a duplicate-column exception and strand Startup loading.
+            if (!await _columnExists(
+              'notification_preferences',
+              'detailed_content_enabled',
+            )) {
+              await migrator.addColumn(
+                notificationPreferences,
+                notificationPreferences.detailedContentEnabled,
+              );
+            }
           }
         });
       },

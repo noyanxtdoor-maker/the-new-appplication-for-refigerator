@@ -58,17 +58,20 @@ void main() {
   // ---------------------------------------------------------------------------
   // PERSIST-6 — fresh v47 profile defaults all five TRUE
   // ---------------------------------------------------------------------------
-  test('PERSIST-6 fresh profile defaults all five Detailed fields TRUE', () async {
-    final database = await open();
-    final profileId = await seedProfile(database);
-    final read = await storeFor(database).read(profileId);
+  test(
+    'PERSIST-6 fresh profile defaults all five Detailed fields TRUE',
+    () async {
+      final database = await open();
+      final profileId = await seedProfile(database);
+      final read = await storeFor(database).read(profileId);
 
-    expect(read.showTitle, isTrue);
-    expect(read.showDescription, isTrue);
-    expect(read.showTime, isTrue);
-    expect(read.showContacts, isTrue);
-    expect(read.showLocation, isTrue);
-  });
+      expect(read.showTitle, isTrue);
+      expect(read.showDescription, isTrue);
+      expect(read.showTime, isTrue);
+      expect(read.showContacts, isTrue);
+      expect(read.showLocation, isTrue);
+    },
+  );
 
   // ---------------------------------------------------------------------------
   // PERSIST-7 — save each combination and read back exact values
@@ -122,34 +125,39 @@ void main() {
   // ---------------------------------------------------------------------------
   // PERSIST-9 — Event Color write must not disturb the five values
   // ---------------------------------------------------------------------------
-  test('PERSIST-9 Event Color write leaves the five values untouched', () async {
-    final database = await open();
-    final profileId = await seedProfile(database);
-    final store = storeFor(database);
-    await store.write(profileId, mixed);
+  test(
+    'PERSIST-9 Event Color write leaves the five values untouched',
+    () async {
+      final database = await open();
+      final profileId = await seedProfile(database);
+      final store = storeFor(database);
+      await store.write(profileId, mixed);
 
-    await PlannerPresentationDocumentStore(database: database, clock: clock)
-        .update(profileId, (current) async {
-          final events = Map<String, EventColorPreference>.from(
-            current.document.events,
-          );
-          events['someEventTypeId'] = const EventColorPreference(
-            accentArgb: 0xFF112233,
-            surfaceArgb: 0xFF445566,
-          );
-          return PlannerColorPreferencesDocument(
-            events: events,
-            groups: current.document.groups,
-            goalEventTypeNames: current.document.goalEventTypeNames,
-          );
-        });
+      await PlannerPresentationDocumentStore(
+        database: database,
+        clock: clock,
+      ).update(profileId, (current) async {
+        final events = Map<String, EventColorPreference>.from(
+          current.document.events,
+        );
+        events['someEventTypeId'] = const EventColorPreference(
+          accentArgb: 0xFF112233,
+          surfaceArgb: 0xFF445566,
+        );
+        return PlannerColorPreferencesDocument(
+          events: events,
+          groups: current.document.groups,
+          goalEventTypeNames: current.document.goalEventTypeNames,
+        );
+      });
 
-    expect(
-      await store.read(profileId),
-      mixed,
-      reason: 'an Event Color save must never change notification settings',
-    );
-  });
+      expect(
+        await store.read(profileId),
+        mixed,
+        reason: 'an Event Color save must never change notification settings',
+      );
+    },
+  );
 
   // ---------------------------------------------------------------------------
   // PERSIST-10 — Contact Group colour save must not disturb them
@@ -172,25 +180,28 @@ void main() {
   // ---------------------------------------------------------------------------
   // PERSIST-11 — Restore Event Color defaults must not disturb them
   // ---------------------------------------------------------------------------
-  test('PERSIST-11 restore Event Color defaults leaves them untouched', () async {
-    final database = await open();
-    final profileId = await seedProfile(database);
-    final store = storeFor(database);
-    await store.write(profileId, mixed);
+  test(
+    'PERSIST-11 restore Event Color defaults leaves them untouched',
+    () async {
+      final database = await open();
+      final profileId = await seedProfile(database);
+      final store = storeFor(database);
+      await store.write(profileId, mixed);
 
-    final repo = DriftEventTypeRepository(database: database, clock: clock);
-    await repo.saveEventColorPreference(
-      profileId: profileId,
-      eventTypeStableKey: 'some-event-type',
-      preference: const EventColorPreference(
-        accentArgb: 0xFF123456,
-        surfaceArgb: 0xFF123457,
-      ),
-    );
-    await repo.restoreEventColorDefaults(profileId: profileId);
+      final repo = DriftEventTypeRepository(database: database, clock: clock);
+      await repo.saveEventColorPreference(
+        profileId: profileId,
+        eventTypeStableKey: 'some-event-type',
+        preference: const EventColorPreference(
+          accentArgb: 0xFF123456,
+          surfaceArgb: 0xFF123457,
+        ),
+      );
+      await repo.restoreEventColorDefaults(profileId: profileId);
 
-    expect(await store.read(profileId), mixed);
-  });
+      expect(await store.read(profileId), mixed);
+    },
+  );
 
   // ---------------------------------------------------------------------------
   // PERSIST-12 — savePlannerSettings must not disturb them
@@ -214,101 +225,111 @@ void main() {
   // ---------------------------------------------------------------------------
   // PERSIST-13 — Notification-detail save must not alter Event Color JSON
   // ---------------------------------------------------------------------------
-  test('PERSIST-13 notification save does not alter Event Color data', () async {
-    final database = await open();
-    final profileId = await seedProfile(database);
-    final store = storeFor(database);
-    final presentation = PlannerPresentationDocumentStore(
-      database: database,
-      clock: clock,
-    );
-
-    await presentation.update(profileId, (current) async {
-      final events = Map<String, EventColorPreference>.from(
-        current.document.events,
+  test(
+    'PERSIST-13 notification save does not alter Event Color data',
+    () async {
+      final database = await open();
+      final profileId = await seedProfile(database);
+      final store = storeFor(database);
+      final presentation = PlannerPresentationDocumentStore(
+        database: database,
+        clock: clock,
       );
-      events['keep-me'] = const EventColorPreference(
-        accentArgb: 0xFFAABBCC,
-        surfaceArgb: 0xFFDDEEFF,
-      );
-      return PlannerColorPreferencesDocument(
-        events: events,
-        groups: const <String, int>{'g1': 0xFF010203},
-        goalEventTypeNames: current.document.goalEventTypeNames,
-      );
-    });
 
-    final colorsBefore = await presentation.read(profileId);
+      await presentation.update(profileId, (current) async {
+        final events = Map<String, EventColorPreference>.from(
+          current.document.events,
+        );
+        events['keep-me'] = const EventColorPreference(
+          accentArgb: 0xFFAABBCC,
+          surfaceArgb: 0xFFDDEEFF,
+        );
+        return PlannerColorPreferencesDocument(
+          events: events,
+          groups: const <String, int>{'g1': 0xFF010203},
+          goalEventTypeNames: current.document.goalEventTypeNames,
+        );
+      });
 
-    await store.write(profileId, mixed);
+      final colorsBefore = await presentation.read(profileId);
 
-    final colorsAfter = await presentation.read(profileId);
-    expect(colorsAfter.events, colorsBefore.events);
-    expect(colorsAfter.groups, colorsBefore.groups);
-  });
+      await store.write(profileId, mixed);
+
+      final colorsAfter = await presentation.read(profileId);
+      expect(colorsAfter.events, colorsBefore.events);
+      expect(colorsAfter.groups, colorsBefore.groups);
+    },
+  );
 
   // ---------------------------------------------------------------------------
   // PERSIST-14 — Notification-detail save must not alter unrelated
   //              PlannerPreferences values
   // ---------------------------------------------------------------------------
-  test('PERSIST-14 notification save leaves unrelated planner columns alone',
-      () async {
-    final database = await open();
-    final profileId = await seedProfile(database);
-    final store = storeFor(database);
+  test(
+    'PERSIST-14 notification save leaves unrelated planner columns alone',
+    () async {
+      final database = await open();
+      final profileId = await seedProfile(database);
+      final store = storeFor(database);
 
-    final planner = DriftEventTypeRepository(database: database, clock: clock);
-    final settings = await planner.readPlannerSettings(profileId: profileId);
-    await planner.savePlannerSettings(
-      profileId: profileId,
-      settings: settings.copyWith(defaultDurationMinutes: 30),
-    );
+      final planner = DriftEventTypeRepository(
+        database: database,
+        clock: clock,
+      );
+      final settings = await planner.readPlannerSettings(profileId: profileId);
+      await planner.savePlannerSettings(
+        profileId: profileId,
+        settings: settings.copyWith(defaultDurationMinutes: 30),
+      );
 
-    final rowBefore =
-        await (database.select(database.plannerPreferences)
-              ..where((t) => t.profileId.equals(profileId)))
-            .getSingle();
-    final eventColorBefore = rowBefore.eventColorPreferencesJson;
+      final rowBefore = await (database.select(
+        database.plannerPreferences,
+      )..where((t) => t.profileId.equals(profileId))).getSingle();
+      final eventColorBefore = rowBefore.eventColorPreferencesJson;
 
-    await store.write(profileId, mixed);
+      await store.write(profileId, mixed);
 
-    final rowAfter =
-        await (database.select(database.plannerPreferences)
-              ..where((t) => t.profileId.equals(profileId)))
-            .getSingle();
-    expect(rowAfter.eventColorPreferencesJson, eventColorBefore);
-    final plannerAfter = await planner.readPlannerSettings(profileId: profileId);
-    expect(plannerAfter, isA<PlannerSettings>());
-    expect(plannerAfter.defaultDurationMinutes, 30);
-  });
+      final rowAfter = await (database.select(
+        database.plannerPreferences,
+      )..where((t) => t.profileId.equals(profileId))).getSingle();
+      expect(rowAfter.eventColorPreferencesJson, eventColorBefore);
+      final plannerAfter = await planner.readPlannerSettings(
+        profileId: profileId,
+      );
+      expect(plannerAfter, isA<PlannerSettings>());
+      expect(plannerAfter.defaultDurationMinutes, 30);
+    },
+  );
 
   // ---------------------------------------------------------------------------
   // PERSIST-15 — M2 CORRECTION: Privacy Lock never affects content; the saved
   // five values survive unchanged
   // ---------------------------------------------------------------------------
-  test('PERSIST-15 lock state is irrelevant to content; saved choices kept',
-      () async {
-    final database = await open();
-    final profileId = await seedProfile(database);
-    final store = storeFor(database);
-    await store.write(profileId, mixed);
+  test(
+    'PERSIST-15 lock state is irrelevant to content; saved choices kept',
+    () async {
+      final database = await open();
+      final profileId = await seedProfile(database);
+      final store = storeFor(database);
+      await store.write(profileId, mixed);
 
-    // M2 owner correction Issue 1: the renderer no longer has any lock
-    // input; the saved options render per-field exactly as saved.  The
-    // `mixed` fixture has showTitle OFF, so the title is the generic
-    // fallback while the enabled time field still renders.
-    final rendered = ReminderNotificationRenderer.eventDetailed(
-      eventTitle: 'Private dental appointment',
-      startDisplay: DateTime.utc(2026, 9, 12, 9),
-      options: mixed.toOptions(),
-    );
-    expect(rendered.title, ReminderNotificationRenderer.genericTitle);
-    expect(rendered.body, 'Upcoming event');
-    expect(rendered.body, isNot(ReminderNotificationRenderer.genericBody));
+      // M2 owner correction Issue 1: the renderer no longer has any lock
+      // input; the saved options render per-field exactly as saved.  The
+      // `mixed` fixture has showTitle OFF, so the title is the generic
+      // fallback while the enabled time field still renders.
+      final rendered = ReminderNotificationRenderer.eventDetailed(
+        eventTitle: 'Private dental appointment',
+        startDisplay: DateTime.utc(2026, 9, 12, 9),
+        options: mixed.toOptions(),
+      );
+      expect(rendered.title, ReminderNotificationRenderer.genericTitle);
+      expect(rendered.body, 'Upcoming event');
+      expect(rendered.body, isNot(ReminderNotificationRenderer.genericBody));
 
-    // The store must NOT have cleared the owner's saved Detailed choices.
-    expect(await store.read(profileId), mixed);
-  });
+      // The store must NOT have cleared the owner's saved Detailed choices.
+      expect(await store.read(profileId), mixed);
+    },
+  );
 
   // ---------------------------------------------------------------------------
   // PERSIST-16 — all five OFF yields the exact Generic fallback
@@ -365,19 +386,21 @@ void main() {
   // ---------------------------------------------------------------------------
   // PERSIST-18 — no private content enters durable worker input
   // ---------------------------------------------------------------------------
-  test('PERSIST-18 durable worker input carries no private display strings',
-      () async {
-    final database = await open();
-    final profileId = await seedProfile(database);
-    await storeFor(database).write(profileId, mixed);
+  test(
+    'PERSIST-18 durable worker input carries no private display strings',
+    () async {
+      final database = await open();
+      final profileId = await seedProfile(database);
+      await storeFor(database).write(profileId, mixed);
 
-    // Nothing about the Detailed options may appear in the durable work
-    // projection: only a boolean policy, never a title/notes/contact/location.
-    final rows = await database.select(database.backgroundWorkRequests).get();
-    final serialized = rows.map((row) => row.toString()).join('\n');
-    expect(serialized, isNot(contains('showDescription')));
-    expect(serialized, isNot(contains('showLocation')));
-  });
+      // Nothing about the Detailed options may appear in the durable work
+      // projection: only a boolean policy, never a title/notes/contact/location.
+      final rows = await database.select(database.backgroundWorkRequests).get();
+      final serialized = rows.map((row) => row.toString()).join('\n');
+      expect(serialized, isNot(contains('showDescription')));
+      expect(serialized, isNot(contains('showLocation')));
+    },
+  );
 
   // ---------------------------------------------------------------------------
   // FORENSIC REGRESSION — the exact previously-reproduced unsafe sequence
@@ -441,81 +464,89 @@ void main() {
   // ---------------------------------------------------------------------------
   // MIGRATION — v46 -> v47
   // ---------------------------------------------------------------------------
-  test('PERSIST-1 v46 notification_preferences row migrates to v47', () async {
-    final sqlite = sqlite3.openInMemory();
-    try {
-      final v46 = AppDatabase.forTesting(
-        NativeDatabase.opened(sqlite, closeUnderlyingOnClose: false),
-        schemaVersionOverride: 46,
-      );
-      final profileId = await seedProfile(v46);
-      // Give the row non-default values so the migration cannot be confused
-      // with a fresh insert.
-      await v46
-          .into(v46.notificationPreferences)
-          .insertOnConflictUpdate(
-            NotificationPreferencesCompanion.insert(
-              profileId: profileId,
-              systemNotificationsEnabled: const Value(true),
-              eventRemindersEnabled: const Value(true),
-              taskRemindersEnabled: const Value(false),
-              weeklyReviewRemindersEnabled: const Value(true),
-              awaitingReportRemindersEnabled: const Value(false),
-              goalCompletionNotificationsEnabled: const Value(true),
-              inAppGoalCelebrationsEnabled: const Value(false),
-              defaultTaskReminderMinutes: const Value(25),
-              snoozeDurationMinutes: const Value(15),
-              quietHoursEnabled: const Value(true),
-              quietStartMinute: const Value(1320),
-              quietEndMinute: const Value(420),
-              updatedAtUtc: DateTime.utc(2026, 9, 10, 8),
-            ),
-          );
-      await v46.close();
+  test(
+    'PERSIST-1 v46 notification_preferences row migrates to current',
+    () async {
+      final sqlite = sqlite3.openInMemory();
+      try {
+        final v46 = AppDatabase.forTesting(
+          NativeDatabase.opened(sqlite, closeUnderlyingOnClose: false),
+          schemaVersionOverride: 46,
+        );
+        final profileId = await seedProfile(v46);
+        // Give the row non-default values so the migration cannot be confused
+        // with a fresh insert.
+        await v46
+            .into(v46.notificationPreferences)
+            .insertOnConflictUpdate(
+              NotificationPreferencesCompanion.insert(
+                profileId: profileId,
+                systemNotificationsEnabled: const Value(true),
+                eventRemindersEnabled: const Value(true),
+                taskRemindersEnabled: const Value(false),
+                weeklyReviewRemindersEnabled: const Value(true),
+                awaitingReportRemindersEnabled: const Value(false),
+                goalCompletionNotificationsEnabled: const Value(true),
+                inAppGoalCelebrationsEnabled: const Value(false),
+                defaultTaskReminderMinutes: const Value(25),
+                snoozeDurationMinutes: const Value(15),
+                quietHoursEnabled: const Value(true),
+                quietStartMinute: const Value(1320),
+                quietEndMinute: const Value(420),
+                updatedAtUtc: DateTime.utc(2026, 9, 10, 8),
+              ),
+            );
+        await v46.close();
 
-      final v47 = AppDatabase.forTesting(
-        NativeDatabase.opened(sqlite, closeUnderlyingOnClose: false),
-      );
-      expect(
-        (await v47.customSelect('PRAGMA user_version').getSingle())
-            .read<int>('user_version'),
-        47,
-        reason: 'the repaired schema must report v47',
-      );
+        final v47 = AppDatabase.forTesting(
+          NativeDatabase.opened(sqlite, closeUnderlyingOnClose: false),
+        );
+        expect(
+          (await v47.customSelect('PRAGMA user_version').getSingle()).read<int>(
+            'user_version',
+          ),
+          48,
+          reason:
+              'the repaired schema must report the CURRENT schema (v48 since the '
+              'owner-authorized Detailed Content master)',
+        );
 
-      final row =
-          await (v47.select(v47.notificationPreferences)
-                ..where((t) => t.profileId.equals(profileId)))
-              .getSingle();
+        final row = await (v47.select(
+          v47.notificationPreferences,
+        )..where((t) => t.profileId.equals(profileId))).getSingle();
 
-      // PERSIST-2 — all five new values TRUE
-      expect(row.detailedShowTitle, isTrue);
-      expect(row.detailedShowDescription, isTrue);
-      expect(row.detailedShowTime, isTrue);
-      expect(row.detailedShowContacts, isTrue);
-      expect(row.detailedShowLocation, isTrue);
+        // PERSIST-2 — all five new values TRUE
+        expect(row.detailedShowTitle, isTrue);
+        expect(row.detailedShowDescription, isTrue);
+        expect(row.detailedShowTime, isTrue);
+        expect(row.detailedShowContacts, isTrue);
+        expect(row.detailedShowLocation, isTrue);
 
-      // PERSIST-3 — pre-existing values survive exactly
-      expect(row.systemNotificationsEnabled, isTrue);
-      expect(row.eventRemindersEnabled, isTrue);
-      expect(row.taskRemindersEnabled, isFalse);
-      expect(row.weeklyReviewRemindersEnabled, isTrue);
-      expect(row.awaitingReportRemindersEnabled, isFalse);
-      expect(row.goalCompletionNotificationsEnabled, isTrue);
-      expect(row.inAppGoalCelebrationsEnabled, isFalse);
-      expect(row.defaultTaskReminderMinutes, 25);
-      expect(row.snoozeDurationMinutes, 15);
-      expect(row.quietHoursEnabled, isTrue);
-      expect(row.quietStartMinute, 1320);
-      expect(row.quietEndMinute, 420);
+        // PERSIST-3 — pre-existing values survive exactly
+        expect(row.systemNotificationsEnabled, isTrue);
+        expect(row.eventRemindersEnabled, isTrue);
+        expect(row.taskRemindersEnabled, isFalse);
+        expect(row.weeklyReviewRemindersEnabled, isTrue);
+        expect(row.awaitingReportRemindersEnabled, isFalse);
+        expect(row.goalCompletionNotificationsEnabled, isTrue);
+        expect(row.inAppGoalCelebrationsEnabled, isFalse);
+        expect(row.defaultTaskReminderMinutes, 25);
+        expect(row.snoozeDurationMinutes, 15);
+        expect(row.quietHoursEnabled, isTrue);
+        expect(row.quietStartMinute, 1320);
+        expect(row.quietEndMinute, 420);
 
-      // PERSIST-5 — no duplicate row
-      expect(await v47.select(v47.notificationPreferences).get(), hasLength(1));
-      await v47.close();
-    } finally {
-      sqlite.close();
-    }
-  });
+        // PERSIST-5 — no duplicate row
+        expect(
+          await v47.select(v47.notificationPreferences).get(),
+          hasLength(1),
+        );
+        await v47.close();
+      } finally {
+        sqlite.close();
+      }
+    },
+  );
 
   test('PERSIST-4 privacy settings survive the migration', () async {
     final sqlite = sqlite3.openInMemory();
@@ -573,7 +604,9 @@ void main() {
           );
 
       Future<int> count(AppDatabase db, String table) async =>
-          (await db.customSelect('SELECT COUNT(*) AS c FROM $table').getSingle())
+          (await db
+                  .customSelect('SELECT COUNT(*) AS c FROM $table')
+                  .getSingle())
               .read<int>('c');
 
       const tables = <String>[

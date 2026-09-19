@@ -467,6 +467,11 @@ final class _DetailedContentCard extends ConsumerWidget {
   /// The privacy layer is the outer gate, so both must permit it.
   bool get _detailsEffective => systemEnabled && privacyPreviewEnabled;
 
+  /// Whether a field switch may be changed: the outer gates must permit detail
+  /// AND the owner's own master must be on.
+  bool _fieldsSelectable(DetailedContentPreferences stored) =>
+      _detailsEffective && stored.enabled;
+
   /// Representative sample used by the live preview.
   ///
   /// It is deliberately fixed, not read from the database: the preview must
@@ -496,10 +501,24 @@ final class _DetailedContentCard extends ConsumerWidget {
             child: Center(child: CircularProgressIndicator()),
           )
         else ...<Widget>[
+          // The MASTER.  Above the five fields because it decides whether any
+          // of them is previewed at all, and separate from them because turning
+          // it off must not erase what they say.
+          SwitchListTile(
+            key: const Key('notifications-detailed-master'),
+            title: const Text('Detailed content'),
+            value: _detailsEffective && stored.enabled,
+            onChanged: _detailsEffective
+                ? (enabled) => ref
+                      .read(detailedContentControllerProvider)
+                      .setEnabled(current: stored, enabled: enabled)
+                : null,
+          ),
+          const Divider(height: 1),
           _DetailedToggle(
             key: const Key('notifications-detailed-title'),
             title: 'Show title',
-            enabled: _detailsEffective,
+            enabled: _fieldsSelectable(stored),
             value: stored.showTitle,
             onChanged: (value) => ref
                 .read(detailedContentControllerProvider)
@@ -509,7 +528,7 @@ final class _DetailedContentCard extends ConsumerWidget {
           _DetailedToggle(
             key: const Key('notifications-detailed-description'),
             title: 'Show description',
-            enabled: _detailsEffective,
+            enabled: _fieldsSelectable(stored),
             value: stored.showDescription,
             onChanged: (value) => ref
                 .read(detailedContentControllerProvider)
@@ -519,7 +538,7 @@ final class _DetailedContentCard extends ConsumerWidget {
           _DetailedToggle(
             key: const Key('notifications-detailed-time'),
             title: 'Show time',
-            enabled: _detailsEffective,
+            enabled: _fieldsSelectable(stored),
             value: stored.showTime,
             onChanged: (value) => ref
                 .read(detailedContentControllerProvider)
@@ -529,7 +548,7 @@ final class _DetailedContentCard extends ConsumerWidget {
           _DetailedToggle(
             key: const Key('notifications-detailed-contacts'),
             title: 'Show contacts',
-            enabled: _detailsEffective,
+            enabled: _fieldsSelectable(stored),
             value: stored.showContacts,
             onChanged: (value) => ref
                 .read(detailedContentControllerProvider)
@@ -539,7 +558,7 @@ final class _DetailedContentCard extends ConsumerWidget {
           _DetailedToggle(
             key: const Key('notifications-detailed-location'),
             title: 'Show location',
-            enabled: _detailsEffective,
+            enabled: _fieldsSelectable(stored),
             value: stored.showLocation,
             onChanged: (value) => ref
                 .read(detailedContentControllerProvider)
@@ -565,7 +584,7 @@ final class _DetailedContentCard extends ConsumerWidget {
                 // delivered: the preview must not present content as actively
                 // deliverable, but the owner's law is that the Preview stays.
                 Opacity(
-                  opacity: _detailsEffective ? 1 : 0.45,
+                  opacity: _fieldsSelectable(stored) ? 1 : 0.45,
                   child: _DetailedPreview(
                     key: const Key('notifications-detailed-preview'),
                     options: options,

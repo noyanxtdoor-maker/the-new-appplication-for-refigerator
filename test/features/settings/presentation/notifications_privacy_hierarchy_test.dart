@@ -245,6 +245,73 @@ void main() {
   );
 
   testWidgets(
+    'S4 — the master OFF makes every field row read off and non-interactive',
+    (tester) async {
+      await buildContainer(privacyPreview: true);
+      await repository.saveDetailedContent(
+        profileId: profileId,
+        preferences: const DetailedContentPreferences(enabled: false),
+      );
+      await pumpScreen(tester);
+      await enableSystemMaster(tester);
+      await scrollTo(tester, const Key('notifications-detailed-master'));
+
+      expect(
+        tester
+            .widget<SwitchListTile>(
+              find.byKey(const Key('notifications-detailed-master')),
+            )
+            .value,
+        isFalse,
+      );
+      for (final key in _detailedKeys) {
+        expect(detailed(tester, key).value, isFalse);
+        expect(detailed(tester, key).onChanged, isNull);
+      }
+    },
+  );
+
+  testWidgets(
+    'S7 — the master off/on round trip restores the field rows untouched',
+    (tester) async {
+      await buildContainer(privacyPreview: true);
+      await repository.saveDetailedContent(
+        profileId: profileId,
+        preferences: const DetailedContentPreferences(showLocation: false),
+      );
+      await pumpScreen(tester);
+      await enableSystemMaster(tester);
+
+      // The master is above the five fields; turning it off must disable them
+      // without erasing the saved location choice.
+      await scrollTo(tester, const Key('notifications-detailed-master'));
+      await tester.tap(find.byKey(const Key('notifications-detailed-master')));
+      await tester.pumpAndSettle();
+      expect(detailed(tester, _detailedKeys.first).onChanged, isNull);
+      expect(
+        await repository.readDetailedContent(profileId: profileId),
+        const DetailedContentPreferences(showLocation: false, enabled: false),
+        reason: 'turning the master off must not rewrite any field',
+      );
+
+      await tester.tap(find.byKey(const Key('notifications-detailed-master')));
+      await tester.pumpAndSettle();
+      await scrollTo(tester, _detailedKeys.last);
+      expect(
+        detailed(tester, _detailedKeys.last).value,
+        isFalse,
+        reason: "the owner's own location choice returns",
+      );
+      expect(
+        detailed(tester, _detailedKeys.first).value,
+        isTrue,
+        reason: 'a field that was never touched stays on',
+      );
+      expect(detailed(tester, _detailedKeys.first).onChanged, isNotNull);
+    },
+  );
+
+  testWidgets(
     'a private preview then a permitted preview returns the saved choices '
     'without restarting',
     (tester) async {

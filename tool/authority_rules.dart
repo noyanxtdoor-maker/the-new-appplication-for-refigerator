@@ -33,8 +33,14 @@ const int approvedMinSdk = 24;
 const int approvedCompileSdk = 36;
 const int approvedTargetSdk = 36;
 
-/// Frozen product law (M6): schema 47. Any other value is unauthorized.
-const int approvedSchemaVersion = 47;
+/// Frozen product law (M6): schema 47 through v0.1.1 build 3; schema 48 from
+/// the owner-authorized Detailed Content master pass (2026-09-19, item E).
+///
+/// v48 is additive only: one boolean column on the existing
+/// `notification_preferences` row, defaulted TRUE, with the same idempotency
+/// guard v47 established.  No table, no column removal, no data rewrite, and no
+/// new permission.  Any other value is unauthorized.
+const int approvedSchemaVersion = 48;
 
 /// The EXACT accepted Android permission set.
 ///
