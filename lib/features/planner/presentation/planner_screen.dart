@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:rmplanner/app/router/route_names.dart';
 import 'package:rmplanner/app/shell/global_drawer_controller.dart';
+import 'package:rmplanner/app/shell/planning_navigation.dart';
 import 'package:rmplanner/app/theme/app_theme.dart';
 import 'package:rmplanner/features/planner/application/calendar_event_creation_draft_provider.dart';
 import 'package:rmplanner/features/planner/application/calendar_event_providers.dart';
@@ -660,11 +661,14 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
                 icon: Icons.calendar_view_week_outlined,
                 selected: _presentation == PlannerPresentation.week,
               ),
+              // Owner law (2026-09-20): Tasks has exactly ONE canonical home.
+              // This row NAVIGATES to the canonical Tasks screen instead of
+              // switching the Planner into a second Tasks list, so it is never
+              // a selected presentation state.
               _OverflowEntry(
                 action: _PlannerOverflowAction.tasks,
                 label: 'Tasks',
                 icon: Icons.task_alt_outlined,
-                selected: _presentation == PlannerPresentation.tasks,
               ),
             ])
               _OverflowPopupRow(
@@ -817,11 +821,19 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
       }
       return;
     }
+    if (action == _PlannerOverflowAction.tasks) {
+      // Canonical Tasks screen (owner law, 2026-09-20).  The Planner is
+      // recorded as the back origin, so the screen's own back arrow returns
+      // here rather than anywhere else.  Nothing about the Planner's
+      // presentation is written: this row no longer has one.
+      openPlanningDestination(context, RoutePaths.tasks);
+      return;
+    }
     final presentation = switch (action) {
       _PlannerOverflowAction.schedule => PlannerPresentation.schedule,
       _PlannerOverflowAction.day => PlannerPresentation.day,
       _PlannerOverflowAction.week => PlannerPresentation.week,
-      _PlannerOverflowAction.tasks => PlannerPresentation.tasks,
+      _PlannerOverflowAction.tasks ||
       _PlannerOverflowAction.search => settings.preferredPresentation,
     };
     await _setPresentation(ref, settings, presentation);
@@ -1680,13 +1692,6 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
             settings: settings,
             onSelected: (date) =>
                 ref.read(plannerControllerProvider.notifier).selectDate(date),
-          ),
-          PlannerPresentation.tasks => _TasksPresentation(
-            days: days,
-            settings: settings,
-            selectionMode: _selectionMode,
-            selectedItems: _selectedItems,
-            onToggleTask: _toggleTaskSelection,
           ),
           PlannerPresentation.awaitingReports => _AwaitingPresentation(
             days: days,
@@ -7076,63 +7081,10 @@ final class _WeekPresentation extends StatelessWidget {
   }
 }
 
-final class _TasksPresentation extends StatelessWidget {
-  const _TasksPresentation({
-    required this.days,
-    required this.settings,
-    required this.selectionMode,
-    required this.selectedItems,
-    required this.onToggleTask,
-  });
-
-  final List<PlannerDay> days;
-  final PlannerSettings settings;
-  final bool selectionMode;
-  final Set<PlannerSelectionId> selectedItems;
-  final ValueChanged<PlannerTask> onToggleTask;
-
-  @override
-  Widget build(BuildContext context) {
-    final incomplete = <String, PlannerTask>{
-      for (final day in days)
-        for (final task in <PlannerTask>[...day.overdueTasks, ...day.tasks])
-          task.id: task,
-    }.values.toList(growable: false);
-    final completed = <String, PlannerTask>{
-      for (final day in days)
-        for (final task in day.completedTasks) task.id: task,
-    }.values.toList(growable: false);
-    return ListView(
-      key: const Key('planner-tasks-view'),
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
-      children: <Widget>[
-        const _ViewHeading('Incomplete'),
-        for (final task in incomplete) _taskTile(task),
-        const SizedBox(height: 18),
-        const _ViewHeading('Completed'),
-        if (!settings.contentFilters.tasks ||
-            !settings.contentFilters.completedTasks)
-          const _EmptySectionMessage(
-            'Enable Tasks and Completed Tasks in Filter to show completed '
-            'items.',
-          )
-        else
-          for (final task in completed) _taskTile(task),
-      ],
-    );
-  }
-
-  Widget _taskTile(PlannerTask task) {
-    return _TaskTile(
-      task: task,
-      selectionMode: selectionMode,
-      selected: selectedItems.contains(
-        PlannerSelectionId(kind: PlannerSelectionKind.task, id: task.id),
-      ),
-      onToggleSelection: () => onToggleTask(task),
-    );
-  }
-}
+// RETIRED (owner decision, 2026-09-20): `_TasksPresentation` — the in-Planner
+// Tasks list (key `planner-tasks-view`) — is gone.  Tasks have exactly ONE
+// canonical home, the Tasks screen, and the Planner's overflow `Tasks` row now
+// opens it.  The Planner's own day/schedule/week presentations are untouched.
 
 final class _AwaitingPresentation extends StatelessWidget {
   const _AwaitingPresentation({

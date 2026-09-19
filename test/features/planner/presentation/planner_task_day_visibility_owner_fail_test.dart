@@ -112,9 +112,7 @@ void main() {
         tester
             .widget<Material>(
               find.byKey(
-                const Key(
-                  'planner-task-block-hold-feedback-owner-timed-task',
-                ),
+                const Key('planner-task-block-hold-feedback-owner-timed-task'),
               ),
             )
             .elevation,
@@ -125,7 +123,8 @@ void main() {
       expect(
         find.byKey(const Key('planner-provisional-resize-hit')),
         findsNothing,
-        reason: 'Task long-press activation must never introduce a resize target.',
+        reason:
+            'Task long-press activation must never introduce a resize target.',
       );
       await hold.up();
       await tester.pump();
@@ -133,9 +132,7 @@ void main() {
         tester
             .widget<Material>(
               find.byKey(
-                const Key(
-                  'planner-task-block-hold-feedback-owner-timed-task',
-                ),
+                const Key('planner-task-block-hold-feedback-owner-timed-task'),
               ),
             )
             .elevation,
@@ -421,12 +418,14 @@ void main() {
       expect(
         find.byKey(const Key('planner-provisional-resize-hit')),
         findsNothing,
-        reason: 'the shared provisional renderer must not grant Task a resize target.',
+        reason:
+            'the shared provisional renderer must not grant Task a resize target.',
       );
       expect(
         find.byKey(const Key('planner-create-button')),
         findsNothing,
-        reason: 'an active editor session must prevent nested Planner creation.',
+        reason:
+            'an active editor session must prevent nested Planner creation.',
       );
       expect(find.byKey(const Key('task-due-date-field')), findsNothing);
       await tester.tap(find.byKey(const Key('task-form-close')));
@@ -539,9 +538,11 @@ void main() {
       expect(
         tester.getCenter(lateDraftBlock).dy,
         lessThan(
-          tester.getRect(
-            find.byKey(const Key('task-provisional-draggable-sheet')),
-          ).top,
+          tester
+              .getRect(
+                find.byKey(const Key('task-provisional-draggable-sheet')),
+              )
+              .top,
         ),
         reason:
             'the real Planner overlay must expose a late-day Task draft above '
@@ -567,7 +568,10 @@ void main() {
         tester.view.physicalSize = Size(width, 912);
         tester.view.devicePixelRatio = 1;
         await tester.pump();
-        expect(find.byKey(const Key('planner-task-draft-block')), findsOneWidget);
+        expect(
+          find.byKey(const Key('planner-task-draft-block')),
+          findsOneWidget,
+        );
         expect(
           tester
               .widget<Positioned>(
@@ -587,9 +591,11 @@ void main() {
       expect(
         tester.getCenter(draftBlock).dy,
         lessThan(
-          tester.getRect(
-            find.byKey(const Key('task-provisional-draggable-sheet')),
-          ).top,
+          tester
+              .getRect(
+                find.byKey(const Key('task-provisional-draggable-sheet')),
+              )
+              .top,
         ),
         reason: 'the draft must remain physically reachable above the form',
       );
@@ -705,7 +711,9 @@ void main() {
             'minute even while Set Due Date remains OFF.',
       );
       expect(secondContainer.read(plannerTaskCreationDraftProvider), isNull);
-      final savedFootprint = find.byKey(Key('task-footprint:${secondDraft.id}'));
+      final savedFootprint = find.byKey(
+        Key('task-footprint:${secondDraft.id}'),
+      );
       expect(
         savedFootprint,
         findsOneWidget,
@@ -722,12 +730,25 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('planner-overflow-tasks')));
       await tester.pumpAndSettle();
-      expect(find.byKey(const Key('planner-tasks-view')), findsOneWidget);
-      expect(
-        find.text('Saved draft Task'),
-        findsOneWidget,
-        reason: 'the same canonical Task remains in the Planner Tasks view.',
+      // Owner law (2026-09-20): the overflow `Tasks` row opens the ONE
+      // canonical Tasks screen — there is no second Tasks list in the Planner.
+      expect(find.byKey(const Key('tasks-tab-incomplete')), findsOneWidget);
+      final canonicalRow = find.byKey(Key('tasks-row-${secondDraft.id}'));
+      await tester.scrollUntilVisible(
+        canonicalRow,
+        250,
+        scrollable: find.descendant(
+          of: find.byKey(const Key('tasks-incomplete-list')),
+          matching: find.byType(Scrollable),
+        ),
       );
+      expect(
+        canonicalRow,
+        findsOneWidget,
+        reason:
+            'the same canonical Task remains in the canonical Tasks screen.',
+      );
+      expect(find.text('Saved draft Task'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );

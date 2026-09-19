@@ -73,7 +73,7 @@ void main() {
         find.text('Required reporting fixture'),
         250,
         scrollable: find.descendant(
-          of: find.byKey(const Key('planner-tasks-view')),
+          of: find.byKey(const Key('tasks-incomplete-list')),
           matching: find.byType(Scrollable),
         ),
       );
@@ -117,7 +117,9 @@ void main() {
       expect(reports, hasLength(1));
       expect(reports.single.outcome, OutcomeKind.didNotHappen.name);
 
-      await tester.tap(find.byKey(const Key('task-status-option-partiallyCompleted')));
+      await tester.tap(
+        find.byKey(const Key('task-status-option-partiallyCompleted')),
+      );
       await tester.pumpAndSettle();
       expect(
         tester
@@ -139,7 +141,9 @@ void main() {
       )..where((row) => row.sourceId.equals('required-report-task'))).get();
       expect(reports, hasLength(2));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('task-status-option-completedHappened')));
+      await tester.tap(
+        find.byKey(const Key('task-status-option-completedHappened')),
+      );
       await tester.pumpAndSettle();
       expect(
         tester
@@ -154,7 +158,8 @@ void main() {
             .widget<Text>(find.byKey(const Key('task-status-current-label')))
             .data,
         'Completed',
-        reason: 'the settled Task sheet must not repaint the prior Missed state',
+        reason:
+            'the settled Task sheet must not repaint the prior Missed state',
       );
       expect(find.byKey(const Key('task-form-scroll')), findsNothing);
 
@@ -195,7 +200,6 @@ void main() {
         OutcomeKind.completedHappened.name,
         reason: 'The direct correction remains the effective Task outcome.',
       );
-
     },
   );
 }

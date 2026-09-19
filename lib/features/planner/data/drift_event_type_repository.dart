@@ -348,7 +348,9 @@ final class DriftEventTypeRepository implements EventTypeRepository {
       showCompletedItems: row.showCompletedItems,
       showCancelledItems: row.showCancelledItems,
       weekStartDay: row.weekStartDay,
-      preferredPresentation: PlannerPresentation.values.byName(
+      // Tolerant parse (owner decision, 2026-09-20): the retired `tasks`
+      // presentation name may still be stored on an existing preferences row.
+      preferredPresentation: PlannerPresentation.fromStoredName(
         row.preferredPresentation,
       ),
       contentFilters: PlannerContentFilters(
