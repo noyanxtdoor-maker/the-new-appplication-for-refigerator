@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:rmplanner/core/notifications/notification_preview_policy.dart';
+import 'package:rmplanner/features/contacts/application/contact_providers.dart';
 import 'package:rmplanner/features/notifications/application/launcher_badge_providers.dart';
 import 'package:rmplanner/features/notifications/application/notification_providers.dart';
 import 'package:rmplanner/features/notifications/application/reminder_notification_renderer.dart';
@@ -115,10 +116,7 @@ final class CalendarEventController extends Notifier<String?> {
     // mean "not saved" (nothing is durable).
     final CalendarEventDraft saved;
     try {
-      saved = await _repository.saveEvent(
-        profileId: _profileId,
-        draft: draft,
-      );
+      saved = await _repository.saveEvent(profileId: _profileId, draft: draft);
     } on CalendarEventValidationException catch (error) {
       state = error.message;
       return CalendarEventSaveResult.notSaved;
@@ -130,8 +128,7 @@ final class CalendarEventController extends Notifier<String?> {
     }
     // Phase 2 — auxiliary work after the durable commit. Failures here must
     // never rewrite the outcome to "not saved".
-    var auxiliaryWarning =
-        'Event saved, but its reminder needs attention.';
+    var auxiliaryWarning = 'Event saved, but its reminder needs attention.';
     var auxiliaryFailed = false;
     try {
       // Persist the requested policy after the Event itself commits but before
@@ -224,11 +221,35 @@ final class CalendarEventController extends Notifier<String?> {
     final effective =
         policies.where((p) => p.occurrenceId == occurrenceId).firstOrNull ??
         policies
-            .where(
-              (p) => p.occurrenceId == ReminderPolicy.seriesOccurrenceId,
-            )
+            .where((p) => p.occurrenceId == ReminderPolicy.seriesOccurrenceId)
             .firstOrNull;
     return effective?.purpose == ReminderPurpose.contactFollowUp;
+  }
+
+  /// Whether this occurrence currently has at least one LIVE attached Contact.
+  ///
+  /// Reads the SAME effective link truth the People section renders (series
+  /// links overlaid by the occurrence's own add/remove rows), so transport
+  /// selection and the delivered line can never disagree about who is attached.
+  ///
+  /// A read failure reports "no People": that keeps the pre-existing ordinary
+  /// transport rather than failing a save, and the reminder is still delivered.
+  Future<bool> _hasAttachedPeople({
+    required String sourceId,
+    required String occurrenceId,
+  }) async {
+    try {
+      final contactIds = await ref
+          .read(contactRepositoryProvider)
+          .readEffectiveEventContactIds(
+            profileId: _profileId,
+            eventId: sourceId,
+            occurrenceId: occurrenceId,
+          );
+      return contactIds.isNotEmpty;
+    } on Object {
+      return false;
+    }
   }
 
   Future<void> reconcileOccurrence({
@@ -258,14 +279,26 @@ final class CalendarEventController extends Notifier<String?> {
         resolveNotificationPreviewMode(settings: privacy) ==
         EffectiveNotificationPreviewMode.detailed;
     // Section 6A transport selection: this occurrence needs the targeted worker
-    // when its EFFECTIVE policy carries a Contact follow-up purpose or its
-    // current canonical occurrence has eligible human location text.  The
-    // choice is independent of preview mode — a Generic/Locked enriched source
-    // still uses the same live-read transport, so a privacy toggle never churns
-    // the transport that already owns the key.
-    final requiresEnrichment = occurrence.locationText?.trim().isNotEmpty ==
-            true ||
+    // when its EFFECTIVE policy carries a Contact follow-up purpose, its current
+    // canonical occurrence has eligible human location text, or it has People
+    // attached.  The choice is independent of preview mode — a Generic/Locked
+    // enriched source still uses the same live-read transport, so a privacy
+    // toggle never churns the transport that already owns the key.
+    //
+    // Attached People belong on this list for the same reason location text
+    // does (owner pass 2026-09-19, defect D): the "Follow up with …" line is
+    // resolved from LIVE linked Contacts at delivery, so a pre-rendered native
+    // body could never carry it, and could never reflect a rename or an unlink
+    // either.  Deliberately keyed on the LINKS, not on the Show-contacts toggle:
+    // the toggle steers presentation, and switching it must not move the key
+    // between transports.
+    final requiresEnrichment =
+        occurrence.locationText?.trim().isNotEmpty == true ||
         await _hasFollowUpPurpose(
+          sourceId: occurrence.eventId,
+          occurrenceId: occurrence.id,
+        ) ||
+        await _hasAttachedPeople(
           sourceId: occurrence.eventId,
           occurrenceId: occurrence.id,
         );

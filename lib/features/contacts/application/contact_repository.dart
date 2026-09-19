@@ -277,6 +277,20 @@ abstract interface class ContactRepository {
     required bool historical,
   });
 
+  /// The EFFECTIVE live Contact ids for one Event occurrence: series `active`
+  /// links overlaid by the exact occurrence's active/removed rows, and
+  /// deliberately WITHOUT the historical fallback [readEventPeople] keeps.
+  ///
+  /// Exposed on the interface because reminder transport selection needs the
+  /// same live-link truth the People section renders: a source with attached
+  /// People has to be delivered by the live-read transport, otherwise the
+  /// attached names could never appear in a notification.
+  Future<Set<String>> readEffectiveEventContactIds({
+    required String profileId,
+    required String eventId,
+    required String occurrenceId,
+  });
+
   Future<void> setTaskContacts({
     required String profileId,
     required String taskId,

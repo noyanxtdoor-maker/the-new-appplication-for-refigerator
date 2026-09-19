@@ -20,6 +20,18 @@
 // Both tests assert the STORED values are preserved, because the owner's law is
 // reversible gating: the child reads off and is disabled, and turning the master
 // back on restores the user's own choices.
+//
+// OWNER HIERARCHY LAW (2026-09-19) reconciled here.  The privacy gate now sits
+// ABOVE Detailed content, so `privacyPreview` is a PRECONDITION of the Detailed
+// layer being effective at all:
+//
+//   System notifications  ->  Privacy notification preview  ->  Detailed content
+//
+// The second test therefore enables the privacy preview before asserting that
+// the Detailed rows are live choices.  Nothing it asserts was weakened: the same
+// stored values, the same reversibility, the same durability checks.  The new
+// gate has its own fail-first coverage in
+// `notifications_privacy_hierarchy_test.dart`.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -38,6 +50,7 @@ import 'package:rmplanner/features/planner/application/event_type_providers.dart
 import 'package:rmplanner/features/planner/data/drift_event_type_repository.dart';
 import 'package:rmplanner/features/privacy/application/privacy_providers.dart';
 import 'package:rmplanner/features/privacy/domain/permission_summary.dart';
+import 'package:rmplanner/features/privacy/domain/privacy_settings.dart';
 import 'package:rmplanner/features/settings/presentation/notifications_settings_screen.dart';
 import 'package:rmplanner/features/startup/application/startup_providers.dart';
 
@@ -61,6 +74,7 @@ void main() {
   Future<void> buildContainer({
     OperatingSystemPermissionState notifications =
         OperatingSystemPermissionState.denied,
+    bool privacyPreview = false,
   }) async {
     final database = openMemoryDatabase();
     addTearDown(database.close);
@@ -79,6 +93,11 @@ void main() {
       ),
     );
     permissionGateway = privacy.permissionGateway;
+    if (privacyPreview) {
+      await privacy.repository.setNotificationPreviewMode(
+        NotificationPreviewMode.showContent,
+      );
+    }
     container = ProviderContainer(
       overrides: <Override>[
         startupRepositoryProvider.overrideWithValue(startupRepository),
@@ -88,7 +107,9 @@ void main() {
         deviceAuthenticatorProvider.overrideWithValue(privacy.authenticator),
         permissionGatewayProvider.overrideWithValue(privacy.permissionGateway),
         notificationFoundationRepositoryProvider.overrideWithValue(repository),
-        notificationGatewayProvider.overrideWithValue(_FakeNotificationGateway()),
+        notificationGatewayProvider.overrideWithValue(
+          _FakeNotificationGateway(),
+        ),
         backgroundWorkGatewayProvider.overrideWithValue(
           _FakeBackgroundGateway(),
         ),
@@ -154,7 +175,8 @@ void main() {
         expect(
           detailed(tester, key).onChanged,
           isNull,
-          reason: 'the child must not be changeable while notifications are off',
+          reason:
+              'the child must not be changeable while notifications are off',
         );
       }
     },
@@ -166,6 +188,9 @@ void main() {
     (tester) async {
       await buildContainer(
         notifications: OperatingSystemPermissionState.granted,
+        // The privacy gate is above Detailed content: detail is only a live
+        // choice once the preview permits it.
+        privacyPreview: true,
       );
       await pumpScreen(tester);
       final master = find.byKey(const Key('notifications-system-toggle'));
@@ -191,8 +216,11 @@ void main() {
       );
 
       // Turning the master off must not erase that choice...
-      await tester.scrollUntilVisible(master, -200,
-          scrollable: find.byType(Scrollable).first);
+      await tester.scrollUntilVisible(
+        master,
+        -200,
+        scrollable: find.byType(Scrollable).first,
+      );
       await tester.pumpAndSettle();
       await tester.tap(master);
       await tester.pumpAndSettle();
@@ -205,8 +233,11 @@ void main() {
         reason: 'the stored choice is preserved while the master is off',
       );
       // ...and turning it back on returns the user's own configuration.
-      await tester.scrollUntilVisible(master, -200,
-          scrollable: find.byType(Scrollable).first);
+      await tester.scrollUntilVisible(
+        master,
+        -200,
+        scrollable: find.byType(Scrollable).first,
+      );
       await tester.pumpAndSettle();
       await tester.tap(master);
       await tester.pumpAndSettle();

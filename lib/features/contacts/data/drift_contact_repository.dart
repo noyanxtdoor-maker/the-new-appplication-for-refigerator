@@ -2713,6 +2713,7 @@ final class DriftContactRepository
   /// occurrences.  Delivery must never invent participation that the current
   /// link truth does not hold, so this read exposes exactly one answer and does
   /// not write anything.
+  @override
   Future<Set<String>> readEffectiveEventContactIds({
     required String profileId,
     required String eventId,

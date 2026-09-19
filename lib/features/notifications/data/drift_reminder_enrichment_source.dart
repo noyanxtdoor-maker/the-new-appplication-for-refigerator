@@ -65,13 +65,57 @@ final class DriftReminderEnrichmentSource implements ReminderEnrichmentSource {
     return rows.single.displayName;
   }
 
-  /// Effective live Event link check: active series links overlaid by the exact
-  /// occurrence's active (add) and removed (drop) rows.
-  Future<bool> _eventLinkIsLive({
+  /// Every Contact currently linked to the source (owner pass 2026-09-19).
+  ///
+  /// "Show contacts" is fed from here, so an ordinary People attach is enough.
+  /// Ordering is deliberately NOT promised: the resolver sorts, so the line
+  /// cannot depend on SQLite's row order.
+  @override
+  Future<List<String>> attachedContactDisplayNames({
+    required String profileId,
+    required ReminderSourceKind sourceKind,
+    required String sourceId,
+    required String occurrenceId,
+  }) async {
+    final contactIds = switch (sourceKind) {
+      ReminderSourceKind.calendarEvent => await _liveEventContactIds(
+        profileId: profileId,
+        eventId: sourceId,
+        occurrenceId: occurrenceId,
+      ),
+      ReminderSourceKind.task => await _liveTaskContactIds(
+        profileId: profileId,
+        taskId: sourceId,
+      ),
+      // Planning families never carry People enrichment.
+      ReminderSourceKind.weeklyReview ||
+      ReminderSourceKind.awaitingReport => const <String>{},
+    };
+    if (contactIds.isEmpty) return const <String>[];
+
+    final rows =
+        await (database.select(database.contacts)..where(
+              (table) =>
+                  table.profileId.equals(profileId) &
+                  table.lifecycleState.equals(_activeLifecycle) &
+                  table.mergedIntoContactId.isNull() &
+                  table.archivedAtUtc.isNull() &
+                  table.deletedAtUtc.isNull(),
+            ))
+            .get();
+    return <String>[
+      for (final row in rows)
+        if (contactIds.contains(row.id)) row.displayName,
+    ];
+  }
+
+  /// The set of Contacts effectively linked to this Event occurrence: active
+  /// series links overlaid by the exact occurrence's active (add) and removed
+  /// (drop) rows.
+  Future<Set<String>> _liveEventContactIds({
     required String profileId,
     required String eventId,
     required String occurrenceId,
-    required String contactId,
   }) async {
     final seriesLinks =
         await (database.select(database.eventContactLinks)..where(
@@ -83,7 +127,7 @@ final class DriftReminderEnrichmentSource implements ReminderEnrichmentSource {
             ))
             .get();
     if (occurrenceId == seriesOccurrenceId) {
-      return seriesLinks.any((link) => link.contactId == contactId);
+      return <String>{for (final link in seriesLinks) link.contactId};
     }
 
     final exactLinks =
@@ -94,9 +138,7 @@ final class DriftReminderEnrichmentSource implements ReminderEnrichmentSource {
                   table.occurrenceId.equals(occurrenceId),
             ))
             .get();
-    final effective = <String>{
-      for (final link in seriesLinks) link.contactId,
-    };
+    final effective = <String>{for (final link in seriesLinks) link.contactId};
     for (final link in exactLinks) {
       if (link.status == _activeStatus) {
         effective.add(link.contactId);
@@ -104,23 +146,43 @@ final class DriftReminderEnrichmentSource implements ReminderEnrichmentSource {
         effective.remove(link.contactId);
       }
     }
-    return effective.contains(contactId);
+    return effective;
   }
 
+  /// Effective live Event link check, expressed through the shared live-link
+  /// read so the single-Contact and all-Contacts answers can never disagree.
+  Future<bool> _eventLinkIsLive({
+    required String profileId,
+    required String eventId,
+    required String occurrenceId,
+    required String contactId,
+  }) async => (await _liveEventContactIds(
+    profileId: profileId,
+    eventId: eventId,
+    occurrenceId: occurrenceId,
+  )).contains(contactId);
+
   /// Task links are whole-source: profile + task + contact must all match.
-  Future<bool> _taskLinkIsLive({
+  Future<Set<String>> _liveTaskContactIds({
     required String profileId,
     required String taskId,
-    required String contactId,
   }) async {
     final rows =
         await (database.select(database.taskContactLinks)..where(
               (table) =>
                   table.profileId.equals(profileId) &
-                  table.taskId.equals(taskId) &
-                  table.contactId.equals(contactId),
+                  table.taskId.equals(taskId),
             ))
             .get();
-    return rows.isNotEmpty;
+    return <String>{for (final row in rows) row.contactId};
   }
+
+  Future<bool> _taskLinkIsLive({
+    required String profileId,
+    required String taskId,
+    required String contactId,
+  }) async => (await _liveTaskContactIds(
+    profileId: profileId,
+    taskId: taskId,
+  )).contains(contactId);
 }
