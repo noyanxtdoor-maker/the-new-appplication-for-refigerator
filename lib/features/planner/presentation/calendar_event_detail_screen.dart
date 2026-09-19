@@ -108,17 +108,6 @@ final class _EventDetailContactsSection extends ConsumerWidget {
   final bool historical;
   final String? timelineOriginContactId;
 
-  Future<void> _openContact(BuildContext context, String contactId) async {
-    final originContactId = timelineOriginContactId;
-    if (originContactId == null) {
-      await context.push(RoutePaths.contactDetail(contactId));
-    } else if (originContactId == contactId) {
-      context.pop();
-    } else {
-      context.go(RoutePaths.contactDetail(contactId));
-    }
-  }
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return FutureBuilder<List<EventParticipantPresentation>>(
@@ -151,13 +140,12 @@ final class _EventDetailContactsSection extends ConsumerWidget {
               ),
               const SizedBox(height: 4),
               for (final person in people)
-                InkWell(
+                PlannerPreviewContactLink(
                   key: Key('event-preview-contact-${person.contactId}'),
-                  onTap: () async => _openContact(context, person.contactId),
-                  child: PlannerPreviewContactRow(
-                    name: person.displayName,
-                    contact: summariesById[person.contactId],
-                  ),
+                  contactId: person.contactId,
+                  name: person.displayName,
+                  contact: summariesById[person.contactId],
+                  timelineOriginContactId: timelineOriginContactId,
                 ),
             ],
           ),
