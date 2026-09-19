@@ -1176,9 +1176,9 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen>
       return false;
     }
     if (!contactIsActive) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Saved without follow-up.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Saved without follow-up.')));
       return true;
     }
     try {
@@ -1347,9 +1347,10 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen>
   String _reminderLabel() {
     switch (_reminderMode) {
       case ReminderPolicyMode.inherit:
-        final inherited =
-            ref.watch(notificationSettingsControllerProvider).preferences
-                .defaultTaskReminderMinutes;
+        final inherited = ref
+            .watch(notificationSettingsControllerProvider)
+            .preferences
+            .defaultTaskReminderMinutes;
         if (inherited == null) {
           return 'Default (Off)';
         }
@@ -1366,17 +1367,20 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen>
     }
   }
 
+  /// Applies the picker's typed intent (owner pass 2026-09-19, defect N3).
+  ///
+  /// A DISMISSAL is not a choice and must leave the reminder policy untouched;
+  /// only an explicit "Use default" selects the inherited default.
   Future<void> _selectReminderPolicy() async {
-    final selected = await showReminderTimePicker(context);
-    if (!mounted) return;
+    final intent = reminderSelectionIntent(
+      await showReminderTimePicker(context),
+    );
+    // A DISMISSAL is not a choice: leave the reminder policy exactly as it was.
+    if (!mounted || intent == null) return;
     setState(() {
-      if (selected == null) {
-        _reminderMode = ReminderPolicyMode.inherit;
-      } else if (selected == -1) {
-        _reminderMode = ReminderPolicyMode.off;
-      } else {
-        _reminderMode = ReminderPolicyMode.offset;
-        _reminderOffsetMinutes = selected;
+      _reminderMode = intent.mode;
+      if (intent.offsetMinutes != null) {
+        _reminderOffsetMinutes = intent.offsetMinutes;
       }
     });
   }

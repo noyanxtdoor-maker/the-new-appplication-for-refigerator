@@ -422,8 +422,8 @@ final class _CalendarEventFormScreenState
     // through it, including objects passed before an archive. Edit mode
     // keeps the raw existing type (the raw list may omit hidden/retired
     // types) and its occurrence snapshot; only a NEW selection is gated.
-    List<EventTypeCreationChoice> eligibleChoices = const <
-        EventTypeCreationChoice>[];
+    List<EventTypeCreationChoice> eligibleChoices =
+        const <EventTypeCreationChoice>[];
     var eligibilityReady = false;
     if (widget.mode == CalendarEventFormMode.create) {
       try {
@@ -470,8 +470,9 @@ final class _CalendarEventFormScreenState
     } else if (widget.initialIndicatorKey != null && eligibilityReady) {
       preferTypeDuration = true;
       selected = eligibleTypeById(
-        (await controller.exactTypeForIndicator(widget.initialIndicatorKey!))
-            ?.id,
+        (await controller.exactTypeForIndicator(
+          widget.initialIndicatorKey!,
+        ))?.id,
       );
     } else if (eventTypeState.settings.defaultEventTypeId != null &&
         eligibilityReady) {
@@ -499,8 +500,7 @@ final class _CalendarEventFormScreenState
         : eligibilityReady
         ? eligibleChoices
               .where(
-                (choice) =>
-                    choice.type.stableKey == SystemEventTypeKeys.other,
+                (choice) => choice.type.stableKey == SystemEventTypeKeys.other,
               )
               .firstOrNull
               ?.type
@@ -735,7 +735,8 @@ final class _CalendarEventFormScreenState
     }
     // A deliberate selection always wins: it is the user's current intent, and
     // its label comes from the canonical creation choice.
-    if (widget.mode == CalendarEventFormMode.create || _eventTypeSelectionChanged) {
+    if (widget.mode == CalendarEventFormMode.create ||
+        _eventTypeSelectionChanged) {
       final resolved = _creationChoiceLabelOf(selected.id);
       if (resolved != null) {
         return resolved;
@@ -2414,8 +2415,7 @@ final class _CalendarEventFormScreenState
     final isNewSelection =
         widget.mode == CalendarEventFormMode.create ||
         (widget.mode == CalendarEventFormMode.edit &&
-            (_loadedTypeId == null ||
-                _selectedEventType?.id != _loadedTypeId));
+            (_loadedTypeId == null || _selectedEventType?.id != _loadedTypeId));
     if (isNewSelection && !await _validateSelectionBeforeWrite()) {
       if (mounted) {
         setState(() => _saving = false);
@@ -2532,20 +2532,22 @@ final class _CalendarEventFormScreenState
         // controller's early scheduling until People + purpose have committed.
         deferReminderReconciliation: widget.followUpContactId != null,
       ),
-      CalendarEventFormMode.edit => await _saveEdit(draft, controller)
-          ? CalendarEventSaveResult.saved
-          : CalendarEventSaveResult.notSaved,
-      CalendarEventFormMode.reschedule => await controller.rescheduleEvent(
-            eventId: widget.eventId!,
-            originalDate: widget.originalDate!,
-            scope: widget.scope!,
-            replacement: draft,
-            operationId: _operationId,
-            reminderMode: _reminderModeToPersist,
-            reminderOffsetMinutes: _reminderOffsetToPersist,
-          )
-          ? CalendarEventSaveResult.saved
-          : CalendarEventSaveResult.notSaved,
+      CalendarEventFormMode.edit =>
+        await _saveEdit(draft, controller)
+            ? CalendarEventSaveResult.saved
+            : CalendarEventSaveResult.notSaved,
+      CalendarEventFormMode.reschedule =>
+        await controller.rescheduleEvent(
+              eventId: widget.eventId!,
+              originalDate: widget.originalDate!,
+              scope: widget.scope!,
+              replacement: draft,
+              operationId: _operationId,
+              reminderMode: _reminderModeToPersist,
+              reminderOffsetMinutes: _reminderOffsetToPersist,
+            )
+            ? CalendarEventSaveResult.saved
+            : CalendarEventSaveResult.notSaved,
     };
     if (!mounted) {
       return;
@@ -2734,9 +2736,9 @@ final class _CalendarEventFormScreenState
       return false;
     }
     if (!contactIsActive) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Saved without follow-up.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Saved without follow-up.')));
       return true;
     }
     try {
@@ -3036,18 +3038,26 @@ final class _CalendarEventFormScreenState
   int? get _reminderOffsetToPersist =>
       _reminderSelectionChanged ? _reminderOffsetMinutes : null;
 
+  /// Applies the picker's typed intent (owner pass 2026-09-19, defect N3).
+  ///
+  /// A DISMISSAL is not a choice: it must leave `_reminderMode` and
+  /// `_reminderSelectionChanged` untouched.  Treating it as "Use default" used
+  /// to silently rewrite a deliberate custom offset back to the inherited
+  /// default, and additionally authored an occurrence-level `inherit` row that
+  /// shadowed the series override.
   Future<void> _selectReminderPolicy() async {
-    final selected = await showReminderTimePicker(context);
-    if (!mounted) return;
+    final intent = reminderSelectionIntent(
+      await showReminderTimePicker(context),
+    );
+    // A DISMISSAL is not a choice: no mode change, and no policy write either
+    // (`_reminderSelectionChanged` stays false, so an edit save cannot author an
+    // occurrence-level row that shadows the series override).
+    if (!mounted || intent == null) return;
     setState(() {
       _reminderSelectionChanged = true;
-      if (selected == null) {
-        _reminderMode = ReminderPolicyMode.inherit;
-      } else if (selected == -1) {
-        _reminderMode = ReminderPolicyMode.off;
-      } else {
-        _reminderMode = ReminderPolicyMode.offset;
-        _reminderOffsetMinutes = selected;
+      _reminderMode = intent.mode;
+      if (intent.offsetMinutes != null) {
+        _reminderOffsetMinutes = intent.offsetMinutes;
       }
     });
   }
