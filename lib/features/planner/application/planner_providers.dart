@@ -58,6 +58,42 @@ final taskUniverseProvider = FutureProvider.autoDispose<List<PlannerTask>>((
   );
 });
 
+/// The canonical INCOMPLETE Task count (owner law, 2026-09-20).
+///
+/// It reads the SAME canonical universe capability the Tasks screen's
+/// Incomplete tab renders, so the hamburger number and the tab can never
+/// disagree about what a Task's state is.  `completed`, `skipped` and
+/// `cancelled` never contribute, and an unresolved read contributes nothing
+/// rather than a fabricated number.
+///
+/// It deliberately owns its OWN read instead of watching `taskUniverseProvider`
+/// (which the Tasks screen watches during build).  A provider that some widget
+/// already holds dirty cannot be flushed during another widget's build phase:
+/// Riverpod then cascades a refresh into this count's element and the provider
+/// scope schedules `setState` mid-build, which the framework rejects.  Keeping
+/// the screen's provider private to the screen means entering it always starts
+/// a clean read.  Both reads are invalidated together on every Task mutation, so
+/// they observe the same canonical change.
+final incompleteTaskCountProvider = FutureProvider<int>((ref) async {
+  final startup = ref.read(startupControllerProvider);
+  if (startup is! StartupReady) {
+    return 0;
+  }
+  final repository = ref.read(plannerRepositoryProvider);
+  if (repository is! PlannerTaskUniverseSource) {
+    return 0;
+  }
+  final tasks = await (repository as PlannerTaskUniverseSource)
+      .readTaskUniverse(profileId: startup.profile.id);
+  var count = 0;
+  for (final task in tasks) {
+    if (task.status == PlannerTaskStatus.incomplete) {
+      count++;
+    }
+  }
+  return count;
+});
+
 typedef TaskReminderHorizonOverride =
     Future<void> Function(bool refreshContent);
 
@@ -851,6 +887,7 @@ final class PlannerController extends Notifier<PlannerState> {
       // source-level purpose.  Ordinary saves keep the immediate path.
       if (deferReminderReconciliation) {
         await _load(state.selectedDate, invalidateCache: true);
+        _publishTaskUniverseChange();
         await _refreshLauncherBadge();
         return true;
       }
@@ -910,6 +947,7 @@ final class PlannerController extends Notifier<PlannerState> {
         requiresEnrichment: requiresEnrichment,
       );
       await _load(state.selectedDate, invalidateCache: true);
+      _publishTaskUniverseChange();
       await _refreshLauncherBadge();
       return true;
     } on PlannerTaskValidationException catch (error) {
@@ -1141,6 +1179,7 @@ final class PlannerController extends Notifier<PlannerState> {
       }
       await _load(state.selectedDate, invalidateCache: true);
       if (outcome == TaskStatusChangeOutcome.changed) {
+        _publishTaskUniverseChange();
         await _refreshLauncherBadge();
       }
       state = state.copyWith(
@@ -1188,6 +1227,7 @@ final class PlannerController extends Notifier<PlannerState> {
               );
         }
         await _load(state.selectedDate, invalidateCache: true);
+        _publishTaskUniverseChange();
         await _refreshLauncherBadge();
       }
       state = state.copyWith(
@@ -1210,6 +1250,18 @@ final class PlannerController extends Notifier<PlannerState> {
 
   void clearMessage() {
     state = state.copyWith(clearMessage: true);
+  }
+
+  /// Publishes a canonical Task-data change to every reader of the persisted
+  /// Task universe — the Tasks screen's Incomplete/Completed timelines AND the
+  /// hamburger Tasks badge (owner law, 2026-09-20).
+  ///
+  /// Both are snapshot reads, not change streams, so a Task written anywhere
+  /// (Planner, task form, preview status change, delete) must invalidate both
+  /// or the screen and the number would keep serving a pre-save snapshot.
+  void _publishTaskUniverseChange() {
+    ref.invalidate(taskUniverseProvider);
+    ref.invalidate(incompleteTaskCountProvider);
   }
 
   Future<void> _refreshLauncherBadge() async {
