@@ -52,11 +52,13 @@ void main() {
   Finder drawer() => find.byKey(const Key('global-app-drawer'));
 
   /// The destinations that MUST remain, in their accepted order.
+  /// Owner law (2026-09-19): the planning area is now exactly Tasks +
+  /// Unreported.  The Planner, Goal Planning, Plan History and Activity
+  /// History ROWS were removed from the drawer (their screens, routes, data
+  /// and deep links are untouched — that consequence is asserted here).
   const List<String> remainingEntries = <String>[
-    'drawer-planner',
-    'drawer-planning',
-    'drawer-plan-history',
-    'drawer-activity-history',
+    'drawer-tasks',
+    'drawer-unreported',
     'drawer-messages',
     'drawer-backup-restore',
     'drawer-account-settings',
@@ -103,17 +105,27 @@ void main() {
       lastY = y;
     }
 
-    // Goal Planning, Plan History and Activity History are the Goal-related
-    // destinations that remain reachable from the drawer.
+    // Owner law (2026-09-19): the four removed planning rows must be gone
+    // from the drawer.  Their routes and screens stay fully resolvable (the
+    // direct-entry assertions below and in the Pack 3 contract cover that).
     for (final String label in <String>[
+      'Planner',
       'Goal Planning',
       'Plan History',
       'Activity History',
     ]) {
       expect(
         find.descendant(of: drawer(), matching: find.text(label)),
+        findsNothing,
+        reason: '$label must no longer be a drawer row',
+      );
+    }
+    // The planning area holds exactly the two owner-listed destinations.
+    for (final String label in <String>['Tasks', 'Unreported']) {
+      expect(
+        find.descendant(of: drawer(), matching: find.text(label)),
         findsOneWidget,
-        reason: '$label must stay reachable from the drawer',
+        reason: '$label is one of the two planning destinations',
       );
     }
   });
@@ -152,10 +164,14 @@ void main() {
     tester,
   ) async {
     await pumpApp(tester, TestWindowSizes.largeTablet);
-    await openDrawer(tester);
 
-    // Goal Planning still opens from the drawer on a wide window too.
-    await tester.tap(find.byKey(const Key('drawer-planning')));
+    // Owner law (2026-09-19): Goal Planning lost its drawer ROW, so the
+    // route — and therefore the whole Goal surface behind it — is asserted by
+    // direct entry instead.  Only the row was removed.
+    final BuildContext context = tester.element(
+      find.byKey(const Key('home-hamburger')),
+    );
+    context.go(RoutePaths.weeklyPlanning);
     await tester.pumpAndSettle();
     expect(find.text('Goal Planning'), findsOneWidget);
   });

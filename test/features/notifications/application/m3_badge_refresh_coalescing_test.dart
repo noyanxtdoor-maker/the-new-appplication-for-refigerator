@@ -8,6 +8,7 @@ import 'package:rmplanner/features/planner/application/calendar_event_providers.
 import 'package:rmplanner/features/planner/application/calendar_event_repository.dart';
 import 'package:rmplanner/features/planner/application/planner_providers.dart';
 import 'package:rmplanner/features/planner/application/planner_repository.dart';
+import 'package:rmplanner/features/planner/domain/awaiting_report_event.dart';
 import 'package:rmplanner/features/planner/domain/planner_date.dart';
 import 'package:rmplanner/features/planner/domain/planner_day.dart';
 import 'package:rmplanner/features/startup/application/startup_providers.dart';
@@ -19,15 +20,13 @@ import 'package:rmplanner/features/startup/domain/startup_state.dart';
 
 /// M3 badge refresh — one active full-universe refresh plus at most one
 /// dirty-generation trailing refresh; stale completion can never publish.
+///
+/// Owner law (2026-09-19): the published number is the canonical UNREPORTED
+/// backlog size, so this harness feeds the awaiting-report source directly.
 void main() {
-  // The production badge provider reads the REAL wall clock for `nowUtc`
-  // (only `today` comes from the injectable date source), and
-  // `LauncherBadgeCoordinator._isActionableEvent` excludes a timed Event whose
-  // end is already in the past. Anchoring this fixture to a hard-coded instant
-  // therefore made the assertion a time bomb: once that instant passed, the
-  // coordinator CORRECTLY stopped counting the fixture Event and the expected
-  // badge count flipped from 1 to 0. Anchor the fixture to the same real clock
-  // production uses so the harness and the product agree at any run date.
+  // The production provider reads the REAL wall clock for `nowUtc` (only
+  // `today` comes from the injectable date source), so the fixture is anchored
+  // to the same real clock rather than a hard-coded instant.
   final now = DateTime.now().toUtc();
   final today = PlannerDate.fromDateTime(now);
 
@@ -63,13 +62,11 @@ void main() {
     final events = container.read(calendarEventRepositoryProvider) as _Events;
     final gateway = container.read(launcherBadgeGatewayProvider) as _Badge;
 
-    events.items = <PlannerCalendarItem>[
-      _event('occ-1', now.add(const Duration(hours: 2))),
-    ];
+    events.items = <AwaitingReportEvent>[_entry('occ-1', now)];
     await container.read(launcherBadgeRefreshProvider)();
     expect(gateway.counts, <int>[1]);
 
-    events.items = const <PlannerCalendarItem>[];
+    events.items = const <AwaitingReportEvent>[];
     await container.read(launcherBadgeRefreshProvider)();
     expect(gateway.counts, <int>[1, 0]);
   });
@@ -80,7 +77,6 @@ void main() {
       final container = await boot();
       addTearDown(container.dispose);
       final events = container.read(calendarEventRepositoryProvider) as _Events;
-      final tasks = container.read(plannerRepositoryProvider) as _Tasks;
       final gateway = container.read(launcherBadgeGatewayProvider) as _Badge;
       var inFlight = 0;
       var maxConcurrent = 0;
@@ -99,7 +95,7 @@ void main() {
       ];
       // Latest durable truth changed mid-read: the single trailing pass must
       // pick it up.
-      tasks.ids = <String>{'task-trailing'};
+      events.items = <AwaitingReportEvent>[_entry('occ-trailing', now)];
       await Future.wait(futures);
 
       expect(maxConcurrent, 1, reason: 'no concurrent overlapping range reads');
@@ -116,12 +112,10 @@ void main() {
     final events = container.read(calendarEventRepositoryProvider) as _Events;
     final gateway = container.read(launcherBadgeGatewayProvider) as _Badge;
 
-    events.items = <PlannerCalendarItem>[
-      _event('occ-1', now.add(const Duration(hours: 2))),
-    ];
+    events.items = <AwaitingReportEvent>[_entry('occ-1', now)];
     await container.read(launcherBadgeRefreshProvider)();
-    // Latest truth after the first pass: the event is gone.
-    events.items = const <PlannerCalendarItem>[];
+    // Latest truth after the first pass: the backlog is gone.
+    events.items = const <AwaitingReportEvent>[];
     await container.read(launcherBadgeRefreshProvider)();
     expect(gateway.counts, isNotEmpty);
     expect(gateway.counts.last, 0, reason: 'trailing pass publishes latest');
@@ -185,18 +179,18 @@ final class _FixedDateSource implements PlannerDateSource {
 }
 
 final class _Events
-    implements CalendarEventRepository, CalendarEventRangeSource {
+    implements CalendarEventRepository, CalendarEventAwaitingReportSource {
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 
-  List<PlannerCalendarItem> items = const <PlannerCalendarItem>[];
+  List<AwaitingReportEvent> items = const <AwaitingReportEvent>[];
   Future<void> Function()? onRead;
 
   @override
-  Future<List<PlannerCalendarItem>> readRange({
+  Future<List<AwaitingReportEvent>> readAwaitingReportEvents({
     required String profileId,
-    required PlannerDate startDate,
-    required PlannerDate endDate,
+    required PlannerDate today,
+    required DateTime nowUtc,
   }) async {
     await onRead?.call();
     return items;
@@ -223,25 +217,29 @@ final class _Badge implements LauncherBadgeGateway {
   bool throwOnSet = false;
 
   @override
-  Future<void> setCount(int count) async {
+  Future<void> setCount({required String profileId, required int count}) async {
     reads += 1;
     if (throwOnSet) throw StateError('platform failure');
     counts.add(count);
   }
 }
 
-PlannerCalendarItem _event(String id, DateTime startUtc) {
-  return PlannerCalendarItem(
-    id: id,
-    title: 'Event $id',
-    date: PlannerDate.fromDateTime(startUtc),
-    timing: PlannerEventTiming.timed,
-    state: PlannerEventState.scheduled,
-    requiresReport: false,
-    hasOutcomeReport: false,
-    startUtc: startUtc,
-    endUtc: startUtc.add(const Duration(hours: 1)),
-    eventId: 'event-$id',
-    originalDate: PlannerDate.fromDateTime(startUtc),
+AwaitingReportEvent _entry(String id, DateTime endUtc) {
+  return AwaitingReportEvent(
+    item: PlannerCalendarItem(
+      id: id,
+      title: 'Unreported $id',
+      date: PlannerDate.fromDateTime(endUtc),
+      timing: PlannerEventTiming.timed,
+      state: PlannerEventState.scheduled,
+      requiresReport: true,
+      hasOutcomeReport: false,
+      startUtc: endUtc.subtract(const Duration(hours: 1)),
+      endUtc: endUtc,
+      eventId: 'event-$id',
+      originalDate: PlannerDate.fromDateTime(endUtc),
+    ),
+    goalId: null,
+    activityTypeStableKey: null,
   );
 }

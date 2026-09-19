@@ -91,10 +91,7 @@ void main() {
       // dismissible and never gates the base map; answer it here so its modal
       // barrier cannot absorb the next tab tap. The Maps screen identity and
       // the tab-return law asserted below are unchanged.
-      expect(
-        find.byKey(const Key('maps-location-education')),
-        findsOneWidget,
-      );
+      expect(find.byKey(const Key('maps-location-education')), findsOneWidget);
       await tester.tap(
         find.byKey(const Key('maps-location-education-not-now')),
       );
@@ -133,9 +130,10 @@ void main() {
     },
   );
 
-  testWidgets('NX-07/08: the drawer still exposes the secondary destinations '
-      '(Planner, Goal Planning, Plan History, Activity History, '
-      'Messages, Settings, About) and has no More entry', (tester) async {
+  testWidgets('NX-07/08: the drawer still exposes its secondary destinations '
+      '(Tasks, Unreported, Messages, Settings, About) and has no More entry', (
+    tester,
+  ) async {
     await pumpApp(tester);
     await tester.tap(find.byKey(const Key('home-hamburger')));
     await tester.pumpAndSettle();
@@ -143,11 +141,13 @@ void main() {
     // from the drawer on purpose.  Its absence is asserted explicitly below
     // by the Life Goals removal contract test; the row is gone while the route
     // and every Goal feature continue to exist.
+    //
+    // Owner law (2026-09-19): the planning area is Tasks + Unreported only.
+    // The Planner, Goal Planning, Plan History and Activity History rows were
+    // removed while their routes, screens and data stay intact.
     for (final id in <String>[
-      'drawer-planner',
-      'drawer-planning',
-      'drawer-plan-history',
-      'drawer-activity-history',
+      'drawer-tasks',
+      'drawer-unreported',
       'drawer-messages',
       'drawer-backup-restore',
       'drawer-account-settings',
@@ -157,6 +157,18 @@ void main() {
         find.byKey(Key(id)),
         findsOneWidget,
         reason: 'drawer entry $id must remain reachable',
+      );
+    }
+    for (final id in <String>[
+      'drawer-planner',
+      'drawer-planning',
+      'drawer-plan-history',
+      'drawer-activity-history',
+    ]) {
+      expect(
+        find.byKey(Key(id)),
+        findsNothing,
+        reason: 'removed planning row $id must not return',
       );
     }
     expect(find.byKey(const Key('global-app-drawer-list')), findsOneWidget);

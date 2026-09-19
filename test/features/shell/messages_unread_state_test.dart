@@ -152,8 +152,10 @@ void main() {
       // accepted Manage Groups work shipped in this beta.
       expect(
         text,
-        contains('Improved Manage Groups, including No Group filtering and '
-            'Restore Default Groups behavior.'),
+        contains(
+          'Improved Manage Groups, including No Group filtering and '
+          'Restore Default Groups behavior.',
+        ),
       );
       expect(text, contains('Contacts'));
       expect(text, contains('10-minute default'));
@@ -192,8 +194,10 @@ void main() {
       const future = 'next-transfer-0-1-2-beta';
       expect(acknowledged.contains(future), isFalse);
       expect(
-        MessageUnreadLaw.unread(BundledMessages.all, acknowledged)
-            .map((message) => message.id),
+        MessageUnreadLaw.unread(
+          BundledMessages.all,
+          acknowledged,
+        ).map((message) => message.id),
         isNot(contains(older.id)),
       );
     });
@@ -222,21 +226,22 @@ void main() {
       expect(await store().readAcknowledgedIds(), isEmpty);
     });
 
-    test('an acknowledgement survives a restart (a fresh store instance)',
-        () async {
-      await store().acknowledge('next-transfer-0-1-1-beta');
-      final afterRestart = await store().readAcknowledgedIds();
-      expect(afterRestart, <String>{'next-transfer-0-1-1-beta'});
-    });
+    test(
+      'an acknowledgement survives a restart (a fresh store instance)',
+      () async {
+        await store().acknowledge('next-transfer-0-1-1-beta');
+        final afterRestart = await store().readAcknowledgedIds();
+        expect(afterRestart, <String>{'next-transfer-0-1-1-beta'});
+      },
+    );
 
     test('acknowledging is idempotent and never un-reads a message', () async {
       final first = store();
       await first.acknowledge('next-transfer-0-1-1-beta');
       await first.acknowledge('next-transfer-0-1-1-beta');
-      expect(
-        await store().readAcknowledgedIds(),
-        <String>{'next-transfer-0-1-1-beta'},
-      );
+      expect(await store().readAcknowledgedIds(), <String>{
+        'next-transfer-0-1-1-beta',
+      });
       // Reading again can never make it unread: the receipt is on disk.
       expect(await store().readAcknowledgedIds(), hasLength(1));
     });
@@ -245,19 +250,23 @@ void main() {
       final target = store();
       await target.acknowledge('next-transfer-0-1-1-beta');
       await target.acknowledge('welcome-to-next-transfer-beta');
-      expect(
-        await store().readAcknowledgedIds(),
-        <String>{'next-transfer-0-1-1-beta', 'welcome-to-next-transfer-beta'},
-      );
+      expect(await store().readAcknowledgedIds(), <String>{
+        'next-transfer-0-1-1-beta',
+        'welcome-to-next-transfer-beta',
+      });
     });
 
-    test('a corrupt document reads as nothing acknowledged, never as read',
-        () async {
-      final file = File('${directory.path}${Platform.pathSeparator}'
-          'message_read_state.json');
-      await file.writeAsString('{not json');
-      expect(await store().readAcknowledgedIds(), isEmpty);
-    });
+    test(
+      'a corrupt document reads as nothing acknowledged, never as read',
+      () async {
+        final file = File(
+          '${directory.path}${Platform.pathSeparator}'
+          'message_read_state.json',
+        );
+        await file.writeAsString('{not json');
+        expect(await store().readAcknowledgedIds(), isEmpty);
+      },
+    );
 
     test('an empty id is never stored', () async {
       await store().acknowledge('');
@@ -274,8 +283,9 @@ void main() {
       expect(find.byKey(unreadDot), findsOneWidget);
     });
 
-    testWidgets('an already-acknowledged tester never sees the dot',
-        (tester) async {
+    testWidgets('an already-acknowledged tester never sees the dot', (
+      tester,
+    ) async {
       await pumpHome(
         tester,
         store: _MemoryReadStateStore(<String>{
@@ -285,8 +295,9 @@ void main() {
       expect(find.byKey(unreadDot), findsNothing);
     });
 
-    testWidgets('opening the notice clears the dot and stores the receipt',
-        (tester) async {
+    testWidgets('opening the notice clears the dot and stores the receipt', (
+      tester,
+    ) async {
       final store = _MemoryReadStateStore();
       await pumpHome(tester, store: store);
       expect(find.byKey(unreadDot), findsOneWidget);
@@ -303,8 +314,9 @@ void main() {
       expect(find.byKey(unreadDot), findsOneWidget);
     });
 
-    testWidgets('the dot clears once the LAST unread message is opened',
-        (tester) async {
+    testWidgets('the dot clears once the LAST unread message is opened', (
+      tester,
+    ) async {
       final store = _MemoryReadStateStore(<String>{
         for (final message in BundledMessages.all)
           if (message.id != releaseId) message.id,
@@ -318,8 +330,9 @@ void main() {
       expect(find.byKey(unreadDot), findsNothing);
     });
 
-    testWidgets('the Got it action acknowledges and returns to the list',
-        (tester) async {
+    testWidgets('the Got it action acknowledges and returns to the list', (
+      tester,
+    ) async {
       final store = _MemoryReadStateStore();
       await pumpHome(tester, store: store);
       await openReleaseDetail(tester);
@@ -333,8 +346,9 @@ void main() {
       expect(store.acknowledged, contains(releaseId));
     });
 
-    testWidgets('a refused receipt leaves the notice unread (no false read)',
-        (tester) async {
+    testWidgets('a refused receipt leaves the notice unread (no false read)', (
+      tester,
+    ) async {
       final store = _MemoryReadStateStore()..failWrites = true;
       await pumpHome(tester, store: store);
       await openReleaseDetail(tester);
@@ -346,8 +360,9 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('the bell still opens the canonical Messages screen',
-        (tester) async {
+    testWidgets('the bell still opens the canonical Messages screen', (
+      tester,
+    ) async {
       await pumpHome(tester, store: _MemoryReadStateStore());
       await tester.tap(find.byKey(const Key('home-messages')));
       await tester.pumpAndSettle();
@@ -355,8 +370,9 @@ void main() {
       expect(find.byKey(const Key('messages-list')), findsOneWidget);
     });
 
-    testWidgets('the update notice never asks for an OS permission',
-        (tester) async {
+    testWidgets('the update notice never asks for an OS permission', (
+      tester,
+    ) async {
       final permissions = FakePermissionGateway();
       await pumpHome(
         tester,
@@ -374,8 +390,9 @@ void main() {
       );
     });
 
-    testWidgets('the dot and the notice survive text scale 1.5',
-        (tester) async {
+    testWidgets('the dot and the notice survive text scale 1.5', (
+      tester,
+    ) async {
       addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
       tester.platformDispatcher.textScaleFactorTestValue = 1.5;
       await pumpHome(
@@ -389,8 +406,9 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('compact landscape keeps the dot and the action usable',
-        (tester) async {
+    testWidgets('compact landscape keeps the dot and the action usable', (
+      tester,
+    ) async {
       await pumpHome(
         tester,
         store: _MemoryReadStateStore(),
@@ -438,20 +456,17 @@ void main() {
           .read(unreadMessagesProvider)
           .map((message) => message.id);
       expect(unreadBefore, contains(releaseId));
-      expect(
-        unreadBefore,
-        isNot(contains('welcome-to-next-transfer-beta')),
-      );
+      expect(unreadBefore, isNot(contains('welcome-to-next-transfer-beta')));
 
       expect(
-        await container.read(messageAcknowledgementProvider).acknowledge(releaseId),
+        await container
+            .read(messageAcknowledgementProvider)
+            .acknowledge(releaseId),
         isTrue,
       );
       expect(store.acknowledged, contains(releaseId));
       expect(
-        container
-            .read(unreadMessagesProvider)
-            .map((message) => message.id),
+        container.read(unreadMessagesProvider).map((message) => message.id),
         isNot(contains(releaseId)),
       );
     });
@@ -461,14 +476,13 @@ void main() {
       final container = containerFor(store);
 
       expect(
-        await container.read(messageAcknowledgementProvider).acknowledge(releaseId),
+        await container
+            .read(messageAcknowledgementProvider)
+            .acknowledge(releaseId),
         isFalse,
       );
       expect(store.acknowledged, isEmpty);
-      expect(
-        container.read(sessionMessageAcknowledgementsProvider),
-        isEmpty,
-      );
+      expect(container.read(sessionMessageAcknowledgementsProvider), isEmpty);
     });
 
     test('a storage failure still surfaces the notice', () async {
@@ -486,5 +500,74 @@ void main() {
       );
       expect(container.read(hasUnreadMessagesProvider), isTrue);
     });
+  });
+
+  // ---------------------------------------------------------------------
+  // Owner law (2026-09-19): each bundled message shows the red DOT only, and
+  // per-message receipts survive a catalog update — installing a build with one
+  // new release note leaves exactly that note unread.
+  // ---------------------------------------------------------------------
+  group('per-message unread presentation', () {
+    /// Everything except the newest notice was already read by this tester.
+    _MemoryReadStateStore previouslyReadAllButTheNotice() {
+      return _MemoryReadStateStore(
+        BundledMessages.all
+            .where((message) => message.id != releaseId)
+            .map((message) => message.id),
+      );
+    }
+
+    testWidgets('only the unread notice carries the red dot, never a number', (
+      tester,
+    ) async {
+      await pumpHome(tester, store: previouslyReadAllButTheNotice());
+      await tester.tap(find.byKey(const Key('home-messages')));
+      await tester.pumpAndSettle();
+
+      for (final message in BundledMessages.all) {
+        final dot = find.byKey(Key('message-unread-dot-${message.id}'));
+        if (message.id == releaseId) {
+          expect(dot, findsOneWidget, reason: 'the new notice is unread');
+        } else {
+          expect(dot, findsNothing, reason: '${message.id} stays read');
+        }
+      }
+      // Red DOT only: the row never renders a count.
+      expect(
+        find.descendant(
+          of: find.byKey(Key('message-row-$releaseId')),
+          matching: find.text('1'),
+        ),
+        findsNothing,
+      );
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+      'opening the new notice clears its dot and keeps old receipts',
+      (tester) async {
+        final store = previouslyReadAllButTheNotice();
+        await pumpHome(tester, store: store);
+        final previouslyRead = <String>{...store.acknowledged};
+
+        await tester.tap(find.byKey(const Key('home-messages')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('message-row-$releaseId')));
+        await tester.pumpAndSettle();
+        await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+
+        for (final message in BundledMessages.all) {
+          expect(
+            find.byKey(Key('message-unread-dot-${message.id}')),
+            findsNothing,
+            reason: '${message.id} is read once every notice is open',
+          );
+        }
+        expect(store.acknowledged, contains(releaseId));
+        expect(store.acknowledged.containsAll(previouslyRead), isTrue);
+        expect(tester.takeException(), isNull);
+      },
+    );
   });
 }
