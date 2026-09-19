@@ -511,7 +511,7 @@ final class _DetailedContentCard extends ConsumerWidget {
             onChanged: _detailsEffective
                 ? (enabled) => ref
                       .read(detailedContentControllerProvider)
-                      .setEnabled(current: stored, enabled: enabled)
+                      .setEnabledAndRefresh(current: stored, enabled: enabled)
                 : null,
           ),
           const Divider(height: 1),
@@ -522,7 +522,7 @@ final class _DetailedContentCard extends ConsumerWidget {
             value: stored.showTitle,
             onChanged: (value) => ref
                 .read(detailedContentControllerProvider)
-                .setField(current: stored, showTitle: value),
+                .setFieldAndRefresh(current: stored, showTitle: value),
           ),
           const Divider(height: 1),
           _DetailedToggle(
@@ -532,7 +532,7 @@ final class _DetailedContentCard extends ConsumerWidget {
             value: stored.showDescription,
             onChanged: (value) => ref
                 .read(detailedContentControllerProvider)
-                .setField(current: stored, showDescription: value),
+                .setFieldAndRefresh(current: stored, showDescription: value),
           ),
           const Divider(height: 1),
           _DetailedToggle(
@@ -542,7 +542,7 @@ final class _DetailedContentCard extends ConsumerWidget {
             value: stored.showTime,
             onChanged: (value) => ref
                 .read(detailedContentControllerProvider)
-                .setField(current: stored, showTime: value),
+                .setFieldAndRefresh(current: stored, showTime: value),
           ),
           const Divider(height: 1),
           _DetailedToggle(
@@ -552,7 +552,7 @@ final class _DetailedContentCard extends ConsumerWidget {
             value: stored.showContacts,
             onChanged: (value) => ref
                 .read(detailedContentControllerProvider)
-                .setField(current: stored, showContacts: value),
+                .setFieldAndRefresh(current: stored, showContacts: value),
           ),
           const Divider(height: 1),
           _DetailedToggle(
@@ -562,7 +562,7 @@ final class _DetailedContentCard extends ConsumerWidget {
             value: stored.showLocation,
             onChanged: (value) => ref
                 .read(detailedContentControllerProvider)
-                .setField(current: stored, showLocation: value),
+                .setFieldAndRefresh(current: stored, showLocation: value),
           ),
           const Divider(height: 1),
           Padding(

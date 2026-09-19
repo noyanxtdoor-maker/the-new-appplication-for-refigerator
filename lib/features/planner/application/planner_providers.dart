@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:rmplanner/core/background/background_work_request.dart';
 import 'package:rmplanner/core/ids/identifier_source.dart';
 import 'package:rmplanner/core/notifications/notification_preview_policy.dart';
+import 'package:rmplanner/features/contacts/application/contact_providers.dart';
 import 'package:rmplanner/features/notifications/application/launcher_badge_providers.dart';
 import 'package:rmplanner/features/notifications/application/notification_providers.dart';
 import 'package:rmplanner/features/notifications/application/reminder_notification_renderer.dart';
@@ -650,6 +651,9 @@ final class PlannerController extends Notifier<PlannerState> {
         resolveNotificationPreviewMode(settings: privacy) ==
         EffectiveNotificationPreviewMode.detailed;
     final reconciler = ref.read(reminderReconcilerProvider);
+    // One read for the whole pass: every occurrence must render with the SAME
+    // saved field choices.
+    final detailOptions = await _detailOptions();
     final expected = <String>{};
     for (final occurrence in projected) {
       final task = occurrence.task;
@@ -657,6 +661,11 @@ final class PlannerController extends Notifier<PlannerState> {
       final projectedDate = occurrence.projectedDate;
       if (minute == null) continue;
       final occurrenceId = occurrence.occurrenceId;
+      final presentation = _taskReminderPresentation(
+        task,
+        options: detailOptions,
+      );
+      final requiresEnrichment = await _taskRequiresEnrichment(task.id);
       final key = ReminderReconciler.stableKey(
         sourceKind: ReminderSourceKind.task,
         profileId: _profileId,
@@ -686,12 +695,16 @@ final class PlannerController extends Notifier<PlannerState> {
         sourceActive: task.status == PlannerTaskStatus.incomplete,
         genericTitle: ReminderNotificationRenderer.genericTitle,
         genericBody: ReminderNotificationRenderer.genericBody,
-        detailedTitle: _taskReminderTitle(task, use24HourTime: false),
-        detailedBody: _taskReminderBody(task, use24HourTime: false),
+        detailedTitle: presentation.title,
+        detailedBody: presentation.body,
         showDetails: showDetails,
         refreshContent: refreshContent,
+        requiresEnrichment: requiresEnrichment,
+        // Defect N1-G: the saved field choices are part of the revision, so a
+        // changed Show toggle refreshes the SAME notification identity in place
+        // instead of leaving stale pre-rendered copy on a scheduled reminder.
         renderRevision: showDetails
-            ? 'task_detailed_${task.updatedAtUtc.microsecondsSinceEpoch}'
+            ? 'task_detailed_${task.updatedAtUtc.microsecondsSinceEpoch}_${detailOptions.revisionToken}'
             : 'task_generic',
       );
       final work = await ref
@@ -841,6 +854,12 @@ final class PlannerController extends Notifier<PlannerState> {
               minute ~/ 60,
               minute % 60,
             ).toUtc();
+      final detailOptions = await _detailOptions();
+      final presentation = _taskReminderPresentation(
+        saved,
+        options: detailOptions,
+      );
+      final requiresEnrichment = await _taskRequiresEnrichment(saved.id);
       await reconciler.reconcile(
         sourceKind: ReminderSourceKind.task,
         profileId: _profileId,
@@ -849,7 +868,7 @@ final class PlannerController extends Notifier<PlannerState> {
         startsAtUtc: startsAtUtc,
         sourceVersion: saved.updatedAtUtc.microsecondsSinceEpoch,
         renderRevision: showDetails
-            ? 'task_detailed_${saved.updatedAtUtc.microsecondsSinceEpoch}'
+            ? 'task_detailed_${saved.updatedAtUtc.microsecondsSinceEpoch}_${detailOptions.revisionToken}'
             : 'task_generic',
         globalOffsetMinutes: preferences.defaultTaskReminderMinutes,
         categoryEnabled: preferences.taskRemindersEnabled,
@@ -860,9 +879,10 @@ final class PlannerController extends Notifier<PlannerState> {
         sourceActive: saved.status == PlannerTaskStatus.incomplete,
         genericTitle: ReminderNotificationRenderer.genericTitle,
         genericBody: ReminderNotificationRenderer.genericBody,
-        detailedTitle: _taskReminderTitle(saved, use24HourTime: false),
-        detailedBody: _taskReminderBody(saved, use24HourTime: false),
+        detailedTitle: presentation.title,
+        detailedBody: presentation.body,
         showDetails: showDetails,
+        requiresEnrichment: requiresEnrichment,
       );
       await _load(state.selectedDate, invalidateCache: true);
       await _refreshLauncherBadge();
@@ -931,6 +951,12 @@ final class PlannerController extends Notifier<PlannerState> {
             minute ~/ 60,
             minute % 60,
           ).toUtc();
+    final detailOptions = await _detailOptions();
+    final presentation = _taskReminderPresentation(
+      saved,
+      options: detailOptions,
+    );
+    final requiresEnrichment = await _taskRequiresEnrichment(saved.id);
     await ref
         .read(reminderReconcilerProvider)
         .reconcile(
@@ -941,7 +967,7 @@ final class PlannerController extends Notifier<PlannerState> {
           startsAtUtc: startsAtUtc,
           sourceVersion: saved.updatedAtUtc.microsecondsSinceEpoch,
           renderRevision: showDetails
-              ? 'task_detailed_${saved.updatedAtUtc.microsecondsSinceEpoch}'
+              ? 'task_detailed_${saved.updatedAtUtc.microsecondsSinceEpoch}_${detailOptions.revisionToken}'
               : 'task_generic',
           globalOffsetMinutes: preferences.defaultTaskReminderMinutes,
           categoryEnabled: preferences.taskRemindersEnabled,
@@ -952,9 +978,10 @@ final class PlannerController extends Notifier<PlannerState> {
           sourceActive: saved.status == PlannerTaskStatus.incomplete,
           genericTitle: ReminderNotificationRenderer.genericTitle,
           genericBody: ReminderNotificationRenderer.genericBody,
-          detailedTitle: _taskReminderTitle(saved, use24HourTime: false),
-          detailedBody: _taskReminderBody(saved, use24HourTime: false),
+          detailedTitle: presentation.title,
+          detailedBody: presentation.body,
           showDetails: showDetails,
+          requiresEnrichment: requiresEnrichment,
         );
     await _refreshLauncherBadge();
   }
@@ -962,9 +989,13 @@ final class PlannerController extends Notifier<PlannerState> {
   /// VS16 M7 corrective — renderer convergence.
   ///
   /// The native ordinary transport delegates Task reminder copy to the single
-  /// canonical [ReminderNotificationRenderer].  Detailed options stay at their
-  /// all-TRUE default: the user's per-field preferences are applied when the
-  /// notification is actually presented, not when it is scheduled.
+  /// canonical [ReminderNotificationRenderer].
+  ///
+  /// [options] is the profile's SAVED per-field Detailed configuration (owner
+  /// pass 2026-09-19, defect N1).  The native body is pre-rendered at schedule
+  /// time, so leaving these at their all-TRUE default made the ordinary
+  /// transport ignore the owner's field choices entirely while the worker
+  /// transport honoured them.  Both transports now obey ONE content law.
   ///
   /// The amendment's "actual resolved source title" rule maps to the
   /// Planner-visible Task title.  User emoji is preserved; only the renderer's
@@ -973,28 +1004,83 @@ final class PlannerController extends Notifier<PlannerState> {
   static RenderedReminder _taskReminderPresentation(
     PlannerTask task, {
     bool use24HourTime = false,
+    ReminderDetailOptions options = ReminderDetailOptions.all,
   }) {
     return ReminderNotificationRenderer.taskDetailed(
       taskTitle: task.title,
       dueMinute: task.dueMinute,
       notes: task.notes,
       use24HourTime: use24HourTime,
+      options: options,
     );
   }
 
-  static String _taskReminderBody(
-    PlannerTask task, {
-    required bool use24HourTime,
-  }) {
-    return _taskReminderPresentation(task, use24HourTime: use24HourTime).body;
+  /// The profile's saved per-field Detailed options, as the renderer's type.
+  ///
+  /// Shared by every Task reconciliation site so scheduled copy and the
+  /// Settings preview can never disagree.  A read failure yields the all-TRUE
+  /// default: it fails closed TOWARD CONTENT (the pre-existing behaviour),
+  /// never toward a silently blanked notification.
+  Future<ReminderDetailOptions> _detailOptions() async {
+    try {
+      final stored = await ref
+          .read(notificationFoundationRepositoryProvider)
+          .readDetailedContent(profileId: _profileId);
+      return stored.toOptions();
+    } on Object {
+      return ReminderDetailOptions.all;
+    }
   }
 
-  static String _taskReminderTitle(
-    PlannerTask task, {
-    required bool use24HourTime,
-  }) {
-    return _taskReminderPresentation(task, use24HourTime: use24HourTime).title;
+  /// Whether this Task's effective policy carries an explicit Contact
+  /// follow-up purpose — the chooser flow, which lives on the SERIES row for
+  /// Tasks (a Task has no occurrence dimension).
+  Future<bool> _hasTaskFollowUpPurpose(String sourceId) async {
+    final policies = await ref
+        .read(notificationFoundationRepositoryProvider)
+        .readPolicies(
+          profileId: _profileId,
+          sourceKind: ReminderSourceKind.task,
+          sourceId: sourceId,
+        );
+    return policies.any(
+      (policy) => policy.purpose == ReminderPurpose.contactFollowUp,
+    );
   }
+
+  /// Whether this Task currently has at least one LIVE attached Contact.
+  ///
+  /// Reads the SAME effective link truth the People section renders, so
+  /// transport selection and the delivered line can never disagree about who is
+  /// attached.  A read failure reports "no People": that keeps the pre-existing
+  /// ordinary transport instead of failing a save, and the reminder is still
+  /// delivered.
+  Future<bool> _hasAttachedTaskPeople(String taskId) async {
+    try {
+      final contactIds = await ref
+          .read(contactRepositoryProvider)
+          .readEffectiveTaskContactIds(profileId: _profileId, taskId: taskId);
+      return contactIds.isNotEmpty;
+    } on Object {
+      return false;
+    }
+  }
+
+  /// Owner pass 2026-09-19 (defect N2): a Task needs the live-read transport when
+  /// it has attached People or an explicit follow-up purpose.
+  ///
+  /// Before this, EVERY Task reconciliation stayed on the pre-rendered native
+  /// transport, whose body is computed at schedule time by a function with no
+  /// enrichment input.  The reader could already resolve a Task's People, but
+  /// nothing could ever deliver them, so "Show contacts" was silently inert for
+  /// Tasks no matter how the gates were set.
+  ///
+  /// Keyed on the LINKS and the purpose, never on the Show-contacts toggle:
+  /// the toggle steers presentation, and switching it must not move the key
+  /// between transports.
+  Future<bool> _taskRequiresEnrichment(String taskId) async =>
+      await _hasTaskFollowUpPurpose(taskId) ||
+      await _hasAttachedTaskPeople(taskId);
 
   Future<TaskStatusChangeOutcome> changeStatus({
     required String taskId,

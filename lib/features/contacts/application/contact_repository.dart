@@ -297,6 +297,22 @@ abstract interface class ContactRepository {
     required List<String> contactIds,
   });
 
+  /// The EFFECTIVE live Contact ids linked to one Task.
+  ///
+  /// A Task has no occurrence dimension, so this is the whole-source link set
+  /// (`task_contact_links`, scoped by profile and task) — the same truth
+  /// [readTaskContacts] renders as People.
+  ///
+  /// Exposed on the interface for the same reason the Event equivalent is
+  /// (owner pass 2026-09-19, defect N2): reminder transport selection needs to
+  /// know whether a source has attached People, because attached names are
+  /// resolved from LIVE links at delivery and a pre-rendered native body could
+  /// never carry them.
+  Future<Set<String>> readEffectiveTaskContactIds({
+    required String profileId,
+    required String taskId,
+  });
+
   Future<List<ContactSummary>> readTaskContacts({
     required String profileId,
     required String taskId,

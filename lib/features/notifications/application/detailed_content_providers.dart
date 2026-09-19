@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:rmplanner/features/notifications/application/notification_privacy_refresh_provider.dart';
 import 'package:rmplanner/features/notifications/application/notification_providers.dart';
 import 'package:rmplanner/features/notifications/application/reminder_notification_renderer.dart';
 import 'package:rmplanner/features/notifications/data/detailed_content_preferences_store.dart';
@@ -67,12 +68,18 @@ final class DetailedContentController {
   /// The master is separate storage precisely so this write cannot touch the
   /// owner's field choices: turning detail off and back on must return exactly
   /// the configuration that was there before.
+  ///
+  /// Persistence only.  The Settings screen uses [setEnabledAndRefresh] so that
+  /// already-scheduled reminder copy is re-rendered as well; keeping the pure
+  /// write separate means a caller that only wants durability (and the tests
+  /// that assert the storage law) never triggers a platform reconciliation.
   Future<void> setEnabled({
     required DetailedContentPreferences current,
     required bool enabled,
   }) => save(current.copyWith(enabled: enabled));
 
-  /// Toggles ONE field, preserving the other four.
+  /// Toggles ONE field, preserving the other four.  Persistence only; see
+  /// [setFieldAndRefresh].
   Future<void> setField({
     required DetailedContentPreferences current,
     bool? showTitle,
@@ -89,6 +96,58 @@ final class DetailedContentController {
       showLocation: showLocation,
     ),
   );
+
+  /// The owner-facing toggle: persists the change AND refreshes the copy of
+  /// reminders that are already scheduled.
+  ///
+  /// Owner pass 2026-09-19 (defect N1-G).  The ordinary transport PRE-RENDERS
+  /// the notification body when it schedules the alarm, so without this pass a
+  /// changed Show toggle would only take effect the next time that reminder
+  /// happened to be reconciled for some unrelated reason.  The refresh is the
+  /// SAME canonical Event-and-Task content refresh the privacy preview toggle
+  /// already uses — there is deliberately no second reconciliation path.
+  Future<void> setEnabledAndRefresh({
+    required DetailedContentPreferences current,
+    required bool enabled,
+  }) async {
+    await setEnabled(current: current, enabled: enabled);
+    await _refreshScheduledContent();
+  }
+
+  /// The owner-facing field toggle: persists the change AND refreshes the copy
+  /// of reminders that are already scheduled.
+  Future<void> setFieldAndRefresh({
+    required DetailedContentPreferences current,
+    bool? showTitle,
+    bool? showDescription,
+    bool? showTime,
+    bool? showContacts,
+    bool? showLocation,
+  }) async {
+    await setField(
+      current: current,
+      showTitle: showTitle,
+      showDescription: showDescription,
+      showTime: showTime,
+      showContacts: showContacts,
+      showLocation: showLocation,
+    );
+    await _refreshScheduledContent();
+  }
+
+  /// Re-renders already-scheduled reminder copy.
+  ///
+  /// The preference is already durable before this runs, so a platform failure
+  /// must not surface as a failed toggle: the next canonical reconciliation is
+  /// idempotent and will converge.  The failure is swallowed for exactly the
+  /// same reason the privacy write swallows it.
+  Future<void> _refreshScheduledContent() async {
+    try {
+      await _ref.read(notificationPrivacyRefreshProvider)();
+    } on Object {
+      // Durable preference kept; scheduling converges on the next pass.
+    }
+  }
 }
 
 /// Builds the canonical preview using the SAME renderer the notification path

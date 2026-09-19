@@ -2905,6 +2905,21 @@ final class DriftContactRepository
   }
 
   @override
+  Future<Set<String>> readEffectiveTaskContactIds({
+    required String profileId,
+    required String taskId,
+  }) async {
+    final rows =
+        await (database.select(database.taskContactLinks)..where(
+              (table) =>
+                  table.profileId.equals(profileId) &
+                  table.taskId.equals(taskId),
+            ))
+            .get();
+    return <String>{for (final row in rows) row.contactId};
+  }
+
+  @override
   Future<void> setTaskContacts({
     required String profileId,
     required String taskId,
