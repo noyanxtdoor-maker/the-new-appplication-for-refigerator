@@ -32,30 +32,33 @@ import 'package:flutter_test/flutter_test.dart';
 /// its icon instead of depending on the startup-registered default.
 void main() {
   final keepFile = File('android/app/src/main/res/raw/keep.xml');
-  final gateway = File('lib/core/notifications/flutter_local_notifications_gateway.dart');
+  final gateway = File(
+    'lib/core/notifications/flutter_local_notifications_gateway.dart',
+  );
   final badgeGateway = File(
     'lib/core/notifications/flutter_local_notifications_launcher_badge_gateway.dart',
   );
 
-  group('D28 the notification drawable survives the release resource shrinker', () {
-    test('res/raw/keep.xml keeps @drawable/ic_nt_notification', () {
-      expect(
-        keepFile.existsSync(),
-        isTrue,
-        reason:
-            'Without this file the release build strips the drawable that the '
-            'plugin resolves by name at runtime, which is the delivery crash.',
-      );
-      final source = keepFile.readAsStringSync().replaceAll('\r\n', '\n');
-      expect(
-        source.contains(
-          'tools:keep="@drawable/ic_nt_notification"',
-        ),
-        isTrue,
-        reason: 'the exact drawable the gateway names must be kept',
-      );
-    });
-  });
+  group(
+    'D28 the notification drawable survives the release resource shrinker',
+    () {
+      test('res/raw/keep.xml keeps @drawable/ic_nt_notification', () {
+        expect(
+          keepFile.existsSync(),
+          isTrue,
+          reason:
+              'Without this file the release build strips the drawable that the '
+              'plugin resolves by name at runtime, which is the delivery crash.',
+        );
+        final source = keepFile.readAsStringSync().replaceAll('\r\n', '\n');
+        expect(
+          source.contains('tools:keep="@drawable/ic_nt_notification"'),
+          isTrue,
+          reason: 'the exact drawable the gateway names must be kept',
+        );
+      });
+    },
+  );
 
   group('D29 every notification names its icon explicitly', () {
     test('the shared resource constant is a bare drawable name', () {

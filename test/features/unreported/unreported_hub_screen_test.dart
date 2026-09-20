@@ -132,43 +132,44 @@ void main() {
     );
   });
 
-  testWidgets('an attached Contact renders through the canonical Contact link', (
-    tester,
-  ) async {
-    final contact = _contact('contact-1', 'Juan Dela Cruz');
-    await pumpApp(
-      tester,
-      entries: <UnreportedEntry>[
-        UnreportedEntry(
-          tab: UnreportedTab.contacts,
-          event: _awaiting('contact-occurrence'),
-          goalId: null,
-          contacts: <UnreportedContactRef>[
-            UnreportedContactRef(
-              contactId: contact.id,
-              displayName: contact.displayName,
-              contact: ContactSummary(contact: contact),
-            ),
-          ],
-        ),
-      ],
-    );
-    await openHub(tester);
+  testWidgets(
+    'an attached Contact renders through the canonical Contact link',
+    (tester) async {
+      final contact = _contact('contact-1', 'Juan Dela Cruz');
+      await pumpApp(
+        tester,
+        entries: <UnreportedEntry>[
+          UnreportedEntry(
+            tab: UnreportedTab.contacts,
+            event: _awaiting('contact-occurrence'),
+            goalId: null,
+            contacts: <UnreportedContactRef>[
+              UnreportedContactRef(
+                contactId: contact.id,
+                displayName: contact.displayName,
+                contact: ContactSummary(contact: contact),
+              ),
+            ],
+          ),
+        ],
+      );
+      await openHub(tester);
 
-    await tester.tap(find.byKey(const Key('unreported-tab-contacts')));
-    await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('unreported-tab-contacts')));
+      await tester.pumpAndSettle();
 
-    expect(
-      find.byKey(const Key('unreported-row-contact-occurrence')),
-      findsOneWidget,
-    );
-    final link = find.byKey(const Key('unreported-contact-contact-1'));
-    expect(link, findsOneWidget);
-    expect(
-      find.descendant(of: link, matching: find.text('Juan Dela Cruz')),
-      findsOneWidget,
-    );
-  });
+      expect(
+        find.byKey(const Key('unreported-row-contact-occurrence')),
+        findsOneWidget,
+      );
+      final link = find.byKey(const Key('unreported-contact-contact-1'));
+      expect(link, findsOneWidget);
+      expect(
+        find.descendant(of: link, matching: find.text('Juan Dela Cruz')),
+        findsOneWidget,
+      );
+    },
+  );
 
   testWidgets('an empty backlog shows no number and honest empty states', (
     tester,

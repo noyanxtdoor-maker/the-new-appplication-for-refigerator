@@ -176,22 +176,21 @@ final class FlutterLocalNotificationsGateway
   // shows — including the M7 source-title amendment.  This is presentation
   // only: channel identity, importance, permissions, platform IDs, transport
   // ownership and scheduling semantics are all untouched.
-  NotificationDetails _detailsFor(
-    LocalNotificationRequest request,
-  ) => NotificationDetails(
-    android: AndroidNotificationDetails(
-      request.channel.id,
-      request.channel.label,
-      channelDescription: request.channel.description,
-      // HOTFIX: never depend on the startup-registered default icon (see
-      // [ntNotificationIconResource]).
-      icon: ntNotificationIconResource,
-      styleInformation: BigTextStyleInformation(
-        request.body,
-        contentTitle: request.title,
-      ),
-    ),
-  );
+  NotificationDetails _detailsFor(LocalNotificationRequest request) =>
+      NotificationDetails(
+        android: AndroidNotificationDetails(
+          request.channel.id,
+          request.channel.label,
+          channelDescription: request.channel.description,
+          // HOTFIX: never depend on the startup-registered default icon (see
+          // [ntNotificationIconResource]).
+          icon: ntNotificationIconResource,
+          styleInformation: BigTextStyleInformation(
+            request.body,
+            contentTitle: request.title,
+          ),
+        ),
+      );
 
   // OWNER correction #3. This is NOT a reminder transport: no payload, no
   // action buttons, no schedule, no WorkManager tag, and never a place in the

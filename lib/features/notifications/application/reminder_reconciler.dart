@@ -237,9 +237,7 @@ final class ReminderReconciler {
       sourceKind: sourceKind,
       sourceId: sourceId,
     )).where((policy) => policy.occurrenceId == occurrenceId).firstOrNull;
-    final resolvedPurpose = clearPurpose
-        ? ReminderPurpose.standard
-        : purpose;
+    final resolvedPurpose = clearPurpose ? ReminderPurpose.standard : purpose;
     final resolvedContactId = resolvedPurpose == ReminderPurpose.standard
         ? null
         : contactId;
@@ -409,8 +407,7 @@ final class ReminderReconciler {
     final existingTransport = transportOf(existing?.sourceRevision);
     final stickyWorkerTransport = existingTransport == _workerTransportPrefix;
     final useWorkerTransport =
-        scheduleWorker != null &&
-        (stickyWorkerTransport || requiresEnrichment);
+        scheduleWorker != null && (stickyWorkerTransport || requiresEnrichment);
     // Section 6: the transport choice for this durable row is persisted in the
     // render suffix so later comparisons know which transport owns the key.
     // Both markers are written — the native marker is not merely informational,

@@ -56,24 +56,27 @@ void main() {
       );
     });
 
-    test('a linked Contact type or an effective Contact link lands in Contacts', () {
-      expect(
-        UnreportedClassification.classify(
-          goalId: null,
-          activityTypeStableKey: SystemEventTypeKeys.contact,
-          hasEffectiveContacts: false,
-        ),
-        UnreportedTab.contacts,
-      );
-      expect(
-        UnreportedClassification.classify(
-          goalId: null,
-          activityTypeStableKey: 'other',
-          hasEffectiveContacts: true,
-        ),
-        UnreportedTab.contacts,
-      );
-    });
+    test(
+      'a linked Contact type or an effective Contact link lands in Contacts',
+      () {
+        expect(
+          UnreportedClassification.classify(
+            goalId: null,
+            activityTypeStableKey: SystemEventTypeKeys.contact,
+            hasEffectiveContacts: false,
+          ),
+          UnreportedTab.contacts,
+        );
+        expect(
+          UnreportedClassification.classify(
+            goalId: null,
+            activityTypeStableKey: 'other',
+            hasEffectiveContacts: true,
+          ),
+          UnreportedTab.contacts,
+        );
+      },
+    );
 
     test('everything remaining is a plain unreported Event', () {
       expect(
@@ -86,23 +89,26 @@ void main() {
       );
     });
 
-    test('the Contact Event Type outranks nothing and is outranked by Goals', () {
-      // Precedence law: Life Goals -> Contacts -> Events.  Exactly one tab per
-      // occurrence, so the combined row count can never double-count.
-      final classifications = <UnreportedTab>{
-        UnreportedClassification.classify(
-          goalId: null,
-          activityTypeStableKey: SystemEventTypeKeys.contact,
-          hasEffectiveContacts: true,
-        ),
-        UnreportedClassification.classify(
-          goalId: null,
-          activityTypeStableKey: 'other',
-          hasEffectiveContacts: false,
-        ),
-      };
-      expect(classifications.length, 2);
-    });
+    test(
+      'the Contact Event Type outranks nothing and is outranked by Goals',
+      () {
+        // Precedence law: Life Goals -> Contacts -> Events.  Exactly one tab per
+        // occurrence, so the combined row count can never double-count.
+        final classifications = <UnreportedTab>{
+          UnreportedClassification.classify(
+            goalId: null,
+            activityTypeStableKey: SystemEventTypeKeys.contact,
+            hasEffectiveContacts: true,
+          ),
+          UnreportedClassification.classify(
+            goalId: null,
+            activityTypeStableKey: 'other',
+            hasEffectiveContacts: false,
+          ),
+        };
+        expect(classifications.length, 2);
+      },
+    );
   });
 
   group('one number feeds the hub, the indicator and the notification', () {
@@ -164,19 +170,22 @@ void main() {
       expect(source, isNot(contains('PlannerTask')));
     });
 
-    test('the hub screen has exactly the three owner tabs and no Tasks tab', () {
-      final source = File(
-        'lib/features/unreported/presentation/unreported_screen.dart',
-      ).readAsStringSync();
+    test(
+      'the hub screen has exactly the three owner tabs and no Tasks tab',
+      () {
+        final source = File(
+          'lib/features/unreported/presentation/unreported_screen.dart',
+        ).readAsStringSync();
 
-      expect(source, contains("Tab(key: Key('unreported-tab-life-goals')"));
-      expect(source, contains("Tab(key: Key('unreported-tab-events')"));
-      expect(source, contains("Tab(key: Key('unreported-tab-contacts')"));
-      expect(source, contains('length: 3'));
-      expect(source, isNot(contains("'Tasks'")));
-      // The row opens the SAME canonical Event detail flow as the Planner.
-      expect(source, contains('openPlannerCalendarEvent('));
-    });
+        expect(source, contains("Tab(key: Key('unreported-tab-life-goals')"));
+        expect(source, contains("Tab(key: Key('unreported-tab-events')"));
+        expect(source, contains("Tab(key: Key('unreported-tab-contacts')"));
+        expect(source, contains('length: 3'));
+        expect(source, isNot(contains("'Tasks'")));
+        // The row opens the SAME canonical Event detail flow as the Planner.
+        expect(source, contains('openPlannerCalendarEvent('));
+      },
+    );
   });
 
   group('the summary notification', () {

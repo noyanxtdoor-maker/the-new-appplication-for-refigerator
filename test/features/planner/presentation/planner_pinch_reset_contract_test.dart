@@ -77,7 +77,9 @@ void main() {
     });
 
     test('begin() clears the count and restores scrolling', () {
-      final beginIndex = planner.indexOf('  void begin() {\n    if (_pointerCount == 0');
+      final beginIndex = planner.indexOf(
+        '  void begin() {\n    if (_pointerCount == 0',
+      );
       expect(
         beginIndex,
         isNot(-1),
@@ -108,15 +110,18 @@ void main() {
       expect(body.contains('addPostFrameCallback'), isTrue);
     });
 
-    test('the stale doc comment was corrected, not left as a false promise', () {
-      expect(
-        planner.contains('is reset on the first pointer-down of each'),
-        isFalse,
-        reason:
-            'that sentence described a reset that did not exist and must not '
-            'survive the fix as a false invariant',
-      );
-    });
+    test(
+      'the stale doc comment was corrected, not left as a false promise',
+      () {
+        expect(
+          planner.contains('is reset on the first pointer-down of each'),
+          isFalse,
+          reason:
+              'that sentence described a reset that did not exist and must not '
+              'survive the fix as a false invariant',
+        );
+      },
+    );
   });
 }
 
