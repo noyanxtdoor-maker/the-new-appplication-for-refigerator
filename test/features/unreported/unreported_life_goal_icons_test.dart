@@ -123,13 +123,13 @@ void main() {
 
       // The two Goals really do carry different chosen icons, so a row that
       // resolves to a different Goal necessarily draws a different icon.
-      final icons = await (database.select(database.goals)
-            ..where((table) => table.profileId.equals(profileId)))
-          .get();
-      expect(
-        icons.map((row) => row.iconId).toSet(),
-        <String>{'find_job', 'work_briefcase'},
-      );
+      final icons = await (database.select(
+        database.goals,
+      )..where((table) => table.profileId.equals(profileId))).get();
+      expect(icons.map((row) => row.iconId).toSet(), <String>{
+        'find_job',
+        'work_briefcase',
+      });
     });
 
     test('GOAL-ICON-4: a manual Life Goal link wins outright', () async {
@@ -186,38 +186,43 @@ void main() {
       );
     });
 
-    test('GOAL-ICON-6: the resolution follows a Goal icon change live', () async {
-      final goalA = await insertGoal(
-        slot: slotA,
-        iconId: 'find_job',
-        title: 'Goal A',
-      );
+    test(
+      'GOAL-ICON-6: the resolution follows a Goal icon change live',
+      () async {
+        final goalA = await insertGoal(
+          slot: slotA,
+          iconId: 'find_job',
+          title: 'Goal A',
+        );
 
-      Future<String?> iconIdForGoalA() async {
-        final row =
-            await (database.select(database.goals)
-                  ..where((table) => table.id.equals(goalA))
-                  ..limit(1))
-                .getSingle();
-        return row.iconId;
-      }
+        Future<String?> iconIdForGoalA() async {
+          final row =
+              await (database.select(database.goals)
+                    ..where((table) => table.id.equals(goalA))
+                    ..limit(1))
+                  .getSingle();
+          return row.iconId;
+        }
 
-      expect(await iconIdForGoalA(), 'find_job');
-      // Re-iconing the Goal does not need a migration and is never copied: the
-      // row keeps resolving the Goal and reads its CURRENT icon.
-      await (database.update(database.goals)
-            ..where((table) => table.id.equals(goalA)))
-          .write(const GoalsCompanion(iconId: Value<String?>('work_briefcase')));
-      expect(await iconIdForGoalA(), 'work_briefcase');
-      expect(
-        UnreportedClassification.linkedGoalIdFor(
-          manualGoalId: null,
-          activityTypeStableKey: slotA.eventTypeStableKey,
-          goalIdBySlotIndex: await liveSlotOccupants(),
-        ),
-        goalA,
-      );
-    });
+        expect(await iconIdForGoalA(), 'find_job');
+        // Re-iconing the Goal does not need a migration and is never copied: the
+        // row keeps resolving the Goal and reads its CURRENT icon.
+        await (database.update(
+          database.goals,
+        )..where((table) => table.id.equals(goalA))).write(
+          const GoalsCompanion(iconId: Value<String?>('work_briefcase')),
+        );
+        expect(await iconIdForGoalA(), 'work_briefcase');
+        expect(
+          UnreportedClassification.linkedGoalIdFor(
+            manualGoalId: null,
+            activityTypeStableKey: slotA.eventTypeStableKey,
+            goalIdBySlotIndex: await liveSlotOccupants(),
+          ),
+          goalA,
+        );
+      },
+    );
   });
 
   // ---------------------------------------------------------------------
@@ -280,8 +285,12 @@ void main() {
     await tester.tap(find.byKey(const Key('drawer-unreported')));
     await tester.pumpAndSettle();
 
-    final markerA = find.byKey(const Key('unreported-goal-marker-occurrence-a'));
-    final markerB = find.byKey(const Key('unreported-goal-marker-occurrence-b'));
+    final markerA = find.byKey(
+      const Key('unreported-goal-marker-occurrence-a'),
+    );
+    final markerB = find.byKey(
+      const Key('unreported-goal-marker-occurrence-b'),
+    );
     expect(markerA, findsOneWidget);
     expect(markerB, findsOneWidget);
 

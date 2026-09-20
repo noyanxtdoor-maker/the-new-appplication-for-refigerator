@@ -54,9 +54,7 @@ void main() {
       final events = DriftCalendarEventRepository(
         database: database,
         clock: clock,
-        timeZones: IanaCalendarEventTimeZones(
-          displayTimeZoneId: 'Asia/Manila',
-        ),
+        timeZones: IanaCalendarEventTimeZones(displayTimeZoneId: 'Asia/Manila'),
       );
       final startup = buildTestRepository(
         database: database,
@@ -156,10 +154,8 @@ void main() {
         nowUtc: DateTime.now().toUtc(),
       );
       expect(backlog, hasLength(2));
-      String occurrenceOf(String eventId) => backlog
-          .firstWhere((entry) => entry.item.eventId == eventId)
-          .item
-          .id;
+      String occurrenceOf(String eventId) =>
+          backlog.firstWhere((entry) => entry.item.eventId == eventId).item.id;
 
       await tester.pumpWidget(
         privacy.buildApp(

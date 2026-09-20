@@ -220,9 +220,7 @@ void main() {
       expect(
         groups.single.label,
         planningDateSectionLabel(
-          PlannerDate.fromDateTime(
-            DateTime.utc(2026, 9, 21, 8).toLocal(),
-          ),
+          PlannerDate.fromDateTime(DateTime.utc(2026, 9, 21, 8).toLocal()),
         ),
         reason: 'the group is dated when the Task stopped awaiting action.',
       );
@@ -369,10 +367,7 @@ void main() {
 
     // TB-4 and HD-1: nothing is open any more, so the number is GONE — never a
     // red 0 — and the Home planning dot clears with it.
-    expect(
-      find.byKey(const Key('home-hamburger-attention-dot')),
-      findsNothing,
-    );
+    expect(find.byKey(const Key('home-hamburger-attention-dot')), findsNothing);
     await tester.tap(find.byKey(const Key('home-hamburger')));
     await tester.pumpAndSettle();
     expect(taskNumber(), 0);

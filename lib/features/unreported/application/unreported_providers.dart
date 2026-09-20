@@ -59,8 +59,7 @@ final unreportedEntriesProvider = FutureProvider<List<UnreportedEntry>>((
         .read(goalRepositoryProvider)
         .readLiveEventTypeBindings(profileId);
     goalIdBySlotIndex = <int, String>{
-      for (final binding in bindings.values)
-        binding.slotIndex: binding.goalId,
+      for (final binding in bindings.values) binding.slotIndex: binding.goalId,
     };
   } on Object {
     goalIdBySlotIndex = const <int, String>{};
@@ -103,20 +102,23 @@ final unreportedEntriesProvider = FutureProvider<List<UnreportedEntry>>((
     // Only a LIVE Contact resolves to a row reference: an archived, merged,
     // deleted or otherwise inactive Contact keeps its canonical link (so the
     // Event is still contact-related) but never renders as a stale name.
-    final references = <UnreportedContactRef>[
-      for (final id in ids)
-        if (_liveContact(summaries[id]?.contact) case final contact?)
-          UnreportedContactRef(
-            contactId: contact.id,
-            displayName: contact.displayName,
-            contact: summaries[id]!,
-          ),
-    ]..sort((left, right) {
-      final byName = left.displayName.toLowerCase().compareTo(
-        right.displayName.toLowerCase(),
-      );
-      return byName != 0 ? byName : left.contactId.compareTo(right.contactId);
-    });
+    final references =
+        <UnreportedContactRef>[
+          for (final id in ids)
+            if (_liveContact(summaries[id]?.contact) case final contact?)
+              UnreportedContactRef(
+                contactId: contact.id,
+                displayName: contact.displayName,
+                contact: summaries[id]!,
+              ),
+        ]..sort((left, right) {
+          final byName = left.displayName.toLowerCase().compareTo(
+            right.displayName.toLowerCase(),
+          );
+          return byName != 0
+              ? byName
+              : left.contactId.compareTo(right.contactId);
+        });
     entries.add(
       UnreportedEntry(
         tab: UnreportedClassification.classify(
@@ -149,9 +151,7 @@ final unreportedEntriesForTabProvider =
       final entries =
           ref.watch(unreportedEntriesProvider).value ??
           const <UnreportedEntry>[];
-      return entries
-          .where((entry) => entry.tab == tab)
-          .toList(growable: false);
+      return entries.where((entry) => entry.tab == tab).toList(growable: false);
     });
 
 Contact? _liveContact(Contact? contact) {
