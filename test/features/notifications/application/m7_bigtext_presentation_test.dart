@@ -8,6 +8,8 @@ import 'package:rmplanner/core/notifications/notification_payload.dart';
 import 'package:rmplanner/features/notifications/application/reminder_notification_renderer.dart';
 import 'package:workmanager_platform_interface/workmanager_platform_interface.dart';
 
+import '../../../support/workmanager_plugin_seam.dart';
+
 /// VS16 M7 corrective — D23/D24 BigText presentation at the common choke point.
 ///
 /// FAIL-FIRST: before the corrective implementation `_detailsFor` returned
@@ -34,11 +36,16 @@ void main() {
   /// `schedule()` also calls WorkManager (to cancel the retired job tag), which
   /// has no implementation in a plain VM test. A no-op WorkManager platform is
   /// installed so the test exercises the NOTIFICATION seam only.
+  ///
+  /// The assignment goes through [installWorkmanagerPlatform] so the fake
+  /// survives `Workmanager`'s lazily-installed host-OS implementation, which
+  /// would otherwise replace it on Linux and make this file pass on Windows
+  /// while failing on CI.
   List<MethodCall> installRecorder() {
     debugDefaultTargetPlatformOverride = TargetPlatform.android;
     FlutterLocalNotificationsPlatform.instance =
         AndroidFlutterLocalNotificationsPlugin();
-    WorkmanagerPlatform.instance = _NoopWorkmanagerPlatform();
+    installWorkmanagerPlatform(_NoopWorkmanagerPlatform());
     final calls = <MethodCall>[];
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
@@ -59,83 +66,89 @@ void main() {
     return args['platformSpecifics'] as Map<Object?, Object?>;
   }
 
-  test('D23 showCanonicalReminder carries a big-text style with the full body',
-      () async {
-    final calls = installRecorder();
-    final rendered = ReminderNotificationRenderer.eventDetailed(
-      eventTitle: "🎂 Willow's Birthday",
-      startDisplay: DateTime.utc(2026, 9, 12, 9),
-      endDisplay: DateTime.utc(2026, 9, 12, 10),
-      notes: 'Bring the insurance card',
-      followUpName: 'Cara Gomez',
-      locationText: 'Union Square Cafe',
-    );
-    // The body is genuinely multiline: without a style it would be clipped.
-    expect(rendered.body.contains('\n'), isTrue);
+  test(
+    'D23 showCanonicalReminder carries a big-text style with the full body',
+    () async {
+      final calls = installRecorder();
+      final rendered = ReminderNotificationRenderer.eventDetailed(
+        eventTitle: "🎂 Willow's Birthday",
+        startDisplay: DateTime.utc(2026, 9, 12, 9),
+        endDisplay: DateTime.utc(2026, 9, 12, 10),
+        notes: 'Bring the insurance card',
+        followUpName: 'Cara Gomez',
+        locationText: 'Union Square Cafe',
+      );
+      // The body is genuinely multiline: without a style it would be clipped.
+      expect(rendered.body.contains('\n'), isTrue);
 
-    await FlutterLocalNotificationsGateway().showCanonicalReminder(
-      LocalNotificationRequest(
-        platformId: 501,
-        stableKey: 'reminder:event:profile:occurrence:base',
-        channel: NotificationChannelKind.reminders,
-        scheduledAtUtc: DateTime.utc(2026, 9, 12, 8, 30),
-        title: rendered.title,
-        body: rendered.body,
-        responseIntent: intent,
-      ),
-    );
+      await FlutterLocalNotificationsGateway().showCanonicalReminder(
+        LocalNotificationRequest(
+          platformId: 501,
+          stableKey: 'reminder:event:profile:occurrence:base',
+          channel: NotificationChannelKind.reminders,
+          scheduledAtUtc: DateTime.utc(2026, 9, 12, 8, 30),
+          title: rendered.title,
+          body: rendered.body,
+          responseIntent: intent,
+        ),
+      );
 
-    final call = calls.singleWhere((c) => c.method == 'show');
-    final android = androidOf(call);
-    // The plugin writes `style` and `styleInformation` as SIBLINGS on
-    // platformSpecifics, and serializes the style as an enum INDEX.
-    expect(
-      android['style'],
-      AndroidNotificationStyle.bigText.index,
-      reason: 'the Detailed body must be presented as expandable big text',
-    );
-    final payload = android['styleInformation'] as Map<Object?, Object?>?;
-    expect(
-      payload,
-      isNotNull,
-      reason: 'the big-text payload must be present on the wire',
-    );
-    expect(
-      payload!['bigText'],
-      rendered.body,
-      reason: 'the expanded body must be the exact rendered Detailed body',
-    );
-    expect(
-      payload['contentTitle'],
-      rendered.title,
-      reason: 'the expanded title must match the collapsed title',
-    );
-  });
+      final call = calls.singleWhere((c) => c.method == 'show');
+      final android = androidOf(call);
+      // The plugin writes `style` and `styleInformation` as SIBLINGS on
+      // platformSpecifics, and serializes the style as an enum INDEX.
+      expect(
+        android['style'],
+        AndroidNotificationStyle.bigText.index,
+        reason: 'the Detailed body must be presented as expandable big text',
+      );
+      final payload = android['styleInformation'] as Map<Object?, Object?>?;
+      expect(
+        payload,
+        isNotNull,
+        reason: 'the big-text payload must be present on the wire',
+      );
+      expect(
+        payload!['bigText'],
+        rendered.body,
+        reason: 'the expanded body must be the exact rendered Detailed body',
+      );
+      expect(
+        payload['contentTitle'],
+        rendered.title,
+        reason: 'the expanded title must match the collapsed title',
+      );
+    },
+  );
 
-  test('D24 the native scheduled transport gets the identical big-text style',
-      () async {
-    final calls = installRecorder();
-    const body = '9:00 AM–10:00 AM\nBring the insurance card';
-    await FlutterLocalNotificationsGateway().schedule(
-      LocalNotificationRequest(
-        platformId: 502,
-        stableKey: 'reminder:event:profile:occurrence:base',
-        channel: NotificationChannelKind.reminders,
-        // The plugin rejects a past scheduledDate, so use a real future instant.
-        scheduledAtUtc: DateTime.now().toUtc().add(const Duration(minutes: 5)),
-        title: 'Dentist',
-        body: body,
-        responseIntent: intent,
-      ),
-    );
+  test(
+    'D24 the native scheduled transport gets the identical big-text style',
+    () async {
+      final calls = installRecorder();
+      const body = '9:00 AM–10:00 AM\nBring the insurance card';
+      await FlutterLocalNotificationsGateway().schedule(
+        LocalNotificationRequest(
+          platformId: 502,
+          stableKey: 'reminder:event:profile:occurrence:base',
+          channel: NotificationChannelKind.reminders,
+          // The plugin rejects a past scheduledDate, so use a real future instant.
+          scheduledAtUtc: DateTime.now().toUtc().add(
+            const Duration(minutes: 5),
+          ),
+          title: 'Dentist',
+          body: body,
+          responseIntent: intent,
+        ),
+      );
 
-    final call = calls.singleWhere((c) => c.method == 'zonedSchedule');
-    final android = androidOf(call);
-    expect(android['style'], AndroidNotificationStyle.bigText.index);
-    final payload = android['styleInformation'] as Map<Object?, Object?>;
-    expect(payload['bigText'], body);
-    expect(payload['contentTitle'], 'Dentist');
-  });
+      final call = calls.singleWhere((c) => c.method == 'zonedSchedule');
+      final android = androidOf(call);
+      expect(android['style'], AndroidNotificationStyle.bigText.index);
+      final payload = android['styleInformation'] as Map<Object?, Object?>;
+      expect(payload['bigText'], body);
+      expect(payload['contentTitle'], 'Dentist');
+    },
+  );
 
   test('D24b the style never changes channel identity or importance', () async {
     final calls = installRecorder();
