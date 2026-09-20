@@ -1,4 +1,5 @@
 import 'package:rmplanner/features/contacts/domain/contact.dart';
+import 'package:rmplanner/features/goals/domain/canonical_goal_slots.dart';
 import 'package:rmplanner/features/planner/domain/awaiting_report_event.dart';
 import 'package:rmplanner/features/planner/domain/event_type.dart';
 
@@ -44,6 +45,7 @@ final class UnreportedEntry {
     required this.tab,
     required this.event,
     required this.goalId,
+    this.resolvedGoalId,
     required this.contacts,
   });
 
@@ -53,6 +55,26 @@ final class UnreportedEntry {
   /// The Event's manual Life Goal link, when any (kept for the row's goal
   /// hand-off and for tests; classification already consumed it).
   final String? goalId;
+
+  /// The canonical Goal identity resolved from the Event Type's slot, when the
+  /// classifier could resolve one.  Supplied by the canonical backlog read; a
+  /// caller that only carries a manual link leaves it null.
+  final String? resolvedGoalId;
+
+  /// The EFFECTIVE Life Goal this row belongs to.
+  ///
+  /// OWNER LAW (2026-09-20): a Life Goals row must render ITS OWN Goal's chosen
+  /// icon.  For an Event created under one of the six fixed Goal-linked Event
+  /// Types there is no manual link, but the Event Type IS the canonical alias
+  /// for a Goal slot — so the slot's current occupant is the linked Goal.  That
+  /// binding is resolved LIVE ([UnreportedClassification.linkedGoalIdFor]) and
+  /// never stored, so renaming or re-iconing a Goal, or the slot changing
+  /// occupant, is reflected without a migration and without a second icon copy.
+  ///
+  /// Absent an explicit resolution the manual link IS the effective Goal; null
+  /// only when nothing canonical resolves, which is the single case the row is
+  /// allowed to draw the generic Life-Goal glyph for.
+  String? get linkedGoalId => resolvedGoalId ?? goalId;
 
   /// Effective attached Contacts, deterministically ordered by display name.
   final List<UnreportedContactRef> contacts;
@@ -66,6 +88,29 @@ abstract final class UnreportedClassification {
   /// definition of "an Event linked to a Goal" alongside a manual link.
   static const Set<String> automaticGoalTypeKeys =
       SystemEventTypeKeys.lockedWliTypeKeys;
+
+  /// The canonical Life Goal a Life-Goals row belongs to, resolved live.
+  ///
+  /// A manual link wins outright.  Otherwise the Event Type resolves through
+  /// [CanonicalGoalSlot.tryByEventTypeKey] to its slot, and the LIVE slot
+  /// occupant ([goalIdBySlotIndex], the canonical Goal/Event-Type binding the
+  /// Goal surfaces already use) is the linked Goal.  An unresolvable key, an
+  /// empty slot, or a legacy `goal:`-prefixed type yields null — the row then
+  /// draws the canonical generic glyph, and never another Goal's icon.
+  static String? linkedGoalIdFor({
+    required String? manualGoalId,
+    required String? activityTypeStableKey,
+    required Map<int, String> goalIdBySlotIndex,
+  }) {
+    if (manualGoalId != null) {
+      return manualGoalId;
+    }
+    final slot = CanonicalGoalSlot.tryByEventTypeKey(activityTypeStableKey);
+    if (slot == null) {
+      return null;
+    }
+    return goalIdBySlotIndex[slot.slotIndex];
+  }
 
   static UnreportedTab classify({
     required String? goalId,

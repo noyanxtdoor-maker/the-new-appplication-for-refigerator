@@ -194,7 +194,11 @@ final class _UnreportedTimelineRow extends StatelessWidget {
       isLast: isLast,
       marker: _UnreportedCategoryMarker(
         tab: entry.tab,
-        goalId: entry.goalId,
+        // The EFFECTIVE Life Goal, not just the manual link: an Event created
+        // under one of the six fixed Goal-linked Event Types is canonically
+        // bound to the Goal that occupies that slot, so it must render THAT
+        // Goal's own icon rather than a generic one shared by every row.
+        goalId: entry.linkedGoalId,
         item: item,
       ),
       timeLine: _timeLine(item),
@@ -213,7 +217,7 @@ final class _UnreportedTimelineRow extends StatelessWidget {
   }
 
   Widget? _secondary(BuildContext context) {
-    final goalId = entry.goalId;
+    final goalId = entry.linkedGoalId;
     if (goalId == null && entry.contacts.isEmpty) {
       return null;
     }

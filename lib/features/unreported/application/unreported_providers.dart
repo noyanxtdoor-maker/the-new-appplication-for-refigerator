@@ -47,6 +47,25 @@ final unreportedEntriesProvider = FutureProvider<List<UnreportedEntry>>((
     return const <UnreportedEntry>[];
   }
 
+  // The canonical Goal/Event-Type slot occupancy, so a Life Goals row can
+  // render the CURRENT occupant's own icon.  `goalChangesProvider` is already
+  // watched above, so a Goal create/rename/archive/delete — the only things
+  // that move a slot — re-reads this.  A read that yields nothing degrades to
+  // "no live occupant", which draws the canonical generic glyph; it never
+  // fabricates a Goal and never breaks the hub.
+  Map<int, String> goalIdBySlotIndex = const <int, String>{};
+  try {
+    final bindings = await ref
+        .read(goalRepositoryProvider)
+        .readLiveEventTypeBindings(profileId);
+    goalIdBySlotIndex = <int, String>{
+      for (final binding in bindings.values)
+        binding.slotIndex: binding.goalId,
+    };
+  } on Object {
+    goalIdBySlotIndex = const <int, String>{};
+  }
+
   final contacts = ref.read(contactRepositoryProvider);
   final today = ref.read(plannerDateSourceProvider).today();
   final effectiveByOccurrence = <String, Set<String>>{};
@@ -107,6 +126,11 @@ final unreportedEntriesProvider = FutureProvider<List<UnreportedEntry>>((
         ),
         event: event,
         goalId: event.goalId,
+        resolvedGoalId: UnreportedClassification.linkedGoalIdFor(
+          manualGoalId: event.goalId,
+          activityTypeStableKey: event.activityTypeStableKey,
+          goalIdBySlotIndex: goalIdBySlotIndex,
+        ),
         contacts: List<UnreportedContactRef>.unmodifiable(references),
       ),
     );
