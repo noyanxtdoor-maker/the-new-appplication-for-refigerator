@@ -175,9 +175,7 @@ abstract final class BundledMessages {
     actionLabel: 'Got it',
     blocks: const <MessageBlock>[
       MessageParagraph('Beta 0.1.1'),
-      MessageParagraph(
-        'Thanks for continuing to test Next Transfer. 💙',
-      ),
+      MessageParagraph('Thanks for continuing to test Next Transfer. 💙'),
       MessageSectionHeading("What's new"),
       MessageBulletList(<String>[
         'Backup & Restore is now available to help you save and restore your '
@@ -198,6 +196,56 @@ abstract final class BundledMessages {
       ]),
       MessageParagraph(
         'Thanks for helping us improve Next Transfer before launch.',
+      ),
+      MessageParagraph('The mission has ended. The next transfer begins.'),
+    ],
+  );
+
+  /// The closed-beta Build 4 update notice.
+  ///
+  /// OWNER REQUIREMENT (2026-09-20): Build 4 ships as its OWN message with a
+  /// NEW stable id. Reusing the 0.1.1 id would re-open an already-acknowledged
+  /// notice, so the previous `next-transfer-0-1-1-beta` entry is left byte-for-
+  /// byte untouched and every tester keeps its receipt.
+  ///
+  /// Every claim below describes something that actually shipped in Build 4:
+  /// the Unreported hub and the Tasks home (`feat(unreported)`, `feat(tasks)`,
+  /// `e9a1716`), the attention indicators (`e86ec7d`), the notification
+  /// transport/privacy/Contact work (`ec5bddc`, `65798da`, `061464b`), the
+  /// Event reminder override (`0cfa9f9`), the Planner scroll self-heal
+  /// (`0cfa9f9`), the Task attached-Contact navigation (`ced3da3`) and the
+  /// per-message read receipts (`0d6dca5`).
+  static final Message versionZeroOneOneBuildFour = Message(
+    id: 'next-transfer-0-1-1-build-4-beta',
+    title: "What's New in Next Transfer",
+    publishedAtLocal: DateTime(2026, 9, 20, 9),
+    actionLabel: 'Got it',
+    blocks: const <MessageBlock>[
+      MessageParagraph('Beta 0.1.1 · Build 4'),
+      MessageParagraph('Thanks for continuing to test Next Transfer. 💙'),
+      MessageSectionHeading("What's new"),
+      MessageBulletList(<String>[
+        'Added Unreported — a dedicated place for Life Goal, Event, and '
+            'Contact items that still need your attention.',
+        'Added a cleaner Tasks experience with Incomplete and Completed '
+            'views, sticky date sections, and easier navigation.',
+        'Improved notification delivery and reminder reliability.',
+        'Fixed custom Event reminder settings so specific reminder times '
+            'remain intact when you reopen or edit an Event.',
+        'Improved notification privacy and Detailed Content controls, '
+            'including Contact names in supported Event and Task reminders.',
+        'Added clearer attention indicators for Tasks and Unreported.',
+        'Improved navigation between Tasks, Planner, Contacts, and '
+            'report-required items.',
+        'Fixed an issue that could leave Planner scrolling unresponsive.',
+        'Improved Task and Event Contact navigation.',
+        'Previously read update messages now stay read when a future update '
+            'adds a new message.',
+        'Additional stability and reliability improvements based on beta '
+            'feedback.',
+      ]),
+      MessageParagraph(
+        'Thank you for helping us improve Next Transfer before launch.',
       ),
       MessageParagraph('The mission has ended. The next transfer begins.'),
     ],
@@ -227,7 +275,12 @@ abstract final class BundledMessages {
 
   /// All bundled messages, newest first.
   static final List<Message> all = List<Message>.unmodifiable(
-    <Message>[versionZeroOneOne, versionZeroOneZero, welcome]..sort(
+    <Message>[
+      versionZeroOneOneBuildFour,
+      versionZeroOneOne,
+      versionZeroOneZero,
+      welcome,
+    ]..sort(
       (left, right) => right.publishedAtLocal.compareTo(left.publishedAtLocal),
     ),
   );

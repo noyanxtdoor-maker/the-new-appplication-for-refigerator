@@ -53,7 +53,11 @@ final class _MemoryReadStateStore implements MessageReadStateStore {
 }
 
 void main() {
+  // The accepted 0.1.1 notice. It is deliberately NOT re-identified by Build 4:
+  // reusing this id would re-open a notice every tester has already read.
   const releaseId = 'next-transfer-0-1-1-beta';
+  // The Build 4 notice: a NEW message with its OWN stable id.
+  const buildFourId = 'next-transfer-0-1-1-build-4-beta';
   const unreadDot = Key('home-messages-unread-dot');
 
   Future<void> pumpHome(
@@ -125,16 +129,36 @@ void main() {
   // Catalog law.
   // ---------------------------------------------------------------------
   group('0.1.1 update notice', () {
-    test('ships as the newest bundled message for an unread tester', () {
+    test('ships and keeps the catalog ordered newest-first', () {
       final message = BundledMessages.byId(releaseId);
       expect(message, isNotNull, reason: 'the 0.1.1 notice must ship.');
-      expect(
-        BundledMessages.all.first.id,
-        releaseId,
-        reason: 'the update notice is the newest entry.',
-      );
       expect(message!.title, "What's New in Next Transfer");
       expect(message.actionLabel, 'Got it');
+      // Owner law (2026-09-20): Build 4 ships a SEPARATE notice with its own id,
+      // so the 0.1.1 entry is no longer the newest row. What must still hold is
+      // that the new build's notice is the newest entry, the catalog stays
+      // ordered newest-first, and the accepted 0.1.1 entry is never dropped or
+      // re-identified.
+      expect(
+        BundledMessages.all.first.id,
+        buildFourId,
+        reason: 'the Build 4 notice is the newest entry.',
+      );
+      final published = <DateTime>[
+        for (final entry in BundledMessages.all) entry.publishedAtLocal,
+      ];
+      for (var index = 1; index < published.length; index += 1) {
+        expect(
+          published[index - 1].isAfter(published[index]),
+          isTrue,
+          reason: 'every entry is published after the one below it.',
+        );
+      }
+      expect(
+        BundledMessages.all.map((entry) => entry.id),
+        contains(releaseId),
+        reason: 'the accepted 0.1.1 notice is preserved verbatim.',
+      );
     });
 
     test('claims only what actually shipped in 0.1.1', () {
@@ -566,6 +590,225 @@ void main() {
         }
         expect(store.acknowledged, contains(releaseId));
         expect(store.acknowledged.containsAll(previouslyRead), isTrue);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  });
+
+  // ---------------------------------------------------------------------
+  // Build 4 update notice (owner requirement, 2026-09-20).
+  //
+  // RELEASE LAW: Build 4 ships as its OWN message with its OWN stable id. The
+  // already-acknowledged 0.1.1 notice must keep its receipt, and installing
+  // Build 4 must leave EXACTLY the new notice unread.
+  // ---------------------------------------------------------------------
+  group('Build 4 update notice', () {
+    /// Every id except the Build 4 notice: a tester who had read everything
+    /// before Build 4 was installed over the top of their install.
+    Set<String> readEverythingBeforeBuildFour() => <String>{
+      for (final message in BundledMessages.all)
+        if (message.id != buildFourId) message.id,
+    };
+
+    String bodyText(Message message) => <String>[
+      for (final block in message.blocks)
+        switch (block) {
+          MessageParagraph(:final text) => text,
+          MessageSectionHeading(:final text) => text,
+          MessageBulletList(:final items) => items.join(' | '),
+        },
+    ].join('\n');
+
+    ProviderContainer containerFor(_MemoryReadStateStore store) {
+      final container = ProviderContainer(
+        overrides: <Override>[
+          messageReadStateStoreProvider.overrideWithValue(store),
+        ],
+      );
+      addTearDown(container.dispose);
+      return container;
+    }
+
+    test('RMSG-1 ships as a bundled message', () {
+      expect(BundledMessages.byId(buildFourId), isNotNull);
+    });
+
+    test('RMSG-2 uses an id unique across the whole bundled catalog', () {
+      expect(buildFourId, isNot(releaseId));
+      final ids = <String>[
+        for (final message in BundledMessages.all) message.id,
+      ];
+      expect(
+        ids.toSet(),
+        hasLength(ids.length),
+        reason: 'every bundled id is used exactly once.',
+      );
+      expect(ids.where((id) => id == buildFourId), hasLength(1));
+    });
+
+    test('RMSG-3 keeps the canonical release-note title', () {
+      expect(
+        BundledMessages.byId(buildFourId)!.title,
+        "What's New in Next Transfer",
+      );
+    });
+
+    test('RMSG-4 labels itself as Beta 0.1.1 · Build 4', () {
+      final message = BundledMessages.byId(buildFourId)!;
+      expect(bodyText(message), contains('Beta 0.1.1 · Build 4'));
+      expect(message.actionLabel, 'Got it');
+    });
+
+    test('RMSG-5 announces Unreported', () {
+      expect(
+        bodyText(BundledMessages.byId(buildFourId)!),
+        contains('Unreported'),
+      );
+    });
+
+    test('RMSG-6 announces the Tasks experience', () {
+      expect(bodyText(BundledMessages.byId(buildFourId)!), contains('Tasks'));
+    });
+
+    test('RMSG-7 announces notification and reminder improvements', () {
+      final text = bodyText(BundledMessages.byId(buildFourId)!).toLowerCase();
+      expect(text, contains('notification'));
+      expect(text, contains('reminder'));
+    });
+
+    test('RMSG-8 announces that already-read messages stay read', () {
+      expect(
+        bodyText(BundledMessages.byId(buildFourId)!).toLowerCase(),
+        contains('stay read'),
+      );
+    });
+
+    test('RMSG-9 an existing receipt is untouched by the new notice', () async {
+      final store = _MemoryReadStateStore(readEverythingBeforeBuildFour());
+      final container = containerFor(store);
+      await container.read(storedMessageAcknowledgementsProvider.future);
+
+      final unread = <String>{
+        for (final message in container.read(unreadMessagesProvider))
+          message.id,
+      };
+      for (final message in BundledMessages.all) {
+        if (message.id == buildFourId) continue;
+        expect(
+          unread,
+          isNot(contains(message.id)),
+          reason: '${message.id} was read before Build 4 and stays read.',
+        );
+      }
+    });
+
+    test('RMSG-10 only the newly-added Build 4 notice is unread', () async {
+      final store = _MemoryReadStateStore(readEverythingBeforeBuildFour());
+      final container = containerFor(store);
+      await container.read(storedMessageAcknowledgementsProvider.future);
+
+      expect(
+        container.read(unreadMessagesProvider).map((message) => message.id),
+        <String>[buildFourId],
+      );
+    });
+
+    test('RMSG-11 the unread dot reads the shared unread truth', () async {
+      final store = _MemoryReadStateStore(readEverythingBeforeBuildFour());
+      final container = containerFor(store);
+      await container.read(storedMessageAcknowledgementsProvider.future);
+      // Only the new notice is unread, so the red dot is shown.
+      expect(container.read(hasUnreadMessagesProvider), isTrue);
+
+      expect(
+        await container
+            .read(messageAcknowledgementProvider)
+            .acknowledge(buildFourId),
+        isTrue,
+      );
+      // Nothing is unread any more, so the dot goes away.
+      expect(container.read(hasUnreadMessagesProvider), isFalse);
+    });
+
+    test(
+      'RMSG-12 acknowledging Build 4 never alters an older receipt',
+      () async {
+        final store = _MemoryReadStateStore(readEverythingBeforeBuildFour());
+        final before = <String>{...store.acknowledged};
+        final container = containerFor(store);
+        await container.read(storedMessageAcknowledgementsProvider.future);
+
+        expect(
+          await container
+              .read(messageAcknowledgementProvider)
+              .acknowledge(buildFourId),
+          isTrue,
+        );
+        expect(store.acknowledged, hasLength(before.length + 1));
+        expect(store.acknowledged.containsAll(before), isTrue);
+        expect(store.acknowledged, contains(releaseId));
+      },
+    );
+
+    testWidgets('a Build 4 install leaves only the new notice unread', (
+      tester,
+    ) async {
+      final store = _MemoryReadStateStore(readEverythingBeforeBuildFour());
+      await pumpHome(tester, store: store);
+      expect(find.byKey(unreadDot), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('home-messages')));
+      await tester.pumpAndSettle();
+      for (final message in BundledMessages.all) {
+        final dot = find.byKey(Key('message-unread-dot-${message.id}'));
+        if (message.id == buildFourId) {
+          expect(dot, findsOneWidget, reason: 'the Build 4 notice is unread.');
+        } else {
+          expect(
+            dot,
+            findsNothing,
+            reason: '${message.id} keeps its pre-existing receipt.',
+          );
+        }
+      }
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('the Home dot clears once Build 4 is the last unread notice', (
+      tester,
+    ) async {
+      final store = _MemoryReadStateStore(readEverythingBeforeBuildFour());
+      await pumpHome(tester, store: store);
+      expect(find.byKey(unreadDot), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('home-messages')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('message-row-$buildFourId')));
+      await tester.pumpAndSettle();
+      expect(find.byType(MessageDetailScreen), findsOneWidget);
+      expect(store.acknowledged, contains(buildFourId));
+
+      await backToHome(tester);
+      expect(find.byType(HomeScreen), findsOneWidget);
+      expect(find.byKey(unreadDot), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+      'the Build 4 detail renders its own Beta 0.1.1 · Build 4 label',
+      (tester) async {
+        final store = _MemoryReadStateStore(readEverythingBeforeBuildFour());
+        await pumpHome(tester, store: store);
+        await tester.tap(find.byKey(const Key('home-messages')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('message-row-$buildFourId')));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(MessageDetailScreen), findsOneWidget);
+        expect(find.text('Beta 0.1.1 · Build 4'), findsOneWidget);
+        expect(find.byKey(const Key('message-detail-not-found')), findsNothing);
+        await revealDetailAction(tester);
+        expect(find.byKey(const Key('message-detail-action')), findsOneWidget);
         expect(tester.takeException(), isNull);
       },
     );
