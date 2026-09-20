@@ -10,6 +10,8 @@ import 'package:rmplanner/core/notifications/notification_payload.dart';
 import 'package:rmplanner/features/notifications/application/reminder_background_runtime.dart';
 import 'package:workmanager_platform_interface/workmanager_platform_interface.dart';
 
+import '../../../support/workmanager_plugin_seam.dart';
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   const intent = NotificationResponseIntent(
@@ -32,24 +34,21 @@ void main() {
   //     -> new 'a legacy Snooze trigger never executes or enqueues'
   //   old 'retry retains original action time and generation'
   //     -> new 'a legacy Snooze trigger enqueues no retry work'
-  test(
-    'a legacy Snooze trigger never executes or enqueues',
-    () async {
-      final background = _Background();
-      var calls = 0;
-      await enqueueReminderSnooze(
-        snooze: intent,
-        actionAtUtc: actionAt,
-        backgroundWork: background,
-        applySnooze: (_, _) async {
-          calls++;
-          throw StateError('Snooze must not execute in M8');
-        },
-      );
-      expect(calls, 0);
-      expect(background.work, isEmpty);
-    },
-  );
+  test('a legacy Snooze trigger never executes or enqueues', () async {
+    final background = _Background();
+    var calls = 0;
+    await enqueueReminderSnooze(
+      snooze: intent,
+      actionAtUtc: actionAt,
+      backgroundWork: background,
+      applySnooze: (_, _) async {
+        calls++;
+        throw StateError('Snooze must not execute in M8');
+      },
+    );
+    expect(calls, 0);
+    expect(background.work, isEmpty);
+  });
 
   test('a legacy Snooze trigger enqueues no retry work', () async {
     final background = _Background();
@@ -123,96 +122,104 @@ void main() {
     },
   );
 
-  test('scheduled reminder notification also has zero action buttons', () async {
-    // schedule() tags/cancels legacy WorkManager delivery work first; the
-    // platform interface is faked so the zonedSchedule assertions stay
-    // hermetic and never touch the plugin host.
-    final originalWorkmanager = WorkmanagerPlatform.instance;
-    WorkmanagerPlatform.instance = _FakeWorkmanagerPlatform();
-    addTearDown(() => WorkmanagerPlatform.instance = originalWorkmanager);
-    debugDefaultTargetPlatformOverride = TargetPlatform.android;
-    FlutterLocalNotificationsPlatform.instance =
-        AndroidFlutterLocalNotificationsPlugin();
-    addTearDown(() => debugDefaultTargetPlatformOverride = null);
-    const channel = MethodChannel(
-      'dexterous.com/flutter/local_notifications',
-    );
-    final calls = <MethodCall>[];
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(channel, (call) async {
-          calls.add(call);
-          return null;
-        });
-    addTearDown(
-      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(channel, null),
-    );
-    final gateway = FlutterLocalNotificationsGateway();
-    await gateway.schedule(
-      LocalNotificationRequest(
-        platformId: 456,
-        stableKey: 'reminder:task:profile:occurrence:base',
-        channel: NotificationChannelKind.reminders,
-        scheduledAtUtc: DateTime.now().toUtc().add(const Duration(minutes: 5)),
-        title: 'Task',
-        body: 'Reminder',
-        responseIntent: intent,
-      ),
-    );
-    final scheduledCall =
-        calls.singleWhere((call) => call.method == 'zonedSchedule');
-    final args = scheduledCall.arguments as Map;
-    final android = args['platformSpecifics'] as Map;
-    expect((android['actions'] as List?) ?? const [], isEmpty);
-  });
-
-  test('Snooze action is absent from the notification action surface', () async {
-    debugDefaultTargetPlatformOverride = TargetPlatform.android;
-    FlutterLocalNotificationsPlatform.instance =
-        AndroidFlutterLocalNotificationsPlugin();
-    addTearDown(() => debugDefaultTargetPlatformOverride = null);
-    const channel = MethodChannel(
-      'dexterous.com/flutter/local_notifications',
-    );
-    final calls = <MethodCall>[];
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(channel, (call) async {
-          calls.add(call);
-          return null;
-        });
-    addTearDown(
-      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(channel, null),
-    );
-    await FlutterLocalNotificationsGateway().showCanonicalReminder(
-      LocalNotificationRequest(
-        platformId: 789,
-        stableKey: 'reminder:calendarEvent:profile:occurrence:base',
-        channel: NotificationChannelKind.reminders,
-        scheduledAtUtc: actionAt,
-        title: 'Event',
-        body: 'Reminder',
-        responseIntent: const NotificationResponseIntent(
-          profileId: 'profile',
-          sourceKind: NotificationSourceKind.calendarEvent,
-          sourceId: 'event',
-          occurrenceId: 'event:event:2026-09-07',
-          action: NotificationResponseAction.open,
+  test(
+    'scheduled reminder notification also has zero action buttons',
+    () async {
+      // schedule() tags/cancels legacy WorkManager delivery work first; the
+      // platform interface is faked so the zonedSchedule assertions stay
+      // hermetic and never touch the plugin host.
+      //
+      // [installWorkmanagerPlatform] installs the fake after `Workmanager` has
+      // consumed its lazily-installed host-OS implementation, which would
+      // otherwise replace the fake on Linux and make this case pass on Windows
+      // while failing on CI.
+      final originalWorkmanager = WorkmanagerPlatform.instance;
+      installWorkmanagerPlatform(_FakeWorkmanagerPlatform());
+      addTearDown(() => WorkmanagerPlatform.instance = originalWorkmanager);
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      FlutterLocalNotificationsPlatform.instance =
+          AndroidFlutterLocalNotificationsPlugin();
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      const channel = MethodChannel(
+        'dexterous.com/flutter/local_notifications',
+      );
+      final calls = <MethodCall>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            calls.add(call);
+            return null;
+          });
+      addTearDown(
+        () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, null),
+      );
+      final gateway = FlutterLocalNotificationsGateway();
+      await gateway.schedule(
+        LocalNotificationRequest(
+          platformId: 456,
+          stableKey: 'reminder:task:profile:occurrence:base',
+          channel: NotificationChannelKind.reminders,
+          scheduledAtUtc: DateTime.now().toUtc().add(
+            const Duration(minutes: 5),
+          ),
+          title: 'Task',
+          body: 'Reminder',
+          responseIntent: intent,
         ),
-      ),
-    );
-    final args = calls.single.arguments as Map;
-    final android = args['platformSpecifics'] as Map;
-    final actions = (android['actions'] as List?) ?? const [];
-    expect(
-      actions.cast<Map>().where((a) => a['id'] == 'snooze'),
-      isEmpty,
-    );
-    expect(
-      actions.cast<Map>().where((a) => a['id'] == 'open'),
-      isEmpty,
-    );
-  });
+      );
+      final scheduledCall = calls.singleWhere(
+        (call) => call.method == 'zonedSchedule',
+      );
+      final args = scheduledCall.arguments as Map;
+      final android = args['platformSpecifics'] as Map;
+      expect((android['actions'] as List?) ?? const [], isEmpty);
+    },
+  );
+
+  test(
+    'Snooze action is absent from the notification action surface',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      FlutterLocalNotificationsPlatform.instance =
+          AndroidFlutterLocalNotificationsPlugin();
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      const channel = MethodChannel(
+        'dexterous.com/flutter/local_notifications',
+      );
+      final calls = <MethodCall>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            calls.add(call);
+            return null;
+          });
+      addTearDown(
+        () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, null),
+      );
+      await FlutterLocalNotificationsGateway().showCanonicalReminder(
+        LocalNotificationRequest(
+          platformId: 789,
+          stableKey: 'reminder:calendarEvent:profile:occurrence:base',
+          channel: NotificationChannelKind.reminders,
+          scheduledAtUtc: actionAt,
+          title: 'Event',
+          body: 'Reminder',
+          responseIntent: const NotificationResponseIntent(
+            profileId: 'profile',
+            sourceKind: NotificationSourceKind.calendarEvent,
+            sourceId: 'event',
+            occurrenceId: 'event:event:2026-09-07',
+            action: NotificationResponseAction.open,
+          ),
+        ),
+      );
+      final args = calls.single.arguments as Map;
+      final android = args['platformSpecifics'] as Map;
+      final actions = (android['actions'] as List?) ?? const [];
+      expect(actions.cast<Map>().where((a) => a['id'] == 'snooze'), isEmpty);
+      expect(actions.cast<Map>().where((a) => a['id'] == 'open'), isEmpty);
+    },
+  );
 
   // VS16 M8 (contract section 51, scenario T74).
   //
@@ -278,8 +285,12 @@ void main() {
       );
 
       expect(
-        calls.where((call) => call.method == 'show' || call.method == 'schedule'
-            || call.method == 'zonedSchedule'),
+        calls.where(
+          (call) =>
+              call.method == 'show' ||
+              call.method == 'schedule' ||
+              call.method == 'zonedSchedule',
+        ),
         isEmpty,
         reason: 'a legacy Snooze must never surface a new notification',
       );
@@ -323,7 +334,9 @@ void main() {
 // The gateway's schedule() cancels legacy WorkManager delivery tags first.
 // MockPlatformInterfaceMixin satisfies the platform token check that rejects
 // plain `implements` fakes; noSuchMethod covers the untouched API surface.
-class _FakeWorkmanagerPlatform with MockPlatformInterfaceMixin implements WorkmanagerPlatform {
+class _FakeWorkmanagerPlatform
+    with MockPlatformInterfaceMixin
+    implements WorkmanagerPlatform {
   @override
   Future<void> cancelByTag(String tag) async {}
   @override
