@@ -20,10 +20,17 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Build-toolchain alignment: the pinned maplibre_gl 0.26.2 compiles its
+      # own Android sources with Java 21 (`android/build.gradle` sets
+      # sourceCompatibility/targetCompatibility 21), and the signed release
+      # artifacts are built with a JDK 21 toolchain. Pinning the runner to 17
+      # made `:maplibre_gl:compileDebugJavaWithJavac` fail with "invalid source
+      # release: 21" — a failure that stayed hidden only because the test step
+      # always failed first and this step was never reached.
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: "21"
 
       - uses: subosito/flutter-action@v2
         with:
