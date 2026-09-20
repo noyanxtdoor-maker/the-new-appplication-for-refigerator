@@ -57,6 +57,15 @@ jobs:
       # would rewrite accepted, already-reviewed code wholesale and destroy
       # review and audit signal. Per-file enforcement on the current change set
       # keeps the gate meaningful without a mass rewrite.
+      #
+      # Coverage law (2026-09-20): `root/**/*.dart` requires at least one
+      # directory below the root, so it selected nothing at the root itself.
+      # That silently excluded lib/main.dart and test/flutter_test_config.dart,
+      # and it excluded the ENTIRE integration_test/ and tool/ trees, neither of
+      # which contains any nested Dart file (only 705 of the 721 tracked Dart
+      # files under these four roots were selectable at all). Each root now
+      # lists both a root-level and a nested pattern, so every Dart file under
+      # these roots is selectable under either wildcard reading.
       - name: Verify formatting of changed Dart files
         shell: bash
         run: |
@@ -89,8 +98,10 @@ jobs:
               [[ -n "$file" ]] && changed+=("$file")
             done < <(git diff --name-only --diff-filter=ACMRT \
               "$comparison" HEAD -- \
-              'lib/**/*.dart' 'test/**/*.dart' \
-              'integration_test/**/*.dart' 'tool/**/*.dart')
+              'lib/*.dart' 'lib/**/*.dart' \
+              'test/*.dart' 'test/**/*.dart' \
+              'integration_test/*.dart' 'integration_test/**/*.dart' \
+              'tool/*.dart' 'tool/**/*.dart')
           fi
 
           if [[ ${#changed[@]} -eq 0 ]]; then
