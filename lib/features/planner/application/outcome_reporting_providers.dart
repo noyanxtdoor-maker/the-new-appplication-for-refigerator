@@ -108,6 +108,18 @@ final class OutcomeReportingController extends Notifier<String?> {
         draft: draft,
         operationId: operationId,
       );
+      // A Task's Current Status IS part of the canonical Task classification
+      // (`PlannerTask.isOpen`), so a Task-scoped submission must publish the
+      // persisted Task universe or the Tasks screen and the hamburger number
+      // would keep serving the pre-save snapshot.  This is the CONTROLLER
+      // publishing through the existing mutation seam, never a widget row
+      // invalidating after its own unmount.  An Event report cannot change a
+      // Task's state and deliberately does not pay for the re-read.
+      if (draft.source.type == OutcomeSourceType.task) {
+        ref
+            .read(plannerControllerProvider.notifier)
+            .publishTaskUniverseChange();
+      }
       final planner = ref.read(plannerControllerProvider.notifier);
       await planner.selectDate(
         ref.read(plannerControllerProvider).selectedDate,
@@ -323,6 +335,13 @@ final class OutcomeReportingController extends Notifier<String?> {
         operationId: operationId,
         correctionReason: 'Task Current Status returned to Unreported.',
       );
+      // Returning a Task to Unreported makes it OPEN again, so the universe must
+      // be republished for the same reason a submission republishes it.
+      if (cleared) {
+        ref
+            .read(plannerControllerProvider.notifier)
+            .publishTaskUniverseChange();
+      }
       await ref
           .read(plannerControllerProvider.notifier)
           .selectDate(ref.read(plannerControllerProvider).selectedDate);

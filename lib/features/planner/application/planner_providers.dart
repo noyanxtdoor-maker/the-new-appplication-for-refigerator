@@ -58,13 +58,14 @@ final taskUniverseProvider = FutureProvider.autoDispose<List<PlannerTask>>((
   );
 });
 
-/// The canonical INCOMPLETE Task count (owner law, 2026-09-20).
+/// The canonical OPEN Task count (owner law, 2026-09-20).
 ///
 /// It reads the SAME canonical universe capability the Tasks screen's
-/// Incomplete tab renders, so the hamburger number and the tab can never
-/// disagree about what a Task's state is.  `completed`, `skipped` and
-/// `cancelled` never contribute, and an unresolved read contributes nothing
-/// rather than a fabricated number.
+/// Incomplete tab renders and counts it through the SAME classification
+/// ([PlannerTask.isOpen]), so the hamburger number always equals the Incomplete
+/// rows.  A Task whose Current Status was reported Completed, Missed or Did Not
+/// Attempt contributes nothing, `skipped`/`cancelled` contribute nothing, and
+/// an unresolved read contributes nothing rather than a fabricated number.
 ///
 /// It deliberately owns its OWN read instead of watching `taskUniverseProvider`
 /// (which the Tasks screen watches during build).  A provider that some widget
@@ -87,7 +88,7 @@ final incompleteTaskCountProvider = FutureProvider<int>((ref) async {
       .readTaskUniverse(profileId: startup.profile.id);
   var count = 0;
   for (final task in tasks) {
-    if (task.status == PlannerTaskStatus.incomplete) {
+    if (task.isOpen) {
       count++;
     }
   }
@@ -887,7 +888,7 @@ final class PlannerController extends Notifier<PlannerState> {
       // source-level purpose.  Ordinary saves keep the immediate path.
       if (deferReminderReconciliation) {
         await _load(state.selectedDate, invalidateCache: true);
-        _publishTaskUniverseChange();
+        publishTaskUniverseChange();
         await _refreshLauncherBadge();
         return true;
       }
@@ -947,7 +948,7 @@ final class PlannerController extends Notifier<PlannerState> {
         requiresEnrichment: requiresEnrichment,
       );
       await _load(state.selectedDate, invalidateCache: true);
-      _publishTaskUniverseChange();
+      publishTaskUniverseChange();
       await _refreshLauncherBadge();
       return true;
     } on PlannerTaskValidationException catch (error) {
@@ -1179,7 +1180,7 @@ final class PlannerController extends Notifier<PlannerState> {
       }
       await _load(state.selectedDate, invalidateCache: true);
       if (outcome == TaskStatusChangeOutcome.changed) {
-        _publishTaskUniverseChange();
+        publishTaskUniverseChange();
         await _refreshLauncherBadge();
       }
       state = state.copyWith(
@@ -1227,7 +1228,7 @@ final class PlannerController extends Notifier<PlannerState> {
               );
         }
         await _load(state.selectedDate, invalidateCache: true);
-        _publishTaskUniverseChange();
+        publishTaskUniverseChange();
         await _refreshLauncherBadge();
       }
       state = state.copyWith(
@@ -1259,7 +1260,12 @@ final class PlannerController extends Notifier<PlannerState> {
   /// Both are snapshot reads, not change streams, so a Task written anywhere
   /// (Planner, task form, preview status change, delete) must invalidate both
   /// or the screen and the number would keep serving a pre-save snapshot.
-  void _publishTaskUniverseChange() {
+  ///
+  /// Public because the canonical outcome-report transaction — the seam behind
+  /// the Task Preview's Current Status control — writes Task state through a
+  /// DIFFERENT repository and so must publish through this same seam rather
+  /// than inventing its own invalidation.
+  void publishTaskUniverseChange() {
     ref.invalidate(taskUniverseProvider);
     ref.invalidate(incompleteTaskCountProvider);
   }

@@ -21,7 +21,9 @@ import 'package:rmplanner/features/planner/presentation/widgets/planning_timelin
 /// an in-Planner presentation either: the Planner's overflow `Tasks` row opens
 /// THIS screen.  Incomplete and Completed read the same canonical Task
 /// universe: every persisted Task, with completion state owned by the
-/// canonical outcome report that already writes `PlannerTaskStatus`.  There is
+/// and they partition it through the single `PlannerTask.isOpen` /
+/// `PlannerTask.isTerminal` law, so a Task is in exactly one tab and the
+/// hamburger number always equals the Incomplete rows.  There is
 /// deliberately NO retention window; a completed Task stays findable, so PMG's
 /// seven-day rule is not imported.
 ///
@@ -103,13 +105,11 @@ final class TaskDateGroup {
 /// and never given a fabricated date — it lands here.
 const String taskNoDueDateGroupLabel = 'NO DUE DATE';
 
-/// Incomplete Tasks grouped by their canonical due date, ascending, with the
-/// undated group LAST.  Order inside a group is the accepted deterministic
-/// order: due time, then creation time, then id.
+/// OPEN Tasks ([PlannerTask.isOpen]) grouped by their canonical due date,
+/// ascending, with the undated group LAST.  Order inside a group is the
+/// accepted deterministic order: due time, then creation time, then id.
 List<TaskDateGroup> groupIncompleteTasks(List<PlannerTask> all) {
-  final tasks = all
-      .where((task) => task.status == PlannerTaskStatus.incomplete)
-      .toList(growable: false);
+  final tasks = all.where((task) => task.isOpen).toList(growable: false);
   tasks.sort((left, right) {
     final leftDue = left.dueDate;
     final rightDue = right.dueDate;
@@ -168,18 +168,21 @@ List<TaskDateGroup> groupIncompleteTasks(List<PlannerTask> all) {
   return groups;
 }
 
-/// Completed Tasks grouped by the canonical completion date, newest first.
+/// Terminal Tasks grouped by the canonical completion date, newest first.
+///
+/// Membership is [PlannerTask.isTerminal] — the one classification — so a Task
+/// reported Missed or Did Not Attempt is grouped here rather than vanishing.
 ///
 /// AUDITED (Astra, 2026-09-20): `PlannerTasks` has NO `completedAtUtc` column,
 /// so there is no dedicated completion timestamp to read.  The completion write
 /// updates `updatedAtUtc` — already the accepted completion-recency source on
 /// this screen — so the local date of `updatedAtUtc` is the documented
-/// canonical grouping signal.  No schema change (schema stays 48) and no
-/// invented date.
+/// canonical grouping signal.  The report transaction touches the same column
+/// when a Missed / Did Not Attempt report ends a Task's open state, so the
+/// group is dated when the Task stopped awaiting action rather than when it was
+/// last edited.  No schema change (schema stays 48) and no invented date.
 List<TaskDateGroup> groupCompletedTasks(List<PlannerTask> all) {
-  final tasks = all
-      .where((task) => task.status == PlannerTaskStatus.completed)
-      .toList(growable: false);
+  final tasks = all.where((task) => task.isTerminal).toList(growable: false);
   tasks.sort((left, right) {
     final byUpdated = right.updatedAtUtc.compareTo(left.updatedAtUtc);
     if (byUpdated != 0) return byUpdated;
