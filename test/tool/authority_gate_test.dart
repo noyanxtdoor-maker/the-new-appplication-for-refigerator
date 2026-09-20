@@ -199,14 +199,14 @@ void main() {
       expect(checkPubspec(mutated), isNotEmpty);
     });
 
-    test('schema 48 fails', () {
-      final mutated = schema.replaceFirst('?? 47', '?? 48');
+    test('the superseded schema 47 fails', () {
+      final mutated = schema.replaceFirst('?? 48', '?? 47');
 
       expect(checkSchemaBoundary(mutated), isNotEmpty);
     });
 
     test('the superseded schema 10 fails', () {
-      final mutated = schema.replaceFirst('?? 47', '?? 10');
+      final mutated = schema.replaceFirst('?? 48', '?? 10');
 
       expect(checkSchemaBoundary(mutated), isNotEmpty);
     });

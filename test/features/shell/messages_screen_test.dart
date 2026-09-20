@@ -201,7 +201,16 @@ void main() {
         findsOneWidget,
         reason: 'the newest bundled message is listed.',
       );
-      expect(find.text(releaseNote.title), findsOneWidget);
+      // Build 4 ships a SECOND release notice that legitimately carries the
+      // same canonical title, so the title is asserted inside its OWN row
+      // rather than as a whole-screen text count.
+      expect(
+        find.descendant(
+          of: find.byKey(Key('message-row-${releaseNote.id}')),
+          matching: find.text(releaseNote.title),
+        ),
+        findsOneWidget,
+      );
       expect(
         find.byKey(Key('message-row-date-${releaseNote.id}')),
         findsOneWidget,

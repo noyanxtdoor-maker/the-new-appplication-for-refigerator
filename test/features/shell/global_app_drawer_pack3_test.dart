@@ -1,21 +1,33 @@
 // Pack 3 — focused tests for the canonical global navigation drawer.
 //
 // Covers: opens from every approved root, canonical IA (sections, labels,
-// filtered destinations), no chevrons/subtitles/badges, tap-outside close,
-// Android Back closes the drawer first, current-destination tap adds no
-// route, root selection, child destinations with correct Back behavior,
+// filtered destinations), no chevrons/subtitles/fake badges, tap-outside
+// close, Android Back closes the drawer first, current-destination tap adds
+// no route, root selection, child destinations with correct Back behavior,
 // direct-entry fallbacks, and no duplicate Home / shell.
+//
+// Owner law (2026-09-19): the planning area is exactly Tasks and Unreported.
+// Planner, Goal Planning, Plan History and Activity History lost their ROWS
+// while their routes, screens and data stayed intact — the tests that used to
+// tap those rows now prove the routes by direct entry instead.
+
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
+import 'package:rmplanner/app/router/route_names.dart';
+import 'package:rmplanner/app/shell/global_drawer_controller.dart';
 import 'package:rmplanner/core/diagnostics/sanitized_diagnostics.dart';
 import 'package:rmplanner/core/platform/app_environment.dart';
 import 'package:rmplanner/features/planner/presentation/activity_history_screen.dart';
 import 'package:rmplanner/features/planner/presentation/planner_screen.dart';
+import 'package:rmplanner/features/planner/presentation/tasks_screen.dart';
 import 'package:rmplanner/features/settings/presentation/settings_screen.dart';
 import 'package:rmplanner/features/shell/about_screen.dart';
 import 'package:rmplanner/features/shell/messages_screen.dart';
 import 'package:rmplanner/features/startup/presentation/home_screen.dart';
+import 'package:rmplanner/features/unreported/presentation/unreported_screen.dart';
 import 'package:rmplanner/features/weekly_planning/presentation/weekly_planning_screen.dart';
 
 import '../../support/test_dependencies.dart';
@@ -57,6 +69,19 @@ void main() {
 
   Future<void> openDrawerFromHome(WidgetTester tester) async {
     await tester.tap(find.byKey(const Key('home-hamburger')));
+    await tester.pumpAndSettle();
+  }
+
+  /// Opens the drawer from any shell page.
+  ///
+  /// Owner law (2026-09-19): Tasks and Unreported carry no hamburger, so this
+  /// drives the shell's own drawer controller — the same seam every hamburger
+  /// already uses.
+  Future<void> openDrawerFromShell(WidgetTester tester) async {
+    final BuildContext context = tester.element(
+      find.byKey(const Key('main-bottom-navigation')),
+    );
+    GlobalDrawerScope.of(context).open();
     await tester.pumpAndSettle();
   }
 
@@ -176,7 +201,7 @@ void main() {
       await openDrawerFromHome(tester);
 
       final expectedSections = <String>[
-        'Planning and Records',
+        'PLANNING',
         'Personal Tools',
         'Account and App',
         'Support',
@@ -204,11 +229,13 @@ void main() {
       // the drawer deliberately, so it is no longer an expected destination.
       // Only the drawer ROW is gone: `/progress`, the Life Goals screens and all
       // Goal data/features remain intact (see life_goals_drawer_removal_test).
+      //
+      // Owner law (2026-09-19): the planning area is exactly Tasks and
+      // Unreported.  The Planner, Goal Planning, Plan History and Activity
+      // History ROWS are gone (screens/routes/data untouched).
       for (final id in <String>[
-        'drawer-planner',
-        'drawer-planning',
-        'drawer-plan-history',
-        'drawer-activity-history',
+        'drawer-tasks',
+        'drawer-unreported',
         'drawer-messages',
         'drawer-backup-restore',
         'drawer-account-settings',
@@ -241,8 +268,6 @@ void main() {
       );
       // Unsupported/placeholder destinations and copy must be absent.
       for (final text in <String>[
-        'Tasks',
-        'Unreported',
         'Quick Notes',
         'Personal Journal',
         'Sync and Backup',
@@ -263,13 +288,32 @@ void main() {
         );
       }
       // Approved labels appear exactly once inside the drawer.
+      for (final String label in <String>['Tasks', 'Unreported']) {
+        expect(
+          find.descendant(of: drawer, matching: find.text(label)),
+          findsOneWidget,
+          reason: '$label is an approved planning destination',
+        );
+      }
+      // Owner law (2026-09-19): the four removed planning rows are gone, and
+      // no item exists implies no badge (a real count is asserted in the
+      // Unreported hub contract test).
+      for (final String label in <String>[
+        'Planner',
+        'Goal Planning',
+        'Plan History',
+        'Activity History',
+      ]) {
+        expect(
+          find.descendant(of: drawer, matching: find.text(label)),
+          findsNothing,
+          reason: '$label must no longer be a drawer row',
+        );
+      }
       expect(
-        find.descendant(of: drawer, matching: find.text('Goal Planning')),
-        findsOneWidget,
-      );
-      expect(
-        find.descendant(of: drawer, matching: find.text('Plan History')),
-        findsOneWidget,
+        find.byKey(const Key('drawer-unreported-badge')),
+        findsNothing,
+        reason: 'an empty backlog must not render a number',
       );
       // PRE-BETA (owner law, 2026-09-16): the owner removed the Life Goals
       // drawer row, so its absence is now the invariant, not its presence.
@@ -301,47 +345,63 @@ void main() {
   });
 
   group('Pack 3 drawer — routing', () {
-    testWidgets('root destination selects the existing root (Planner)', (
+    testWidgets('the Tasks row opens the canonical Tasks screen in the shell', (
       tester,
     ) async {
       await pumpApp(tester);
       await openDrawerFromHome(tester);
-      await tester.tap(find.byKey(const Key('drawer-planner')));
+      await tester.tap(find.byKey(const Key('drawer-tasks')));
       await tester.pumpAndSettle();
       expect(drawerFinder(), findsNothing);
-      expect(find.byType(PlannerScreen), findsOneWidget);
-      // Bottom navigation reflects the selection.
+      expect(find.byType(TasksScreen), findsOneWidget);
+      // The accepted shell survives: the permanent bottom navigation is live
+      // and Tasks is not a root tab, so Home stays the selected destination.
       final nav = tester.widget<NavigationBar>(
         find.byKey(const Key('main-bottom-navigation')),
       );
-      expect(nav.selectedIndex, 1);
+      expect(nav.selectedIndex, 0);
+    });
+
+    testWidgets('the Unreported row opens the canonical hub in the shell', (
+      tester,
+    ) async {
+      await pumpApp(tester);
+      await openDrawerFromHome(tester);
+      await tester.tap(find.byKey(const Key('drawer-unreported')));
+      await tester.pumpAndSettle();
+      expect(drawerFinder(), findsNothing);
+      expect(find.byType(UnreportedScreen), findsOneWidget);
+      expect(find.byKey(const Key('main-bottom-navigation')), findsOneWidget);
     });
 
     testWidgets('current-destination tap closes only and adds no route', (
       tester,
     ) async {
       await pumpApp(tester);
-      await tester.tap(find.text('Planner').last);
+      await openDrawerFromHome(tester);
+      await tester.tap(find.byKey(const Key('drawer-tasks')));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('planner-hamburger')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('drawer-planner')));
+      await openDrawerFromShell(tester);
+      await tester.tap(find.byKey(const Key('drawer-tasks')));
       await tester.pumpAndSettle();
       expect(drawerFinder(), findsNothing);
-      expect(find.byType(PlannerScreen), findsOneWidget);
       expect(
-        find.byType(PlannerScreen).evaluate().length,
+        find.byType(TasksScreen).evaluate().length,
         1,
-        reason: 'no duplicate Planner route may be created',
+        reason: 'no duplicate Tasks route may be created',
       );
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('Planning opens the canonical weekly planning and Back lands '
+    testWidgets('the removed Goal Planning row keeps its route and Back lands '
         'on Planner root', (tester) async {
       await pumpApp(tester);
-      await openDrawerFromHome(tester);
-      await tester.tap(find.byKey(const Key('drawer-planning')));
+      // Owner law (2026-09-19): the ROW is gone from the drawer; the route and
+      // its screen are untouched, so direct entry must still work.
+      final BuildContext context = tester.element(
+        find.byKey(const Key('home-hamburger')),
+      );
+      context.go(RoutePaths.weeklyPlanning);
       await tester.pumpAndSettle();
       expect(drawerFinder(), findsNothing);
       expect(find.byType(WeeklyPlanningScreen), findsOneWidget);
@@ -353,11 +413,17 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('Activity History opens above the shell and Back returns to '
-        'Home', (tester) async {
+    testWidgets('the removed Activity History row keeps its screen and Back '
+        'returns to Home', (tester) async {
       await pumpApp(tester);
-      await openDrawerFromHome(tester);
-      await tester.tap(find.byKey(const Key('drawer-activity-history')));
+      // Owner law (2026-09-19): the ROW is gone; the screen and its data are
+      // untouched, so /activity-history must still resolve.  The removed row
+      // pushed this screen above the shell, and that is exactly what direct
+      // entry reproduces here — including the Back result.
+      final BuildContext context = tester.element(
+        find.byKey(const Key('home-hamburger')),
+      );
+      unawaited(context.push(RoutePaths.activityHistory));
       await tester.pumpAndSettle();
       expect(find.byType(ActivityHistoryScreen), findsOneWidget);
       await tester.binding.handlePopRoute();
@@ -423,14 +489,14 @@ void main() {
       await pumpApp(tester);
       for (var i = 0; i < 2; i++) {
         await openDrawerFromHome(tester);
-        await tester.tap(find.byKey(const Key('drawer-planner')));
+        await tester.tap(find.byKey(const Key('drawer-tasks')));
         await tester.pumpAndSettle();
         await tester.tap(find.text('Home').last);
         await tester.pumpAndSettle();
       }
       expect(find.byType(HomeScreen).evaluate().length, 1);
       expect(
-        find.byType(PlannerScreen).evaluate().length,
+        find.byType(TasksScreen).evaluate().length,
         0,
         reason: 'only one shell page is live at a time',
       );

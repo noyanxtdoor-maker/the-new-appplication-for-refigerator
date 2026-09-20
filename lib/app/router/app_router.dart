@@ -48,6 +48,7 @@ import 'package:rmplanner/features/planner/presentation/planner_settings_screen.
 import 'package:rmplanner/features/planner/presentation/task_detail_screen.dart';
 import 'package:rmplanner/features/planner/presentation/task_event_link_screen.dart';
 import 'package:rmplanner/features/planner/presentation/task_form_screen.dart';
+import 'package:rmplanner/features/planner/presentation/tasks_screen.dart';
 import 'package:rmplanner/features/privacy/presentation/diagnostic_preview_screen.dart';
 import 'package:rmplanner/features/privacy/presentation/permissions_screen.dart';
 import 'package:rmplanner/features/privacy/presentation/privacy_center_screen.dart';
@@ -70,6 +71,7 @@ import 'package:rmplanner/features/startup/presentation/onboarding_screen.dart';
 import 'package:rmplanner/features/startup/presentation/protected_content_screen.dart';
 import 'package:rmplanner/features/startup/presentation/recovery_screen.dart';
 import 'package:rmplanner/features/startup/presentation/startup_screen.dart';
+import 'package:rmplanner/features/unreported/presentation/unreported_screen.dart';
 import 'package:rmplanner/features/weekly_planning/presentation/weekly_plan_history_screen.dart';
 import 'package:rmplanner/features/weekly_planning/presentation/weekly_planning_screen.dart';
 
@@ -132,6 +134,19 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             name: RouteNames.planner,
             path: RoutePaths.planner,
             builder: (context, state) => const PlannerScreen(),
+          ),
+          // Owner law (2026-09-19): Tasks and Unreported are canonical
+          // shell-child destinations reached from the hamburger.  Both stay
+          // inside the shell so the accepted bottom navigation is preserved.
+          GoRoute(
+            name: RouteNames.tasks,
+            path: RoutePaths.tasks,
+            builder: (context, state) => const TasksScreen(),
+          ),
+          GoRoute(
+            name: RouteNames.unreported,
+            path: RoutePaths.unreported,
+            builder: (context, state) => const UnreportedScreen(),
           ),
           GoRoute(
             name: RouteNames.more,

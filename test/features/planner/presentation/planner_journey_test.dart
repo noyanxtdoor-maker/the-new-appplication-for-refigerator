@@ -170,18 +170,20 @@ void main() {
       await tester.tap(find.text('Tasks'));
       await tester.pumpAndSettle();
 
+      // Owner law (2026-09-20): the overflow `Tasks` row opens the ONE
+      // canonical Tasks screen; there is no in-Planner Tasks list any more.
+      expect(find.byKey(const Key('tasks-tab-incomplete')), findsOneWidget);
       await tester.scrollUntilVisible(
         find.text('Offline Task'),
         250,
         scrollable: find.descendant(
-          of: find.byKey(const Key('planner-tasks-view')),
+          of: find.byKey(const Key('tasks-incomplete-list')),
           matching: find.byType(Scrollable),
         ),
       );
       await tester.ensureVisible(find.text('Offline Task'));
       await tester.pumpAndSettle();
       expect(find.text('Offline Task'), findsOneWidget);
-      expect(find.byKey(const Key('planner-day-2026-07-27')), findsOneWidget);
       await tester.tap(find.text('Offline Task'));
       await tester.pumpAndSettle();
       expect(find.text('Offline Task'), findsWidgets);
@@ -196,30 +198,21 @@ void main() {
 
       await tester.tap(find.byKey(const Key('task-preview-sheet-close')));
       await tester.pumpAndSettle();
-      expect(find.byKey(const Key('planner-day-2026-07-27')), findsOneWidget);
-      expect(find.text('Offline Task'), findsOneWidget);
-      await tester.tap(find.byKey(const Key('planner-filter-button')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('planner-filter-completed-tasks')));
-      await tester.tap(find.byKey(const Key('planner-filter-apply')));
-      await tester.pumpAndSettle();
       expect(find.text('Offline Task'), findsOneWidget);
 
+      // The Planner content filters used to narrow the retired in-Planner
+      // Tasks list; the canonical screen has its own Incomplete/Completed
+      // split, so only the timeline scroll itself is exercised here.
+      final tasksTimeline = find.descendant(
+        of: find.byKey(const Key('tasks-incomplete-list')),
+        matching: find.byType(Scrollable),
+      );
       await tester.scrollUntilVisible(
         find.textContaining('Report-required fixture'),
         250,
-        scrollable: find.descendant(
-          of: find.byKey(const Key('planner-tasks-view')),
-          matching: find.byType(Scrollable),
-        ),
+        scrollable: tasksTimeline,
       );
-      await tester.drag(
-        find.descendant(
-          of: find.byKey(const Key('planner-tasks-view')),
-          matching: find.byType(Scrollable),
-        ),
-        const Offset(0, 180),
-      );
+      await tester.drag(tasksTimeline, const Offset(0, 180));
       await tester.pumpAndSettle();
       await tester.tap(find.textContaining('Report-required fixture'));
       await tester.pumpAndSettle();
@@ -235,6 +228,10 @@ void main() {
       // has no reporting-editor Save control to stage the outcome.
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('task-preview-sheet-close')));
+      await tester.pumpAndSettle();
+      // The canonical screen's back arrow returns to the Planner, which was
+      // the recorded origin of this entry (owner law, 2026-09-20).
+      await tester.tap(find.byKey(const Key('tasks-back')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('planner-overflow-button')));
       await tester.pumpAndSettle();

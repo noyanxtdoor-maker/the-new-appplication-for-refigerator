@@ -36,6 +36,8 @@ abstract final class RouteNames {
   static const String mapsSettings = 'maps-settings';
   static const String notificationsSettings = 'notifications-settings';
   static const String plannerEventColors = 'planner-event-colors';
+  static const String tasks = 'tasks';
+  static const String unreported = 'unreported';
   static const String taskCreate = 'task-create';
   static const String taskDetail = 'task-detail';
   static const String taskEdit = 'task-edit';
@@ -107,6 +109,7 @@ abstract final class RoutePaths {
   static const String plannerEventColors =
       '/more/settings/colors/planner-event-colors';
   static const String tasks = '/tasks';
+  static const String unreported = '/unreported';
   static const String taskCreate = '/tasks/new';
   static const String calendarEvents = '/events';
   static const String calendarEventCreate = '/events/new';

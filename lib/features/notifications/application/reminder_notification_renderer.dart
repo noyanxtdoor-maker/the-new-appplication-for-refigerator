@@ -87,6 +87,20 @@ final class ReminderDetailOptions {
       !showContacts &&
       !showLocation;
 
+  /// A deterministic, RUN-STABLE token for the five fields.
+  ///
+  /// This exists so the per-field choices can enter a persisted render revision
+  /// (owner pass 2026-09-19, defect N1-G): changing a Detailed field must refresh
+  /// an ALREADY-SCHEDULED reminder's copy in place, otherwise the pre-rendered
+  /// native body would keep whatever was chosen when it was scheduled.
+  ///
+  /// Deliberately NOT [hashCode]: `Object.hash` is seeded per isolate, so a hash
+  /// in a persisted revision would differ after every app launch and needlessly
+  /// cancel and recreate still-pending platform alarms.
+  String get revisionToken =>
+      '${showTitle ? 1 : 0}${showDescription ? 1 : 0}${showTime ? 1 : 0}'
+      '${showContacts ? 1 : 0}${showLocation ? 1 : 0}';
+
   ReminderDetailOptions copyWith({
     bool? showTitle,
     bool? showDescription,
@@ -111,8 +125,13 @@ final class ReminderDetailOptions {
       other.showLocation == showLocation;
 
   @override
-  int get hashCode =>
-      Object.hash(showTitle, showDescription, showTime, showContacts, showLocation);
+  int get hashCode => Object.hash(
+    showTitle,
+    showDescription,
+    showTime,
+    showContacts,
+    showLocation,
+  );
 
   @override
   String toString() =>

@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:rmplanner/core/notifications/flutter_local_notifications_gateway.dart';
 import 'package:rmplanner/core/notifications/launcher_badge_gateway.dart';
+import 'package:rmplanner/core/notifications/notification_payload.dart';
 
 final class FlutterLocalNotificationsLauncherBadgeGateway
     implements LauncherBadgeGateway {
@@ -9,10 +11,14 @@ final class FlutterLocalNotificationsLauncherBadgeGateway
   static const int notificationId = 0x7ffffffe;
   static const String channelId = 'next_transfer_app_status';
 
+  /// Stable response-intent source id for the summary destination.  It is an
+  /// identity token only; the hub itself is canonical and profile-scoped.
+  static const String unreportedSummarySourceId = 'unreported-hub';
+
   final FlutterLocalNotificationsPlugin plugin;
 
   @override
-  Future<void> setCount(int count) async {
+  Future<void> setCount({required String profileId, required int count}) async {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
     if (count <= 0) {
       await plugin.cancel(id: notificationId);
@@ -33,15 +39,30 @@ final class FlutterLocalNotificationsLauncherBadgeGateway
         showBadge: true,
       ),
     );
+    // Owner law (2026-09-19): tapping the summary notification opens the
+    // canonical Unreported hub.  The payload is the ordinary canonical
+    // response intent, so the tap travels the one existing routing seam
+    // instead of a bespoke deep link.
+    final payload = NotificationPayloadCodec.encode(
+      NotificationResponseIntent(
+        profileId: profileId,
+        sourceKind: NotificationSourceKind.unreportedSummary,
+        sourceId: unreportedSummarySourceId,
+        action: NotificationResponseAction.open,
+      ),
+    );
     await plugin.show(
       id: notificationId,
       title: 'Next Transfer',
       body: '$count actionable ${count == 1 ? 'item' : 'items'}',
+      payload: payload,
       notificationDetails: NotificationDetails(
         android: AndroidNotificationDetails(
           channelId,
           'App status',
           channelDescription: 'Actionable Next Transfer item count.',
+          // HOTFIX: never depend on the startup-registered default icon.
+          icon: ntNotificationIconResource,
           importance: Importance.low,
           priority: Priority.low,
           playSound: false,

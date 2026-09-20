@@ -185,6 +185,33 @@ final class PlannerTask {
   }
 
   bool get isHistorical => status != PlannerTaskStatus.incomplete;
+
+  /// Owner law (2026-09-20): the ONE Task classification the Tasks screen, the
+  /// hamburger number and the Home attention dot all read.
+  ///
+  /// A Task is OPEN while it still awaits action. Two canonical facts end that:
+  ///
+  /// * its lifecycle [status] leaving `incomplete` (the Planner's own status
+  ///   change), or
+  /// * its Current Status being reported as a terminal outcome — Completed,
+  ///   Missed (`partiallyCompleted`) or Did Not Attempt (`didNotHappen`).
+  ///   [reportedOutcome] is that canonical report slot, and it is already the
+  ///   value the Planner paints its report badge from.
+  ///
+  /// OWNER-REPORTED DEFECT this fixes: a Task whose Current Status was saved as
+  /// Missed or Did Not Attempt stayed in Incomplete because the report write
+  /// deliberately leaves the lifecycle column alone, and a Task retired
+  /// through `skipped`/`cancelled` appeared in NEITHER tab because the screen
+  /// only recognised `completed`. Reading the canonical report here — instead
+  /// of overloading the lifecycle column with a false `completed` — keeps the
+  /// lifecycle honest, so Goal contributions and reminder eligibility are
+  /// untouched.
+  bool get isOpen =>
+      status == PlannerTaskStatus.incomplete && reportedOutcome == null;
+
+  /// True once the Task is no longer awaiting action. Exactly the complement of
+  /// [isOpen], so no Task can sit in both Tasks tabs or in neither.
+  bool get isTerminal => !isOpen;
 }
 
 final class TaskStatusChange {

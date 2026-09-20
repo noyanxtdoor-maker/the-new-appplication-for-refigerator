@@ -21,6 +21,14 @@ abstract final class ReminderEnrichmentSanitizer {
   static const int maxNameGraphemes = 80;
   static const int maxLocationGraphemes = 120;
 
+  /// The budget for the JOINED attached-Contact line.
+  ///
+  /// One name is already bounded by [maxNameGraphemes]; an Event may legitimately
+  /// carry many People, and an unbounded body line is not a contract this codebase
+  /// keeps anywhere else (the description preview is bounded too).  The ellipsis
+  /// stays INSIDE the limit, exactly like the other two budgets.
+  static const int maxJoinedNamesGraphemes = 160;
+
   /// C0/C1 controls plus DEL.
   static final RegExp _control = RegExp(r'[\u0000-\u001F\u007F-\u009F]');
 
@@ -68,6 +76,34 @@ abstract final class ReminderEnrichmentSanitizer {
     return value;
   }
 
+  /// Sanitized, de-duplicated, deterministically ordered single line of Contact
+  /// display names, or null when nothing usable remains.
+  ///
+  /// DISPLAY NAMES ONLY.  The caller passes exactly the names it read; this
+  /// helper can never introduce a phone number, address or note because it only
+  /// ever receives the display-name field.
+  ///
+  /// Ordering is by name, not by database row order: two deliveries of the same
+  /// Event must never order the same People differently, and SQLite gives no
+  /// ordering guarantee for an unordered select.
+  static String? joinNames(Iterable<String?> names) {
+    final cleaned = <String>{};
+    for (final raw in names) {
+      final value = sanitizeName(raw);
+      if (value != null) cleaned.add(value);
+    }
+    if (cleaned.isEmpty) return null;
+    final ordered = cleaned.toList(growable: false)..sort();
+    return _cap(ordered.join(', '), maxJoinedNamesGraphemes);
+  }
+
+  /// Grapheme-safe cap with the ellipsis inside the limit.
+  static String _cap(String value, int maxGraphemes) {
+    final graphemes = value.characters;
+    if (graphemes.length <= maxGraphemes) return value;
+    return '${graphemes.take(maxGraphemes - 1)}…';
+  }
+
   static String? _sanitize(String? raw, int maxGraphemes) {
     if (raw == null) return null;
     final cleaned = raw
@@ -91,6 +127,20 @@ abstract final class ReminderEnrichmentSanitizer {
 /// history) are explicitly forbidden: a read must never resurrect a stale name
 /// and must never repair data.
 abstract interface class ReminderEnrichmentSource {
+  /// Current display names of EVERY Contact currently linked to the source, in
+  /// no particular order (the caller imposes the deterministic order).
+  ///
+  /// Same live-truth law as [currentContactDisplayName], without the single-id
+  /// filter: a removed link, an archived/merged/deleted Contact or a renamed
+  /// Contact is reflected, and no historical snapshot is ever consulted.  An
+  /// empty result means "this source has no People", never a failure.
+  Future<List<String>> attachedContactDisplayNames({
+    required String profileId,
+    required ReminderSourceKind sourceKind,
+    required String sourceId,
+    required String occurrenceId,
+  });
+
   /// Current display name for [contactId], or null when the Contact is
   /// missing, inactive, in another profile, not currently linked to the source,
   /// or the read fails.
@@ -111,6 +161,34 @@ final class ReminderEnrichmentResolver {
   const ReminderEnrichmentResolver(this.source);
 
   final ReminderEnrichmentSource source;
+
+  /// The attached-People line value: every Contact currently linked to the
+  /// source, sanitized, de-duplicated and deterministically ordered, or null
+  /// when the source has no usable People.
+  ///
+  /// This is what makes an ordinary Event/Task Contact reach the notification.
+  /// The explicit follow-up chooser remains a separate, higher-precedence
+  /// concept owned by the reminder policy.
+  Future<String?> attachedContactLine({
+    required String profileId,
+    required ReminderSourceKind sourceKind,
+    required String sourceId,
+    required String occurrenceId,
+  }) async {
+    try {
+      final names = await source.attachedContactDisplayNames(
+        profileId: profileId,
+        sourceKind: sourceKind,
+        sourceId: sourceId,
+        occurrenceId: occurrenceId,
+      );
+      return ReminderEnrichmentSanitizer.joinNames(names);
+    } on Object {
+      // A read failure means no People line, never a cached or partial value and
+      // never a suppressed reminder.
+      return null;
+    }
+  }
 
   /// Sanitized current Contact name for the follow-up line, or null to omit it.
   Future<String?> followUpName({

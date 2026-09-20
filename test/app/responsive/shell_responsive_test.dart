@@ -241,7 +241,7 @@ void main() {
       final Finder drawer = find.byKey(const Key('global-app-drawer'));
       expect(drawer, findsOneWidget);
       expect(tester.getSize(drawer).width, lessThanOrEqualTo(360));
-      expect(find.byKey(const Key('drawer-planner')), findsOneWidget);
+      expect(find.byKey(const Key('drawer-tasks')), findsOneWidget);
       expect(find.byKey(const Key('drawer-about')), findsOneWidget);
       expect(find.byKey(const Key('global-app-drawer-list')), findsOneWidget);
     });

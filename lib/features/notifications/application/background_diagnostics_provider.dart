@@ -203,7 +203,9 @@ final class BackgroundDiagnostics {
           count++;
         case NotificationSourceKind.goalAchievement:
         case NotificationSourceKind.contactFollowUp:
-          // Dormant kinds are never activated and never counted as reminders.
+        case NotificationSourceKind.unreportedSummary:
+          // Dormant kinds and the persistent app-status/summary destination
+          // are never counted as pending REMINDERS.
           break;
       }
     }

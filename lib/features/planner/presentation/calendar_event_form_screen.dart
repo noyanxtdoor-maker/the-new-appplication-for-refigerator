@@ -247,6 +247,15 @@ final class _CalendarEventFormScreenState
   bool _requiresReport = false;
   ReminderPolicyMode _reminderMode = ReminderPolicyMode.inherit;
   int? _reminderOffsetMinutes;
+
+  /// True only when the user actually chose a reminder on this visit.
+  ///
+  /// OWNER HOTFIX (2026-09-19): an Edit/Reschedule save persists a reminder policy
+  /// ONLY when this is true. Re-saving an Event without touching its reminder used
+  /// to write a row under the occurrence key built from the form's own (resolved)
+  /// state, which could shadow a series override the user had set elsewhere. A save
+  /// that did not change the reminder must never author a policy row.
+  bool _reminderSelectionChanged = false;
   String? _loadedEventTypeStableKey;
   String? _loadedEventTypeLabel;
   // Raw type ID loaded with an existing Event (edit/reschedule). Used to
@@ -413,8 +422,8 @@ final class _CalendarEventFormScreenState
     // through it, including objects passed before an archive. Edit mode
     // keeps the raw existing type (the raw list may omit hidden/retired
     // types) and its occurrence snapshot; only a NEW selection is gated.
-    List<EventTypeCreationChoice> eligibleChoices = const <
-        EventTypeCreationChoice>[];
+    List<EventTypeCreationChoice> eligibleChoices =
+        const <EventTypeCreationChoice>[];
     var eligibilityReady = false;
     if (widget.mode == CalendarEventFormMode.create) {
       try {
@@ -461,8 +470,9 @@ final class _CalendarEventFormScreenState
     } else if (widget.initialIndicatorKey != null && eligibilityReady) {
       preferTypeDuration = true;
       selected = eligibleTypeById(
-        (await controller.exactTypeForIndicator(widget.initialIndicatorKey!))
-            ?.id,
+        (await controller.exactTypeForIndicator(
+          widget.initialIndicatorKey!,
+        ))?.id,
       );
     } else if (eventTypeState.settings.defaultEventTypeId != null &&
         eligibilityReady) {
@@ -490,8 +500,7 @@ final class _CalendarEventFormScreenState
         : eligibilityReady
         ? eligibleChoices
               .where(
-                (choice) =>
-                    choice.type.stableKey == SystemEventTypeKeys.other,
+                (choice) => choice.type.stableKey == SystemEventTypeKeys.other,
               )
               .firstOrNull
               ?.type
@@ -726,7 +735,8 @@ final class _CalendarEventFormScreenState
     }
     // A deliberate selection always wins: it is the user's current intent, and
     // its label comes from the canonical creation choice.
-    if (widget.mode == CalendarEventFormMode.create || _eventTypeSelectionChanged) {
+    if (widget.mode == CalendarEventFormMode.create ||
+        _eventTypeSelectionChanged) {
       final resolved = _creationChoiceLabelOf(selected.id);
       if (resolved != null) {
         return resolved;
@@ -922,9 +932,17 @@ final class _CalendarEventFormScreenState
             sourceKind: ReminderSourceKind.calendarEvent,
             sourceId: widget.eventId!,
           );
-      reminderPolicy = policies
-          .where((policy) => policy.occurrenceId == occurrenceId)
-          .firstOrNull;
+      // OWNER HOTFIX (2026-09-19) — resolve EXACTLY as ReminderReconciler does:
+      // the occurrence policy first, then the SERIES policy.
+      //
+      // Before this the form looked at the occurrence key alone. The create path
+      // and an "All events" edit both store the reminder at series scope, so the
+      // form could not see the user's own choice, fell back to `inherit`, and
+      // rendered the global default ("Default (10 min before)") instead of the
+      // offset the user had just set — and the next save then wrote an occurrence
+      // `inherit` row that shadowed the real series override, silently reverting
+      // the reminder to the default.
+      reminderPolicy = policies.resolveForOccurrence(occurrenceId);
     }
     if (!mounted) {
       return;
@@ -1049,6 +1067,8 @@ final class _CalendarEventFormScreenState
     _selectedGoalId = draft.goalId;
     _reminderMode = reminderPolicy?.mode ?? ReminderPolicyMode.inherit;
     _reminderOffsetMinutes = reminderPolicy?.offsetMinutes;
+    // A fresh load is not a deliberate reminder choice.
+    _reminderSelectionChanged = false;
     setState(() => _loading = false);
   }
 
@@ -2395,8 +2415,7 @@ final class _CalendarEventFormScreenState
     final isNewSelection =
         widget.mode == CalendarEventFormMode.create ||
         (widget.mode == CalendarEventFormMode.edit &&
-            (_loadedTypeId == null ||
-                _selectedEventType?.id != _loadedTypeId));
+            (_loadedTypeId == null || _selectedEventType?.id != _loadedTypeId));
     if (isNewSelection && !await _validateSelectionBeforeWrite()) {
       if (mounted) {
         setState(() => _saving = false);
@@ -2513,20 +2532,22 @@ final class _CalendarEventFormScreenState
         // controller's early scheduling until People + purpose have committed.
         deferReminderReconciliation: widget.followUpContactId != null,
       ),
-      CalendarEventFormMode.edit => await _saveEdit(draft, controller)
-          ? CalendarEventSaveResult.saved
-          : CalendarEventSaveResult.notSaved,
-      CalendarEventFormMode.reschedule => await controller.rescheduleEvent(
-            eventId: widget.eventId!,
-            originalDate: widget.originalDate!,
-            scope: widget.scope!,
-            replacement: draft,
-            operationId: _operationId,
-            reminderMode: _reminderMode,
-            reminderOffsetMinutes: _reminderOffsetMinutes,
-          )
-          ? CalendarEventSaveResult.saved
-          : CalendarEventSaveResult.notSaved,
+      CalendarEventFormMode.edit =>
+        await _saveEdit(draft, controller)
+            ? CalendarEventSaveResult.saved
+            : CalendarEventSaveResult.notSaved,
+      CalendarEventFormMode.reschedule =>
+        await controller.rescheduleEvent(
+              eventId: widget.eventId!,
+              originalDate: widget.originalDate!,
+              scope: widget.scope!,
+              replacement: draft,
+              operationId: _operationId,
+              reminderMode: _reminderModeToPersist,
+              reminderOffsetMinutes: _reminderOffsetToPersist,
+            )
+            ? CalendarEventSaveResult.saved
+            : CalendarEventSaveResult.notSaved,
     };
     if (!mounted) {
       return;
@@ -2715,9 +2736,9 @@ final class _CalendarEventFormScreenState
       return false;
     }
     if (!contactIsActive) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Saved without follow-up.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Saved without follow-up.')));
       return true;
     }
     try {
@@ -2798,8 +2819,8 @@ final class _CalendarEventFormScreenState
         draft: draft,
         operationId: _operationId,
         awaitPlannerRefresh: false,
-        reminderMode: _reminderMode,
-        reminderOffsetMinutes: _reminderOffsetMinutes,
+        reminderMode: _reminderModeToPersist,
+        reminderOffsetMinutes: _reminderOffsetToPersist,
       );
       if (saved) _committedEditScope = widget.scope!;
       return saved;
@@ -2814,8 +2835,8 @@ final class _CalendarEventFormScreenState
         draft: draft,
         operationId: _operationId,
         awaitPlannerRefresh: false,
-        reminderMode: _reminderMode,
-        reminderOffsetMinutes: _reminderOffsetMinutes,
+        reminderMode: _reminderModeToPersist,
+        reminderOffsetMinutes: _reminderOffsetToPersist,
       );
       if (saved) _committedEditScope = CalendarEventEditScope.occurrence;
       return saved;
@@ -2830,8 +2851,8 @@ final class _CalendarEventFormScreenState
         draft: draft,
         operationId: _operationId,
         awaitPlannerRefresh: false,
-        reminderMode: _reminderMode,
-        reminderOffsetMinutes: _reminderOffsetMinutes,
+        reminderMode: _reminderModeToPersist,
+        reminderOffsetMinutes: _reminderOffsetToPersist,
       );
       if (saved) _committedEditScope = CalendarEventEditScope.series;
       return saved;
@@ -2849,8 +2870,8 @@ final class _CalendarEventFormScreenState
       draft: draft,
       operationId: _operationId,
       awaitPlannerRefresh: false,
-      reminderMode: _reminderMode,
-      reminderOffsetMinutes: _reminderOffsetMinutes,
+      reminderMode: _reminderModeToPersist,
+      reminderOffsetMinutes: _reminderOffsetToPersist,
     );
     if (saved) _committedEditScope = scope;
     return saved;
@@ -3009,17 +3030,34 @@ final class _CalendarEventFormScreenState
     }
   }
 
+  /// The reminder policy to persist from an EDIT/RESCHEDULE save: null when the
+  /// user did not change it, so the save cannot create or shadow a policy row.
+  ReminderPolicyMode? get _reminderModeToPersist =>
+      _reminderSelectionChanged ? _reminderMode : null;
+
+  int? get _reminderOffsetToPersist =>
+      _reminderSelectionChanged ? _reminderOffsetMinutes : null;
+
+  /// Applies the picker's typed intent (owner pass 2026-09-19, defect N3).
+  ///
+  /// A DISMISSAL is not a choice: it must leave `_reminderMode` and
+  /// `_reminderSelectionChanged` untouched.  Treating it as "Use default" used
+  /// to silently rewrite a deliberate custom offset back to the inherited
+  /// default, and additionally authored an occurrence-level `inherit` row that
+  /// shadowed the series override.
   Future<void> _selectReminderPolicy() async {
-    final selected = await showReminderTimePicker(context);
-    if (!mounted) return;
+    final intent = reminderSelectionIntent(
+      await showReminderTimePicker(context),
+    );
+    // A DISMISSAL is not a choice: no mode change, and no policy write either
+    // (`_reminderSelectionChanged` stays false, so an edit save cannot author an
+    // occurrence-level row that shadows the series override).
+    if (!mounted || intent == null) return;
     setState(() {
-      if (selected == null) {
-        _reminderMode = ReminderPolicyMode.inherit;
-      } else if (selected == -1) {
-        _reminderMode = ReminderPolicyMode.off;
-      } else {
-        _reminderMode = ReminderPolicyMode.offset;
-        _reminderOffsetMinutes = selected;
+      _reminderSelectionChanged = true;
+      _reminderMode = intent.mode;
+      if (intent.offsetMinutes != null) {
+        _reminderOffsetMinutes = intent.offsetMinutes;
       }
     });
   }

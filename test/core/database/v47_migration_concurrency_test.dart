@@ -75,13 +75,15 @@ void main() {
     expect(
       kAppDatabaseNativeOptions.shareAcrossIsolates,
       isTrue,
-      reason: 'every AppDatabase.defaults() must converge on ONE shared '
+      reason:
+          'every AppDatabase.defaults() must converge on ONE shared '
           'connection, so a second connection can never race the migration',
     );
     expect(
       kAppDatabaseNativeOptions.setup,
       isNull,
-      reason: 'a busy timeout was measured NOT to fix this deadlock, so the '
+      reason:
+          'a busy timeout was measured NOT to fix this deadlock, so the '
           'corrective deliberately carries no connection setup',
     );
   });
@@ -94,7 +96,8 @@ void main() {
       expect(
         threw,
         isTrue,
-        reason: 'PRE-FIX BEHAVIOUR: with two independent connections one of '
+        reason:
+            'PRE-FIX BEHAVIOUR: with two independent connections one of '
             'them throws SqliteException(5) "database is locked" on '
             'BEGIN IMMEDIATE — the exact splash-screen hang seen on device',
       );
@@ -117,7 +120,8 @@ void main() {
       expect(
         threw,
         isTrue,
-        reason: 'a lock-upgrade deadlock never invokes the busy handler, so a '
+        reason:
+            'a lock-upgrade deadlock never invokes the busy handler, so a '
             'timeout cannot rescue it — this is why the corrective is the '
             'shared connection, not a timeout',
       );
@@ -150,27 +154,31 @@ void main() {
     }
   });
 
-  test('MECHANISM: with ONE connection the migration completes cleanly',
-      () async {
-    final dir = await Directory.systemTemp.createTemp('nt_v47_single');
-    try {
-      final path = await _seedV46(dir);
-      // The corrective collapses the sites onto a single connection; this is
-      // what that connection does when both callers use it.
-      final shared = AppDatabase.forTesting(NativeDatabase(File(path)));
-      await Future.wait<void>([
-        shared.select(shared.localProfiles).get(),
-        shared.select(shared.localProfiles).get(),
-      ]);
-      final version =
-          await shared.customSelect('PRAGMA user_version').getSingle();
-      expect(version.read<int>('user_version'), 47);
-      final integrity =
-          await shared.customSelect('PRAGMA integrity_check').getSingle();
-      expect(integrity.read<String>('integrity_check'), 'ok');
-      await shared.close();
-    } finally {
-      await dir.delete(recursive: true);
-    }
-  });
+  test(
+    'MECHANISM: with ONE connection the migration completes cleanly',
+    () async {
+      final dir = await Directory.systemTemp.createTemp('nt_v47_single');
+      try {
+        final path = await _seedV46(dir);
+        // The corrective collapses the sites onto a single connection; this is
+        // what that connection does when both callers use it.
+        final shared = AppDatabase.forTesting(NativeDatabase(File(path)));
+        await Future.wait<void>([
+          shared.select(shared.localProfiles).get(),
+          shared.select(shared.localProfiles).get(),
+        ]);
+        final version = await shared
+            .customSelect('PRAGMA user_version')
+            .getSingle();
+        expect(version.read<int>('user_version'), 48);
+        final integrity = await shared
+            .customSelect('PRAGMA integrity_check')
+            .getSingle();
+        expect(integrity.read<String>('integrity_check'), 'ok');
+        await shared.close();
+      } finally {
+        await dir.delete(recursive: true);
+      }
+    },
+  );
 }

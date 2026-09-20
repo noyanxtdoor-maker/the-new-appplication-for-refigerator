@@ -1,4 +1,5 @@
 import 'package:rmplanner/features/planner/application/planner_repository.dart';
+import 'package:rmplanner/features/planner/domain/awaiting_report_event.dart';
 import 'package:rmplanner/features/planner/domain/calendar_event.dart';
 import 'package:rmplanner/features/planner/domain/planner_date.dart';
 import 'package:rmplanner/features/planner/domain/planner_day.dart';
@@ -186,6 +187,31 @@ abstract interface class CalendarEventScopedRangeSource {
     required PlannerDate startDate,
     required PlannerDate endDate,
     required Set<String>? eventIds,
+  });
+}
+
+/// Optional canonical capability for the UNREPORTED backlog.
+///
+/// Returns every Event occurrence that is canonically awaiting a report:
+/// the occurrence is still `scheduled`, it requires a report, no report has
+/// been submitted for it, and its window has elapsed.  This is the same truth
+/// the Planner's awaiting-reports presentation and the `awaitingReport`
+/// reminder family already use, but WITHOUT their bounded day windows: the
+/// owner law is that older unresolved occurrences remain findable, so the
+/// production source expands each candidate from its own series start.
+///
+/// A source that does not implement this capability simply has no backlog —
+/// callers must not substitute an "everything is unreported" fallback.
+abstract interface class CalendarEventAwaitingReportSource {
+  /// Oldest occurrence first; ties broken by the canonical day ordering.
+  ///
+  /// [today] anchors the all-day elapsed rule (`displayDate < today`);
+  /// [nowUtc] anchors the timed rule (`endUtc < nowUtc`).  Both are passed in
+  /// so the projection is deterministic under a test clock.
+  Future<List<AwaitingReportEvent>> readAwaitingReportEvents({
+    required String profileId,
+    required PlannerDate today,
+    required DateTime nowUtc,
   });
 }
 

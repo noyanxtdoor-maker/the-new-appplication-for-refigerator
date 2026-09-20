@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  OWNER HOTFIX (2026-09-19) — keep the notification small icon in release.
+
+  `ic_nt_notification` is referenced ONLY from Dart, as the runtime resource NAME
+  the notification plugin resolves through
+  `Resources.getIdentifier(name, "drawable", packageName)`:
+
+    * `AndroidInitializationSettings('@drawable/ic_nt_notification')` registers the
+      default icon for every notification, and
+    * `AndroidNotificationDetails(icon: 'ic_nt_notification')` names it per send.
+
+  Nothing in the Android build references it, so the release resource shrinker
+  (AGP 9.0.1 enables it for release) removed it from the shipped bundle.  With the
+  drawable absent the plugin's initialization fails its drawable check, the default
+  icon is never persisted, and every reminder alarm then crashes the process inside
+  `FlutterLocalNotificationsPlugin.setSmallIcon`, because the fallback path unboxes a
+  null `iconResourceId`.  The reminder never appears and the app disappears from the
+  foreground — the reported "app closes itself at the reminder time".
+
+  `tools:keep` is the documented AGP mechanism for a resource that is only resolved
+  by name at runtime.  It keeps exactly this one drawable; nothing else changes.
+-->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/ic_nt_notification" />

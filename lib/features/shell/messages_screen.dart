@@ -37,6 +37,13 @@ final class MessagesScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final messages = BundledMessages.all;
+    // Owner law (2026-09-19): the Messages surface marks EACH still-unread
+    // bundled message with the same red dot, never a number, so a tester can
+    // see exactly which release note is new after an update while every
+    // previously read receipt stays read.
+    final unreadIds = <String>{
+      for (final message in ref.watch(unreadMessagesProvider)) message.id,
+    };
     return Scaffold(
       appBar: InternalAppBar(title: const Text('Messages')),
       body: SafeArea(
@@ -48,6 +55,7 @@ final class MessagesScreen extends ConsumerWidget {
                 itemCount: messages.length,
                 itemBuilder: (context, index) => _MessageListRow(
                   message: messages[index],
+                  isUnread: unreadIds.contains(messages[index].id),
                   nowLocal: DateTime.now(),
                   onOpen: () => _openMessage(context, ref, messages[index]),
                 ),
@@ -63,11 +71,15 @@ final class MessagesScreen extends ConsumerWidget {
 final class _MessageListRow extends StatelessWidget {
   const _MessageListRow({
     required this.message,
+    required this.isUnread,
     required this.nowLocal,
     required this.onOpen,
   });
 
   final Message message;
+
+  /// Red-dot only: the row never renders a count.
+  final bool isUnread;
   final DateTime nowLocal;
 
   /// Records the receipt and opens the detail. Supplied by the screen so the
@@ -85,7 +97,8 @@ final class _MessageListRow extends StatelessWidget {
       button: true,
       label:
           '${message.title}, '
-          '${MessageDateLabel.relative(message.publishedAtLocal, nowLocal)}',
+          '${MessageDateLabel.relative(message.publishedAtLocal, nowLocal)}'
+          '${isUnread ? ', unread' : ''}',
       child: InkWell(
         key: Key('message-row-${message.id}'),
         onTap: onOpen,
@@ -94,10 +107,29 @@ final class _MessageListRow extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              Text(
-                message.title,
-                key: Key('message-row-title-${message.id}'),
-                style: titleStyle,
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: <Widget>[
+                  Flexible(
+                    child: Text(
+                      message.title,
+                      key: Key('message-row-title-${message.id}'),
+                      style: titleStyle,
+                    ),
+                  ),
+                  if (isUnread) ...<Widget>[
+                    const SizedBox(width: 8),
+                    Container(
+                      key: Key('message-unread-dot-${message.id}'),
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.error,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ],
+                ],
               ),
               const SizedBox(height: 4),
               Text(

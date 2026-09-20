@@ -22,6 +22,37 @@ import '../../../support/test_dependencies.dart';
 void main() {
   const selected = PlannerDate(year: 2026, month: 8, day: 28);
 
+  /// Owner law (2026-09-20): the Planner overflow `Tasks` row opens the ONE
+  /// canonical Tasks screen.  Its timeline builds rows lazily, so a Task must
+  /// be scrolled into view before it can be tapped, and a completed Task lives
+  /// on the canonical Completed tab rather than behind a Planner content
+  /// filter.
+  Future<void> openCanonicalTask(
+    WidgetTester tester,
+    String title, {
+    bool completed = false,
+  }) async {
+    if (completed) {
+      await tester.tap(find.byKey(const Key('tasks-tab-completed')));
+      await tester.pumpAndSettle();
+    }
+    final scrollable = find.descendant(
+      of: find.byKey(
+        Key(completed ? 'tasks-completed-list' : 'tasks-incomplete-list'),
+      ),
+      matching: find.byType(Scrollable),
+    );
+    await tester.scrollUntilVisible(
+      find.text(title),
+      200,
+      scrollable: scrollable,
+    );
+    await tester.ensureVisible(find.text(title));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(title).first);
+    await tester.pumpAndSettle();
+  }
+
   testWidgets(
     'Task Preview renders only its canonical source-slot history and keeps '
     'correction and clear records factual',
@@ -197,8 +228,11 @@ void main() {
       await tester.tap(find.byKey(const Key('planner-overflow-tasks')));
       await tester.pumpAndSettle();
       expect(find.textContaining('Report required'), findsNothing);
-      await tester.tap(find.text('Task A canonical history'));
-      await tester.pumpAndSettle();
+      await openCanonicalTask(
+        tester,
+        'Task A canonical history',
+        completed: true,
+      );
 
       expect(
         find.text('Task A canonical history').first,
@@ -218,7 +252,9 @@ void main() {
         findsOneWidget,
         reason: 'Task restores the owner-approved Missed outcome.',
       );
-      await tester.tap(find.byKey(const Key('task-detail-sheet-overflow-icon')));
+      await tester.tap(
+        find.byKey(const Key('task-detail-sheet-overflow-icon')),
+      );
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('task-overflow-duplicate')), findsOneWidget);
       expect(find.byKey(const Key('task-overflow-delete')), findsOneWidget);
@@ -250,19 +286,25 @@ void main() {
       await tester.pumpAndSettle();
       expect(
         find.byKey(
-          const Key('activity-history-entry-10000000-0000-4000-8000-000000000001'),
+          const Key(
+            'activity-history-entry-10000000-0000-4000-8000-000000000001',
+          ),
         ),
         findsOneWidget,
       );
       expect(
         find.byKey(
-          const Key('activity-history-entry-10000000-0000-4000-8000-000000000002'),
+          const Key(
+            'activity-history-entry-10000000-0000-4000-8000-000000000002',
+          ),
         ),
         findsOneWidget,
       );
       await tester.tap(
         find.byKey(
-          const Key('activity-history-entry-10000000-0000-4000-8000-000000000002'),
+          const Key(
+            'activity-history-entry-10000000-0000-4000-8000-000000000002',
+          ),
         ),
       );
       await tester.pumpAndSettle();
@@ -327,8 +369,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('planner-overflow-tasks')));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('No Task history yet'));
-      await tester.pumpAndSettle();
+      await openCanonicalTask(tester, 'No Task history yet');
 
       expect(find.text('Activity History'), findsOneWidget);
       expect(
@@ -344,7 +385,10 @@ void main() {
       expect(find.byKey(const Key('event-status-save')), findsNothing);
       expect(find.byKey(const Key('task-status-save')), findsNothing);
       expect(find.byType(CircularProgressIndicator), findsNothing);
-      expect(find.byKey(const Key('task-status-option-unreported')), findsOneWidget);
+      expect(
+        find.byKey(const Key('task-status-option-unreported')),
+        findsOneWidget,
+      );
       // Unreported remains in its original position after a direct outcome,
       // but is a non-actionable history-preserving control.
       await tester.tap(find.byKey(const Key('task-status-option-unreported')));
@@ -353,8 +397,14 @@ void main() {
         (await database.select(database.outcomeReports).get()).single.outcome,
         OutcomeKind.completedHappened.name,
       );
-      expect(find.byKey(const Key('task-status-option-unreported')), findsOneWidget);
-      expect(find.byKey(const Key('task-status-option-unreported')), findsOneWidget);
+      expect(
+        find.byKey(const Key('task-status-option-unreported')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('task-status-option-unreported')),
+        findsOneWidget,
+      );
       await tester.tap(
         find.byKey(const Key('task-status-option-partiallyCompleted')),
       );
@@ -364,7 +414,9 @@ void main() {
       final afterMissed = await database.select(database.outcomeReports).get();
       expect(afterMissed, hasLength(2));
       expect(afterMissed.last.outcome, OutcomeKind.partiallyCompleted.name);
-      await tester.tap(find.byKey(const Key('task-status-option-didNotHappen')));
+      await tester.tap(
+        find.byKey(const Key('task-status-option-didNotHappen')),
+      );
       await tester.pumpAndSettle();
       expect(find.text('Did Not Attempt'), findsOneWidget);
       expect(tester.takeException(), isNull);
@@ -472,8 +524,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('planner-overflow-tasks')));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Task with canonical contacts'));
-      await tester.pumpAndSettle();
+      await openCanonicalTask(tester, 'Task with canonical contacts');
 
       // Exercise the same production Preview row, markers, and Current
       // Status controls at the required phone/tablet widths. The narrow
@@ -492,8 +543,14 @@ void main() {
       }
 
       expect(find.text('Contacts'), findsWidgets);
-      expect(find.byKey(const Key('task-preview-contact-$groupedContactId')), findsOneWidget);
-      expect(find.byKey(const Key('task-preview-contact-$ungroupedContactId')), findsOneWidget);
+      expect(
+        find.byKey(const Key('task-preview-contact-$groupedContactId')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('task-preview-contact-$ungroupedContactId')),
+        findsOneWidget,
+      );
       expect(find.byType(ContactGroupDot), findsNWidgets(2));
       expect(find.byIcon(Icons.star_rounded), findsNothing);
       await tester.tap(find.byKey(const Key('task-preview-sheet-close')));

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:rmplanner/app/router/route_names.dart';
 import 'package:rmplanner/app/theme/app_theme.dart';
 import 'package:rmplanner/features/contacts/domain/contact.dart';
 import 'package:rmplanner/features/contacts/presentation/c3_contact_primitives.dart';
@@ -160,11 +162,7 @@ final class PlannerDetailField extends StatelessWidget {
 /// canonical Contacts marker used by the Contacts list. Missing historical
 /// contact records retain only the canonical neutral fallback.
 final class PlannerPreviewContactRow extends StatelessWidget {
-  const PlannerPreviewContactRow({
-    required this.name,
-    this.contact,
-    super.key,
-  });
+  const PlannerPreviewContactRow({required this.name, this.contact, super.key});
 
   final String name;
   final ContactSummary? contact;
@@ -182,6 +180,61 @@ final class PlannerPreviewContactRow extends StatelessWidget {
           Expanded(child: Text(name)),
         ],
       ),
+    );
+  }
+}
+
+/// Canonical attached-Contact navigation for the Planner previews.
+///
+/// A Contact that is visible in a preview is always the same affordance, so
+/// the Event and Task previews route through this one law rather than each
+/// deciding how (or whether) an attached Contact opens.  The Contact Timeline
+/// origin is passed only by the Event preview, which is the single surface a
+/// Contact Timeline can reach; every other preview pushes the canonical
+/// Contact Profile over the active surface.
+Future<void> openPlannerPreviewContact(
+  BuildContext context,
+  String contactId, {
+  String? timelineOriginContactId,
+}) async {
+  final originContactId = timelineOriginContactId;
+  if (originContactId == null) {
+    await context.push(RoutePaths.contactDetail(contactId));
+  } else if (originContactId == contactId) {
+    context.pop();
+  } else {
+    context.go(RoutePaths.contactDetail(contactId));
+  }
+}
+
+/// Tappable attached-Contact row shared by the Event and Task previews.
+///
+/// Presentation stays in [PlannerPreviewContactRow]; this widget adds only the
+/// canonical tap target, so a preview can never again show an attached Contact
+/// that is inert.
+final class PlannerPreviewContactLink extends StatelessWidget {
+  const PlannerPreviewContactLink({
+    required this.contactId,
+    required this.name,
+    this.contact,
+    this.timelineOriginContactId,
+    super.key,
+  });
+
+  final String contactId;
+  final String name;
+  final ContactSummary? contact;
+  final String? timelineOriginContactId;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: () => openPlannerPreviewContact(
+        context,
+        contactId,
+        timelineOriginContactId: timelineOriginContactId,
+      ),
+      child: PlannerPreviewContactRow(name: name, contact: contact),
     );
   }
 }

@@ -40,6 +40,7 @@ import 'package:rmplanner/features/notifications/application/reminder_notificati
 /// renderer's own type stays the single presentation contract.
 final class DetailedContentPreferences {
   const DetailedContentPreferences({
+    this.enabled = true,
     this.showTitle = true,
     this.showDescription = true,
     this.showTime = true,
@@ -51,6 +52,15 @@ final class DetailedContentPreferences {
   static const DetailedContentPreferences defaults =
       DetailedContentPreferences();
 
+  /// The DETAILED CONTENT MASTER (schema v48).
+  ///
+  /// FALSE means "preview nothing detailed": the delivered copy is the neutral
+  /// Generic one, and the Settings screen presents the five switches below as
+  /// inactive.  It is deliberately SEPARATE from them: the field choices are
+  /// stored exactly as the owner left them and return the moment this is turned
+  /// back on.  Modelling OFF as five falses would silently destroy them.
+  final bool enabled;
+
   final bool showTitle;
   final bool showDescription;
   final bool showTime;
@@ -58,26 +68,48 @@ final class DetailedContentPreferences {
   final bool showLocation;
 
   /// Adapts to the renderer's presentation options.
-  ReminderDetailOptions toOptions() => ReminderDetailOptions(
-    showTitle: showTitle,
-    showDescription: showDescription,
-    showTime: showTime,
-    showContacts: showContacts,
-    showLocation: showLocation,
-  );
+  ///
+  /// A master that is OFF maps to "no field would be shown", which is what the
+  /// canonical renderer already turns into the neutral Generic copy.  Doing it
+  /// here rather than in each renderer keeps ONE content law: every consumer of
+  /// these preferences (delivery, the Settings preview, the diagnostics) sees
+  /// the suppression without having to remember the master exists, and NO caller
+  /// can accidentally render detailed content while the master is off.
+  ReminderDetailOptions toOptions() => enabled
+      ? ReminderDetailOptions(
+          showTitle: showTitle,
+          showDescription: showDescription,
+          showTime: showTime,
+          showContacts: showContacts,
+          showLocation: showLocation,
+        )
+      : const ReminderDetailOptions(
+          showTitle: false,
+          showDescription: false,
+          showTime: false,
+          showContacts: false,
+          showLocation: false,
+        );
 
-  /// True when every field is off, which forces Generic copy at render time.
+  /// True when no field would be shown, which forces Generic copy at render
+  /// time.  A disabled master makes this true whatever the children say.
   bool get isEmpty =>
-      !showTitle && !showDescription && !showTime && !showContacts &&
-      !showLocation;
+      !enabled ||
+      (!showTitle &&
+          !showDescription &&
+          !showTime &&
+          !showContacts &&
+          !showLocation);
 
   DetailedContentPreferences copyWith({
+    bool? enabled,
     bool? showTitle,
     bool? showDescription,
     bool? showTime,
     bool? showContacts,
     bool? showLocation,
   }) => DetailedContentPreferences(
+    enabled: enabled ?? this.enabled,
     showTitle: showTitle ?? this.showTitle,
     showDescription: showDescription ?? this.showDescription,
     showTime: showTime ?? this.showTime,
@@ -88,6 +120,7 @@ final class DetailedContentPreferences {
   @override
   bool operator ==(Object other) =>
       other is DetailedContentPreferences &&
+      other.enabled == enabled &&
       other.showTitle == showTitle &&
       other.showDescription == showDescription &&
       other.showTime == showTime &&
@@ -95,12 +128,18 @@ final class DetailedContentPreferences {
       other.showLocation == showLocation;
 
   @override
-  int get hashCode =>
-      Object.hash(showTitle, showDescription, showTime, showContacts, showLocation);
+  int get hashCode => Object.hash(
+    enabled,
+    showTitle,
+    showDescription,
+    showTime,
+    showContacts,
+    showLocation,
+  );
 
   @override
   String toString() =>
-      'DetailedContentPreferences(title: $showTitle, '
+      'DetailedContentPreferences(enabled: $enabled, title: $showTitle, '
       'description: $showDescription, time: $showTime, '
       'contacts: $showContacts, location: $showLocation)';
 }
@@ -135,9 +174,12 @@ final class DetailedContentPreferencesStore {
     return database.transaction(() async {
       final row = await _readRow(profileId);
       if (row == null) {
-        await database.into(database.notificationPreferences).insert(
+        await database
+            .into(database.notificationPreferences)
+            .insert(
               NotificationPreferencesCompanion.insert(
                 profileId: profileId,
+                detailedContentEnabled: Value(next.enabled),
                 detailedShowTitle: Value(next.showTitle),
                 detailedShowDescription: Value(next.showDescription),
                 detailedShowTime: Value(next.showTime),
@@ -151,6 +193,7 @@ final class DetailedContentPreferencesStore {
           database.notificationPreferences,
         )..where((table) => table.profileId.equals(profileId))).write(
           NotificationPreferencesCompanion(
+            detailedContentEnabled: Value(next.enabled),
             detailedShowTitle: Value(next.showTitle),
             detailedShowDescription: Value(next.showDescription),
             detailedShowTime: Value(next.showTime),
@@ -176,6 +219,7 @@ final class DetailedContentPreferencesStore {
   static DetailedContentPreferences _decode(NotificationPreferenceRow? row) {
     if (row == null) return DetailedContentPreferences.defaults;
     return DetailedContentPreferences(
+      enabled: row.detailedContentEnabled,
       showTitle: row.detailedShowTitle,
       showDescription: row.detailedShowDescription,
       showTime: row.detailedShowTime,

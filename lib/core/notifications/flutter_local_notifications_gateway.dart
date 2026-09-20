@@ -9,6 +9,21 @@ import 'package:rmplanner/features/notifications/application/reminder_background
 import 'package:timezone/timezone.dart' as tz;
 import 'package:workmanager/workmanager.dart';
 
+/// OWNER HOTFIX (2026-09-19) — the ONE derivation of the notification small icon.
+///
+/// The plugin resolves this drawable by NAME at runtime, so every
+/// `AndroidNotificationDetails` this app builds must name it explicitly instead of
+/// relying on the default icon registered by `initialize()`.
+///
+/// Reliance on the registered default was the delivery defect: if `initialize()`
+/// does not persist a default icon (which is what happened in release builds, where
+/// the drawable was stripped as unreferenced), then the plugin's
+/// `setSmallIcon` fallback unboxes a null `iconResourceId` and **crashes the whole
+/// process** when a scheduled reminder alarm fires. Naming the icon per send keeps
+/// every notification path on the resolved-drawable branch, so a missing default can
+/// never take the process down again. `res/raw/keep.xml` keeps the drawable itself.
+const String ntNotificationIconResource = 'ic_nt_notification';
+
 final class FlutterLocalNotificationsGateway
     implements
         NotificationGateway,
@@ -161,19 +176,21 @@ final class FlutterLocalNotificationsGateway
   // shows — including the M7 source-title amendment.  This is presentation
   // only: channel identity, importance, permissions, platform IDs, transport
   // ownership and scheduling semantics are all untouched.
-  NotificationDetails _detailsFor(
-    LocalNotificationRequest request,
-  ) => NotificationDetails(
-    android: AndroidNotificationDetails(
-      request.channel.id,
-      request.channel.label,
-      channelDescription: request.channel.description,
-      styleInformation: BigTextStyleInformation(
-        request.body,
-        contentTitle: request.title,
-      ),
-    ),
-  );
+  NotificationDetails _detailsFor(LocalNotificationRequest request) =>
+      NotificationDetails(
+        android: AndroidNotificationDetails(
+          request.channel.id,
+          request.channel.label,
+          channelDescription: request.channel.description,
+          // HOTFIX: never depend on the startup-registered default icon (see
+          // [ntNotificationIconResource]).
+          icon: ntNotificationIconResource,
+          styleInformation: BigTextStyleInformation(
+            request.body,
+            contentTitle: request.title,
+          ),
+        ),
+      );
 
   // OWNER correction #3. This is NOT a reminder transport: no payload, no
   // action buttons, no schedule, no WorkManager tag, and never a place in the
@@ -197,6 +214,9 @@ final class FlutterLocalNotificationsGateway
           transientNotificationsChannelId,
           transientNotificationsChannelLabel,
           channelDescription: transientNotificationsChannelDescription,
+          // HOTFIX: never depend on the startup-registered default icon (see
+          // [ntNotificationIconResource]).
+          icon: ntNotificationIconResource,
           importance: Importance.low,
           priority: Priority.low,
           // One card per operation: updating it must not re-alert, and a

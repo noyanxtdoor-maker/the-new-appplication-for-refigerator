@@ -46,10 +46,9 @@ void main() {
   /// The raw shared planner presentation document, which the notification
   /// store must never touch.
   Future<String?> plannerJson(AppDatabase database, String profileId) async {
-    final row =
-        await (database.select(database.plannerPreferences)
-              ..where((table) => table.profileId.equals(profileId)))
-            .getSingleOrNull();
+    final row = await (database.select(
+      database.plannerPreferences,
+    )..where((table) => table.profileId.equals(profileId))).getSingleOrNull();
     return row?.eventColorPreferencesJson;
   }
 
@@ -57,16 +56,18 @@ void main() {
     AppDatabase database,
     String profileId,
   ) async {
-    return (database.select(database.notificationPreferences)
-          ..where((table) => table.profileId.equals(profileId)))
-        .getSingleOrNull();
+    return (database.select(
+      database.notificationPreferences,
+    )..where((table) => table.profileId.equals(profileId))).getSingleOrNull();
   }
 
-  group('D25 — schema v47', () {
-    test('the live schema version is 47', () async {
+  group('D25 — schema v47 (v48 after the Detailed Content master)', () {
+    test('the live schema version is 48', () async {
       final database = await open();
-      final row = await database.customSelect('PRAGMA user_version').getSingle();
-      expect(row.read<int>('user_version'), 47);
+      final row = await database
+          .customSelect('PRAGMA user_version')
+          .getSingle();
+      expect(row.read<int>('user_version'), 48);
     });
 
     test('the five detailed columns exist exactly once', () async {
@@ -127,78 +128,83 @@ void main() {
       expect(await subject.read(profileId), written);
     });
 
-    test('the all-off combination round trips as an explicit empty state',
-        () async {
-      final database = await open();
-      final profileId = await seedProfile(database);
-      final subject = storeFor(database);
+    test(
+      'the all-off combination round trips as an explicit empty state',
+      () async {
+        final database = await open();
+        final profileId = await seedProfile(database);
+        final subject = storeFor(database);
 
-      const written = DetailedContentPreferences(
-        showTitle: false,
-        showDescription: false,
-        showTime: false,
-        showContacts: false,
-        showLocation: false,
-      );
-      await subject.write(profileId, written);
+        const written = DetailedContentPreferences(
+          showTitle: false,
+          showDescription: false,
+          showTime: false,
+          showContacts: false,
+          showLocation: false,
+        );
+        await subject.write(profileId, written);
 
-      final read = await subject.read(profileId);
-      expect(read, written);
-      expect(read.isEmpty, isTrue);
-    });
+        final read = await subject.read(profileId);
+        expect(read, written);
+        expect(read.isEmpty, isTrue);
+      },
+    );
 
-    test('the value is stored in the typed column, not in the planner JSON',
-        () async {
-      final database = await open();
-      final profileId = await seedProfile(database);
-      await storeFor(database).write(
-        profileId,
-        const DetailedContentPreferences(showLocation: false),
-      );
+    test(
+      'the value is stored in the typed column, not in the planner JSON',
+      () async {
+        final database = await open();
+        final profileId = await seedProfile(database);
+        await storeFor(database).write(
+          profileId,
+          const DetailedContentPreferences(showLocation: false),
+        );
 
-      final row = await notificationRow(database, profileId);
-      expect(row, isNotNull);
-      expect(row!.detailedShowTitle, isTrue);
-      expect(row.detailedShowLocation, isFalse);
-      // The structural proof: nothing was written to the shared JSON document.
-      expect(await plannerJson(database, profileId), isNull);
-    });
+        final row = await notificationRow(database, profileId);
+        expect(row, isNotNull);
+        expect(row!.detailedShowTitle, isTrue);
+        expect(row.detailedShowLocation, isFalse);
+        // The structural proof: nothing was written to the shared JSON document.
+        expect(await plannerJson(database, profileId), isNull);
+      },
+    );
   });
 
   group('D27 — cross-feature isolation', () {
-    test('a write leaves the shared planner JSON byte-for-byte untouched',
-        () async {
-      final database = await open();
-      final profileId = await seedProfile(database);
+    test(
+      'a write leaves the shared planner JSON byte-for-byte untouched',
+      () async {
+        final database = await open();
+        final profileId = await seedProfile(database);
 
-      // A document owned entirely by the planner feature, including an unknown
-      // forward-compatibility key and a legacy namespaced key from the
-      // disqualified design. Neither may be rewritten by a notification save.
-      const existing =
-          '{"events":{"default":3},"someFutureOwnerKey":[1,"two",true],'
-          '"notificationDetailedContent":{"showTitle":false}}';
-      await database
-          .into(database.plannerPreferences)
-          .insertOnConflictUpdate(
-            PlannerPreferencesCompanion.insert(
-              profileId: profileId,
-              eventColorPreferencesJson: const Value<String?>(existing),
-              updatedAtUtc: clock.nowUtc(),
-            ),
-          );
+        // A document owned entirely by the planner feature, including an unknown
+        // forward-compatibility key and a legacy namespaced key from the
+        // disqualified design. Neither may be rewritten by a notification save.
+        const existing =
+            '{"events":{"default":3},"someFutureOwnerKey":[1,"two",true],'
+            '"notificationDetailedContent":{"showTitle":false}}';
+        await database
+            .into(database.plannerPreferences)
+            .insertOnConflictUpdate(
+              PlannerPreferencesCompanion.insert(
+                profileId: profileId,
+                eventColorPreferencesJson: const Value<String?>(existing),
+                updatedAtUtc: clock.nowUtc(),
+              ),
+            );
 
-      await storeFor(database).write(
-        profileId,
-        const DetailedContentPreferences(showContacts: false),
-      );
+        await storeFor(database).write(
+          profileId,
+          const DetailedContentPreferences(showContacts: false),
+        );
 
-      // The obsolete namespaced key is deliberately NOT cleaned up: rewriting
-      // planner data to tidy an unused key would risk real planner content.
-      expect(await plannerJson(database, profileId), existing);
-    });
+        // The obsolete namespaced key is deliberately NOT cleaned up: rewriting
+        // planner data to tidy an unused key would risk real planner content.
+        expect(await plannerJson(database, profileId), existing);
+      },
+    );
 
-    test('a write leaves every other notification preference intact',
-        () async {
+    test('a write leaves every other notification preference intact', () async {
       final database = await open();
       final profileId = await seedProfile(database);
 
@@ -220,10 +226,9 @@ void main() {
             ),
           );
 
-      await storeFor(database).write(
-        profileId,
-        const DetailedContentPreferences(showTime: false),
-      );
+      await storeFor(
+        database,
+      ).write(profileId, const DetailedContentPreferences(showTime: false));
 
       final row = await notificationRow(database, profileId);
       expect(row!.systemNotificationsEnabled, isTrue);
@@ -274,9 +279,9 @@ void main() {
         const DetailedContentPreferences(showTitle: false),
       );
 
-      final rows = await (database.select(database.notificationPreferences)
-            ..where((table) => table.profileId.equals(profileId)))
-          .get();
+      final rows = await (database.select(
+        database.notificationPreferences,
+      )..where((table) => table.profileId.equals(profileId))).get();
       expect(rows, hasLength(1));
       expect(rows.single.detailedShowTitle, isFalse);
     });

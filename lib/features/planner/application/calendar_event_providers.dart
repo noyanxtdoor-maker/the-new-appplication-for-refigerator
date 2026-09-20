@@ -2,9 +2,11 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:rmplanner/core/notifications/notification_preview_policy.dart';
+import 'package:rmplanner/features/contacts/application/contact_providers.dart';
 import 'package:rmplanner/features/notifications/application/launcher_badge_providers.dart';
 import 'package:rmplanner/features/notifications/application/notification_providers.dart';
 import 'package:rmplanner/features/notifications/application/reminder_notification_renderer.dart';
+import 'package:rmplanner/features/notifications/data/detailed_content_preferences_store.dart';
 import 'package:rmplanner/features/notifications/domain/reminder_policy.dart';
 import 'package:rmplanner/features/planner/application/calendar_event_repository.dart';
 import 'package:rmplanner/features/planner/application/event_reminder_horizon_reconciler.dart';
@@ -115,10 +117,7 @@ final class CalendarEventController extends Notifier<String?> {
     // mean "not saved" (nothing is durable).
     final CalendarEventDraft saved;
     try {
-      saved = await _repository.saveEvent(
-        profileId: _profileId,
-        draft: draft,
-      );
+      saved = await _repository.saveEvent(profileId: _profileId, draft: draft);
     } on CalendarEventValidationException catch (error) {
       state = error.message;
       return CalendarEventSaveResult.notSaved;
@@ -130,8 +129,7 @@ final class CalendarEventController extends Notifier<String?> {
     }
     // Phase 2 — auxiliary work after the durable commit. Failures here must
     // never rewrite the outcome to "not saved".
-    var auxiliaryWarning =
-        'Event saved, but its reminder needs attention.';
+    var auxiliaryWarning = 'Event saved, but its reminder needs attention.';
     var auxiliaryFailed = false;
     try {
       // Persist the requested policy after the Event itself commits but before
@@ -179,11 +177,16 @@ final class CalendarEventController extends Notifier<String?> {
   ///
   /// The native ordinary transport no longer owns reminder copy.  It delegates
   /// to the single canonical [ReminderNotificationRenderer] so the native path
-  /// and the worker/enriched path can never drift apart.  The Detailed options
-  /// are left at their all-TRUE default here: this call site only resolves
-  /// transport-independent copy for the SCHEDULED notification, and the
-  /// user's per-field preferences are applied by the reconciler when the
-  /// notification is actually presented.
+  /// and the worker/enriched path can never drift apart.
+  ///
+  /// [options] is the profile's SAVED per-field Detailed configuration (owner
+  /// pass 2026-09-19, defect N1).  The native body is pre-rendered when the
+  /// reminder is SCHEDULED, so leaving these at their all-TRUE default made the
+  /// ordinary transport ignore Show title / Show description / Show time /
+  /// Show contacts / Show location entirely while the worker transport honoured
+  /// them — the same notification changed content depending on which transport
+  /// happened to own it.  Passing the saved options makes the two transports
+  /// obey ONE content law.
   ///
   /// [CalendarEventOccurrence.displayTitle] already carries the Planner-visible
   /// title (stored title, falling back to the Event Type label), so the
@@ -193,13 +196,35 @@ final class CalendarEventController extends Notifier<String?> {
   static RenderedReminder _eventReminderPresentation(
     CalendarEventOccurrence? occurrence, {
     String? notes,
+    ReminderDetailOptions options = ReminderDetailOptions.all,
   }) {
     return ReminderNotificationRenderer.eventDetailed(
       eventTitle: occurrence?.displayTitle,
       startDisplay: occurrence?.startDisplay,
       endDisplay: occurrence?.endDisplay,
       notes: notes,
+      options: options,
     );
+  }
+
+  /// The profile's saved per-field Detailed options, as the renderer's type.
+  ///
+  /// Read through the SAME repository the Settings screen writes, so the
+  /// scheduled copy and the preview can never disagree.  A read failure yields
+  /// the all-TRUE default: it fails closed TOWARD CONTENT (the pre-existing
+  /// behaviour), never toward a silently blanked notification, and it never
+  /// fabricates a stored choice.  The master OFF state is carried by
+  /// [DetailedContentPreferences.toOptions], which yields "nothing shown" and
+  /// therefore the neutral Generic copy.
+  Future<ReminderDetailOptions> _detailOptions() async {
+    try {
+      final stored = await ref
+          .read(notificationFoundationRepositoryProvider)
+          .readDetailedContent(profileId: _profileId);
+      return stored.toOptions();
+    } on Object {
+      return ReminderDetailOptions.all;
+    }
   }
 
   /// Reconcile a committed occurrence after a policy-only mutation. Event
@@ -224,11 +249,35 @@ final class CalendarEventController extends Notifier<String?> {
     final effective =
         policies.where((p) => p.occurrenceId == occurrenceId).firstOrNull ??
         policies
-            .where(
-              (p) => p.occurrenceId == ReminderPolicy.seriesOccurrenceId,
-            )
+            .where((p) => p.occurrenceId == ReminderPolicy.seriesOccurrenceId)
             .firstOrNull;
     return effective?.purpose == ReminderPurpose.contactFollowUp;
+  }
+
+  /// Whether this occurrence currently has at least one LIVE attached Contact.
+  ///
+  /// Reads the SAME effective link truth the People section renders (series
+  /// links overlaid by the occurrence's own add/remove rows), so transport
+  /// selection and the delivered line can never disagree about who is attached.
+  ///
+  /// A read failure reports "no People": that keeps the pre-existing ordinary
+  /// transport rather than failing a save, and the reminder is still delivered.
+  Future<bool> _hasAttachedPeople({
+    required String sourceId,
+    required String occurrenceId,
+  }) async {
+    try {
+      final contactIds = await ref
+          .read(contactRepositoryProvider)
+          .readEffectiveEventContactIds(
+            profileId: _profileId,
+            eventId: sourceId,
+            occurrenceId: occurrenceId,
+          );
+      return contactIds.isNotEmpty;
+    } on Object {
+      return false;
+    }
   }
 
   Future<void> reconcileOccurrence({
@@ -257,18 +306,36 @@ final class CalendarEventController extends Notifier<String?> {
     final showDetails =
         resolveNotificationPreviewMode(settings: privacy) ==
         EffectiveNotificationPreviewMode.detailed;
+    final detailOptions = await _detailOptions();
     // Section 6A transport selection: this occurrence needs the targeted worker
-    // when its EFFECTIVE policy carries a Contact follow-up purpose or its
-    // current canonical occurrence has eligible human location text.  The
-    // choice is independent of preview mode — a Generic/Locked enriched source
-    // still uses the same live-read transport, so a privacy toggle never churns
-    // the transport that already owns the key.
-    final requiresEnrichment = occurrence.locationText?.trim().isNotEmpty ==
-            true ||
+    // when its EFFECTIVE policy carries a Contact follow-up purpose, its current
+    // canonical occurrence has eligible human location text, or it has People
+    // attached.  The choice is independent of preview mode — a Generic/Locked
+    // enriched source still uses the same live-read transport, so a privacy
+    // toggle never churns the transport that already owns the key.
+    //
+    // Attached People belong on this list for the same reason location text
+    // does (owner pass 2026-09-19, defect D): the "Follow up with …" line is
+    // resolved from LIVE linked Contacts at delivery, so a pre-rendered native
+    // body could never carry it, and could never reflect a rename or an unlink
+    // either.  Deliberately keyed on the LINKS, not on the Show-contacts toggle:
+    // the toggle steers presentation, and switching it must not move the key
+    // between transports.
+    final requiresEnrichment =
+        occurrence.locationText?.trim().isNotEmpty == true ||
         await _hasFollowUpPurpose(
           sourceId: occurrence.eventId,
           occurrenceId: occurrence.id,
+        ) ||
+        await _hasAttachedPeople(
+          sourceId: occurrence.eventId,
+          occurrenceId: occurrence.id,
         );
+    final presentation = _eventReminderPresentation(
+      occurrence,
+      notes: occurrence.notes,
+      options: detailOptions,
+    );
     await ref
         .read(reminderReconcilerProvider)
         .reconcile(
@@ -300,11 +367,8 @@ final class CalendarEventController extends Notifier<String?> {
           // Both fields come from the single canonical renderer so the native
           // ordinary transport and the worker/enriched transport can never
           // drift apart.
-          detailedTitle: _eventReminderPresentation(occurrence).title,
-          detailedBody: _eventReminderPresentation(
-            occurrence,
-            notes: occurrence.notes,
-          ).body,
+          detailedTitle: presentation.title,
+          detailedBody: presentation.body,
           showDetails: showDetails,
           refreshContent: refreshContent,
           requiresEnrichment: requiresEnrichment,
@@ -312,8 +376,14 @@ final class CalendarEventController extends Notifier<String?> {
           // a title-display fix (or Event Type label change) refreshes the
           // SAME notification identity in place instead of leaving a blank
           // title on an already-scheduled reminder.
+          //
+          // Owner pass 2026-09-19 (defect N1-G): the SAVED per-field options
+          // are part of the revision for the same reason.  The native body is
+          // pre-rendered at schedule time, so without this a changed Show
+          // toggle would leave an already-scheduled reminder showing the old
+          // field selection until some unrelated edit happened to re-render it.
           renderRevision: showDetails
-              ? 'event_detailed_${occurrence.displayTitle.hashCode}_${occurrence.updatedAtUtc?.microsecondsSinceEpoch ?? 0}'
+              ? 'event_detailed_${occurrence.displayTitle.hashCode}_${occurrence.updatedAtUtc?.microsecondsSinceEpoch ?? 0}_${detailOptions.revisionToken}'
               : 'event_generic',
         );
   }

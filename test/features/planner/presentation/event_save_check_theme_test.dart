@@ -8,6 +8,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:rmplanner/app/shell/global_drawer_controller.dart';
 import 'package:rmplanner/app/theme/app_theme.dart';
 import 'package:rmplanner/app/theme/theme_color_mode.dart';
 import 'package:rmplanner/core/diagnostics/sanitized_diagnostics.dart';
@@ -90,11 +91,7 @@ void main() {
       testWidgets('$label: save-event-button becomes a check with '
           "'Save event' and >=48x48 target", (tester) async {
         const appearance = AppearanceMode.dark;
-        await pumpApp(
-          tester,
-          appearance: appearance,
-          themeColor: themeColor,
-        );
+        await pumpApp(tester, appearance: appearance, themeColor: themeColor);
         await openEventForm(tester);
 
         // The key survives.
@@ -124,8 +121,10 @@ void main() {
         // Semantic primary fill (Blue primary in Blue, Rose primary in Rose).
         final color = primaryOf(tester);
         final expected = switch ((appearance, themeColor)) {
-          (AppearanceMode.dark, ThemeColorMode.blue) => AppTheme.blueDarkPrimary,
-          (AppearanceMode.dark, ThemeColorMode.rose) => AppTheme.roseDarkPrimary,
+          (AppearanceMode.dark, ThemeColorMode.blue) =>
+            AppTheme.blueDarkPrimary,
+          (AppearanceMode.dark, ThemeColorMode.rose) =>
+            AppTheme.roseDarkPrimary,
           (AppearanceMode.light, ThemeColorMode.blue) =>
             AppTheme.blueLightPrimary,
           _ => AppTheme.roseLightPrimary,
@@ -136,16 +135,27 @@ void main() {
   });
 
   group('Theme Color symmetry', () {
-    Future<void> openDrawer(
-      WidgetTester tester,
-      String hamburgerKey,
-    ) async {
+    /// Reopens the drawer from the shell itself.
+    ///
+    /// Owner law (2026-09-19): the Tasks and Unreported destinations carry no
+    /// hamburger, so this uses the shell's own drawer controller — the exact
+    /// controller every hamburger already calls.
+    Future<void> openDrawerFromShell(WidgetTester tester) async {
+      final BuildContext context = tester.element(
+        find.byKey(const Key('main-bottom-navigation')),
+      );
+      GlobalDrawerScope.of(context).open();
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> openDrawer(WidgetTester tester, String hamburgerKey) async {
       await tester.tap(find.byKey(Key(hamburgerKey)));
       await tester.pumpAndSettle();
     }
 
-    testWidgets('BLUE: Event + Address action use Blue semantic primary',
-        (tester) async {
+    testWidgets('BLUE: Event + Address action use Blue semantic primary', (
+      tester,
+    ) async {
       await pumpApp(
         tester,
         appearance: AppearanceMode.dark,
@@ -200,12 +210,12 @@ void main() {
       final primary = primaryOf(tester);
       expect(primary, AppTheme.blueDarkPrimary);
       await openDrawer(tester, 'home-hamburger');
-      await tester.tap(find.byKey(const Key('drawer-planner')));
+      await tester.tap(find.byKey(const Key('drawer-tasks')));
       await tester.pumpAndSettle();
-      await openDrawer(tester, 'planner-hamburger');
+      await openDrawerFromShell(tester);
       final selectedIcon = tester.widget<Icon>(
         find.descendant(
-          of: find.byKey(const Key('drawer-planner')),
+          of: find.byKey(const Key('drawer-tasks')),
           matching: find.byType(Icon),
         ),
       );
@@ -222,12 +232,12 @@ void main() {
       final primary = primaryOf(tester);
       expect(primary, AppTheme.roseDarkPrimary);
       await openDrawer(tester, 'home-hamburger');
-      await tester.tap(find.byKey(const Key('drawer-planner')));
+      await tester.tap(find.byKey(const Key('drawer-tasks')));
       await tester.pumpAndSettle();
-      await openDrawer(tester, 'planner-hamburger');
+      await openDrawerFromShell(tester);
       final selectedIcon = tester.widget<Icon>(
         find.descendant(
-          of: find.byKey(const Key('drawer-planner')),
+          of: find.byKey(const Key('drawer-tasks')),
           matching: find.byType(Icon),
         ),
       );
@@ -235,7 +245,7 @@ void main() {
       // An unselected row stays neutral (not rose/blue).
       final unselectedIcon = tester.widget<Icon>(
         find.descendant(
-          of: find.byKey(const Key('drawer-activity-history')),
+          of: find.byKey(const Key('drawer-about')),
           matching: find.byType(Icon),
         ),
       );

@@ -43,8 +43,9 @@ final class _TaskPreviewContactsSection extends ConsumerWidget {
           ),
           const SizedBox(height: 4),
           for (final ContactSummary contact in values)
-            PlannerPreviewContactRow(
+            PlannerPreviewContactLink(
               key: Key('task-preview-contact-${contact.contact.id}'),
+              contactId: contact.contact.id,
               name: contact.contact.displayName,
               contact: contact,
             ),
@@ -124,27 +125,28 @@ final class _TaskPreviewSheetState extends ConsumerState<TaskPreviewSheet> {
       closeTooltip: 'Close Task details',
       onClose: () => Navigator.of(context).pop(),
       actions: <Widget>[
-              PlannerTopBarIconButton(
-                key: const Key('task-detail-sheet-edit-icon'),
-                tooltip: 'Edit Task',
-                onPressed: _edit,
-                icon: const Icon(Icons.edit_outlined),
-              ),
-              KeyedSubtree(
-                key: _overflowAnchorKey,
-                child: PlannerTopBarIconButton(
-                  key: const Key('task-detail-sheet-overflow-icon'),
-                  tooltip: 'Task actions',
-                  onPressed: _openOverflow,
-                  icon: const Icon(Icons.more_vert),
-                ),
-              ),
-            ],
+        PlannerTopBarIconButton(
+          key: const Key('task-detail-sheet-edit-icon'),
+          tooltip: 'Edit Task',
+          onPressed: _edit,
+          icon: const Icon(Icons.edit_outlined),
+        ),
+        KeyedSubtree(
+          key: _overflowAnchorKey,
+          child: PlannerTopBarIconButton(
+            key: const Key('task-detail-sheet-overflow-icon'),
+            tooltip: 'Task actions',
+            onPressed: _openOverflow,
+            icon: const Icon(Icons.more_vert),
+          ),
+        ),
+      ],
       child: FutureBuilder<PlannerTask?>(
         future: _task,
         builder: (context, snapshot) {
           final task = snapshot.data ?? _taskSnapshot;
-          if (task == null && snapshot.connectionState != ConnectionState.done) {
+          if (task == null &&
+              snapshot.connectionState != ConnectionState.done) {
             return const Center(child: CircularProgressIndicator());
           }
           if (task == null) return const Center(child: Text('Task not found.'));
@@ -165,8 +167,7 @@ final class _TaskPreviewSheetState extends ConsumerState<TaskPreviewSheet> {
                   final effectiveOutcome =
                       _optimisticOutcome ?? data.currentOutcome;
                   final reportingStarted =
-                      effectiveOutcome != null ||
-                      data.hasReportedHistory;
+                      effectiveOutcome != null || data.hasReportedHistory;
                   return Column(
                     children: <Widget>[
                       PlannerCurrentStatusControlRow(
@@ -348,7 +349,9 @@ final class _TaskPreviewSheetState extends ConsumerState<TaskPreviewSheet> {
         builder: (_) => TaskFormScreen.create(
           initialDueDate: task.dueDate,
           initialDueMinute: task.dueMinute,
-          initialContactIds: contacts.map((contact) => contact.contact.id).toList(),
+          initialContactIds: contacts
+              .map((contact) => contact.contact.id)
+              .toList(),
           initialTitle: task.title,
           initialDescription: task.notes,
           initialPeople: task.people,
@@ -407,7 +410,8 @@ final class _TaskPreviewSheetState extends ConsumerState<TaskPreviewSheet> {
     if (!mounted || snapshot.source == null) return;
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
-        builder: (_) => ActivityHistoryScreen(sourceSlotKey: snapshot.source!.slotKey),
+        builder: (_) =>
+            ActivityHistoryScreen(sourceSlotKey: snapshot.source!.slotKey),
       ),
     );
   }
@@ -421,7 +425,9 @@ final class _TaskPreviewSheetState extends ConsumerState<TaskPreviewSheet> {
             .where((report) => report.source.slotKey == source.slotKey)
             .toList(growable: false)
           ..sort((left, right) {
-            final timestampOrder = right.updatedAtUtc.compareTo(left.updatedAtUtc);
+            final timestampOrder = right.updatedAtUtc.compareTo(
+              left.updatedAtUtc,
+            );
             return timestampOrder != 0
                 ? timestampOrder
                 : right.id.compareTo(left.id);
@@ -489,12 +495,14 @@ final class _TaskPreviewSheetState extends ConsumerState<TaskPreviewSheet> {
     });
   }
 
-  static PlannerReportStatusKind _kindFor(OutcomeKind? outcome) => switch (outcome) {
-    OutcomeKind.didNotHappen => PlannerReportStatusKind.didNotAttempt,
-    OutcomeKind.completedHappened => PlannerReportStatusKind.completed,
-    OutcomeKind.partiallyCompleted => PlannerReportStatusKind.missedAttempted,
-    null => PlannerReportStatusKind.unreported,
-  };
+  static PlannerReportStatusKind _kindFor(OutcomeKind? outcome) =>
+      switch (outcome) {
+        OutcomeKind.didNotHappen => PlannerReportStatusKind.didNotAttempt,
+        OutcomeKind.completedHappened => PlannerReportStatusKind.completed,
+        OutcomeKind.partiallyCompleted =>
+          PlannerReportStatusKind.missedAttempted,
+        null => PlannerReportStatusKind.unreported,
+      };
 
   static String _outcomeLabel(OutcomeKind? outcome) => switch (outcome) {
     OutcomeKind.didNotHappen => 'Did Not Attempt',
@@ -503,17 +511,22 @@ final class _TaskPreviewSheetState extends ConsumerState<TaskPreviewSheet> {
     null => 'Unreported',
   };
 
-  static String _recurrenceLabel(PlannerTaskRecurrence recurrence) => switch (recurrence) {
-    PlannerTaskRecurrence.none => 'Does not repeat',
-    PlannerTaskRecurrence.daily => 'Daily',
-    PlannerTaskRecurrence.weekly => 'Weekly',
-    PlannerTaskRecurrence.monthly => 'Monthly',
-    PlannerTaskRecurrence.yearly => 'Yearly',
-  };
+  static String _recurrenceLabel(PlannerTaskRecurrence recurrence) =>
+      switch (recurrence) {
+        PlannerTaskRecurrence.none => 'Does not repeat',
+        PlannerTaskRecurrence.daily => 'Daily',
+        PlannerTaskRecurrence.weekly => 'Weekly',
+        PlannerTaskRecurrence.monthly => 'Monthly',
+        PlannerTaskRecurrence.yearly => 'Yearly',
+      };
 
   static String _time(int minute) {
     final hour24 = minute ~/ 60;
-    final hour = hour24 == 0 ? 12 : hour24 > 12 ? hour24 - 12 : hour24;
+    final hour = hour24 == 0
+        ? 12
+        : hour24 > 12
+        ? hour24 - 12
+        : hour24;
     return '$hour:${(minute % 60).toString().padLeft(2, '0')} '
         '${hour24 >= 12 ? 'PM' : 'AM'}';
   }
@@ -523,13 +536,14 @@ final class _TaskReportingSnapshot {
   const _TaskReportingSnapshot({required this.source, required this.history});
 
   const _TaskReportingSnapshot.empty()
-      : source = null,
-        history = const <OutcomeReport>[];
+    : source = null,
+      history = const <OutcomeReport>[];
 
   final OutcomeReportSource? source;
   final List<OutcomeReport> history;
 
-  bool get hasReportedHistory => history.any((report) => report.outcome != null);
+  bool get hasReportedHistory =>
+      history.any((report) => report.outcome != null);
 
   OutcomeKind? get currentOutcome => history
       .where((report) => report.status == OutcomeReportStatus.submitted)

@@ -1,4 +1,30 @@
-enum PlannerPresentation { schedule, day, week, tasks, awaitingReports }
+/// The Planner's presentation modes.
+///
+/// Owner decision (2026-09-20): `tasks` was retired.  Tasks have exactly ONE
+/// canonical home — the Tasks screen — and the Planner's overflow `Tasks` row
+/// now opens that screen instead of rendering a second Tasks list here.
+/// [fromStoredName] tolerates the retired value still sitting in an existing
+/// `plannerPreferences.preferredPresentation` row.
+enum PlannerPresentation {
+  schedule,
+  day,
+  week,
+  awaitingReports;
+
+  /// Resolves a persisted presentation name.
+  ///
+  /// A retired or unknown value resolves to [PlannerPresentation.day] — the
+  /// documented historical default — instead of throwing, so an existing saved
+  /// value can never strand or crash the Planner.
+  static PlannerPresentation fromStoredName(String? name) {
+    for (final value in values) {
+      if (value.name == name) {
+        return value;
+      }
+    }
+    return PlannerPresentation.day;
+  }
+}
 
 final class PlannerContentFilters {
   const PlannerContentFilters({

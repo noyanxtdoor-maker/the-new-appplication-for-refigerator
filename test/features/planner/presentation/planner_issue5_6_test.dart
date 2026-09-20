@@ -436,10 +436,8 @@ void main() {
       );
     });
 
-    testWidgets('Day view keeps a reported Event visible after switching to '
-        'the Tasks presentation and back (real presentation rebuild)', (
-      tester,
-    ) async {
+    testWidgets('Day view keeps a reported Event visible after opening the '
+        'canonical Tasks screen and returning', (tester) async {
       tester.view.physicalSize = const Size(862, 1824);
       tester.view.devicePixelRatio = 2;
       addTearDown(tester.view.resetPhysicalSize);
@@ -496,16 +494,16 @@ void main() {
       final blockKey = find.byKey(Key('planner-timed-event-$completedEventId'));
       expect(blockKey, findsOneWidget);
 
-      // Switch to Tasks via the overflow menu (real presentation
-      // path), then back to Day. The reported Event must still
-      // be on the timeline.
+      // Open the canonical Tasks screen via the overflow (owner law
+      // 2026-09-20: Tasks have ONE canonical home), then return to the
+      // Planner. The trip must leave the Planner's own Day timeline
+      // untouched, so the reported Event must still be on it.
       await tester.tap(find.byKey(const Key('planner-overflow-button')));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Tasks'));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('planner-overflow-button')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Day'));
+      expect(find.byKey(const Key('tasks-back')), findsOneWidget);
+      await tester.tap(find.text('Planner'));
       await tester.pumpAndSettle();
       expect(
         find.byKey(Key('planner-timed-event-$completedEventId')),
@@ -749,15 +747,15 @@ void main() {
       final blockKey = find.byKey(Key('planner-timed-event-$completedEventId'));
       expect(blockKey, findsOneWidget);
 
-      // Switch presentation back-and-forth twice.
+      // Leave to the canonical Tasks screen and come back, twice: the
+      // Planner must keep the Day timeline intact across every trip.
       for (var i = 0; i < 2; i++) {
         await tester.tap(find.byKey(const Key('planner-overflow-button')));
         await tester.pumpAndSettle();
         await tester.tap(find.text('Tasks'));
         await tester.pumpAndSettle();
-        await tester.tap(find.byKey(const Key('planner-overflow-button')));
-        await tester.pumpAndSettle();
-        await tester.tap(find.text('Day'));
+        expect(find.byKey(const Key('tasks-back')), findsOneWidget);
+        await tester.tap(find.text('Planner'));
         await tester.pumpAndSettle();
       }
 
@@ -1598,9 +1596,7 @@ void main() {
       );
       await settingsRepository.savePlannerSettings(
         profileId: profile.id,
-        settings: settings.copyWith(
-          timelineHourHeight: 60.0,
-        ),
+        settings: settings.copyWith(timelineHourHeight: 60.0),
       );
       await calendarRepository.saveEvent(
         profileId: profile.id,

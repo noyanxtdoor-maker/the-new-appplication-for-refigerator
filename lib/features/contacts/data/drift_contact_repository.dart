@@ -2713,6 +2713,7 @@ final class DriftContactRepository
   /// occurrences.  Delivery must never invent participation that the current
   /// link truth does not hold, so this read exposes exactly one answer and does
   /// not write anything.
+  @override
   Future<Set<String>> readEffectiveEventContactIds({
     required String profileId,
     required String eventId,
@@ -2901,6 +2902,21 @@ final class DriftContactRepository
             ),
       ],
     );
+  }
+
+  @override
+  Future<Set<String>> readEffectiveTaskContactIds({
+    required String profileId,
+    required String taskId,
+  }) async {
+    final rows =
+        await (database.select(database.taskContactLinks)..where(
+              (table) =>
+                  table.profileId.equals(profileId) &
+                  table.taskId.equals(taskId),
+            ))
+            .get();
+    return <String>{for (final row in rows) row.contactId};
   }
 
   @override

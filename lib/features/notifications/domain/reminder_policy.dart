@@ -22,6 +22,32 @@ extension ReminderSourceKindFamily on ReminderSourceKind {
       stableKey.startsWith(stableKeyFamilyPrefix);
 }
 
+/// The ONE reminder-policy resolution law.
+///
+/// OWNER HOTFIX (2026-09-19). `ReminderReconciler` has always resolved an
+/// occurrence's policy as "this occurrence's own row, else the series row". The
+/// Event form did NOT: it matched the occurrence key alone, so a reminder stored at
+/// series scope — which is what the create path and an "All events" edit write —
+/// was invisible and the row rendered the global default instead of the user's own
+/// choice. Reading the policy through this single extension keeps every caller on
+/// the same law.
+///
+/// Callers still apply the global default themselves when this returns null, or
+/// when the resolved policy's mode is [ReminderPolicyMode.inherit].
+extension ReminderPolicyResolution on Iterable<ReminderPolicy> {
+  ReminderPolicy? resolveForOccurrence(String occurrenceId) {
+    for (final policy in this) {
+      if (policy.occurrenceId == occurrenceId) return policy;
+    }
+    for (final policy in this) {
+      if (policy.occurrenceId == ReminderPolicy.seriesOccurrenceId) {
+        return policy;
+      }
+    }
+    return null;
+  }
+}
+
 enum ReminderPurpose { standard, contactFollowUp }
 
 enum ReminderPolicyMode { inherit, off, offset }

@@ -64,7 +64,9 @@ final class DriftReminderDeliverySourceReader
     required String occurrenceId,
   }) async {
     // Read the effective policy so the explicitly selected Contact is known
-    // before any Contact read happens.
+    // before any Contact read happens.  The policy is no longer the ONLY source
+    // of the Contact line: live attached People are read when it is absent
+    // (owner pass 2026-09-19, defect D).
     final policy = await _effectivePolicy(
       profileId: profileId,
       sourceKind: sourceKind,
@@ -165,24 +167,50 @@ final class DriftReminderDeliverySourceReader
             .firstOrNull;
   }
 
-  /// The ONE explicitly selected Contact for this source, or null.  The policy
-  /// decides the target; a linked Contact never infers a follow-up.
-  Future<String?> _followUpName({
+  /// The Contact value of the notification's "Follow up with …" line.
+  ///
+  /// PRECEDENCE (owner pass 2026-09-19, defect D):
+  ///
+  ///   1. an EXPLICIT follow-up Contact on the effective policy — the chooser
+  ///      flow the user deliberately took, preserved exactly as before;
+  ///   2. otherwise the source's LIVE attached Contacts — the People the user
+  ///      attached in the form.
+  ///
+  /// Before this, step 2 did not exist: the line was reachable ONLY through the
+  /// follow-up chooser, so attaching a Contact to an Event and switching on
+  /// "Show contacts" produced nothing at all.  That is precisely what the owner
+  /// reported.
+  ///
+  /// An explicit choice that no longer resolves (archived, merged, unlinked)
+  /// falls through to the People list rather than blanking the line: a stale
+  /// selection must not hide People who are still attached.  Nothing is ever
+  /// cached, and a read failure yields null — an enrichment problem never
+  /// suppresses a reminder.
+  Future<String?> _contactLine({
     required ReminderPolicy? policy,
     required String profileId,
     required ReminderSourceKind sourceKind,
     required String sourceId,
     required String occurrenceId,
   }) async {
-    if (policy?.purpose != ReminderPurpose.contactFollowUp) return null;
-    final contactId = policy?.contactId;
-    if (contactId == null || contactId.trim().isEmpty) return null;
-    return enrichment.followUpName(
+    if (policy?.purpose == ReminderPurpose.contactFollowUp) {
+      final contactId = policy?.contactId;
+      if (contactId != null && contactId.trim().isNotEmpty) {
+        final explicit = await enrichment.followUpName(
+          profileId: profileId,
+          sourceKind: sourceKind,
+          sourceId: sourceId,
+          occurrenceId: occurrenceId,
+          contactId: contactId,
+        );
+        if (explicit != null) return explicit;
+      }
+    }
+    return enrichment.attachedContactLine(
       profileId: profileId,
       sourceKind: sourceKind,
       sourceId: sourceId,
       occurrenceId: occurrenceId,
-      contactId: contactId,
     );
   }
 
@@ -205,7 +233,7 @@ final class DriftReminderDeliverySourceReader
     final active = occurrence.status == CalendarEventStatus.scheduled;
 
     final followUpName = active
-        ? await _followUpName(
+        ? await _contactLine(
             policy: policy,
             profileId: profileId,
             sourceKind: ReminderSourceKind.calendarEvent,
@@ -250,7 +278,7 @@ final class DriftReminderDeliverySourceReader
     final active = task.status != PlannerTaskStatus.completed;
 
     final followUpName = active
-        ? await _followUpName(
+        ? await _contactLine(
             policy: policy,
             profileId: profileId,
             sourceKind: ReminderSourceKind.task,

@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:rmplanner/app/router/route_names.dart';
 import 'package:rmplanner/app/shell/global_drawer_controller.dart';
+import 'package:rmplanner/app/shell/planning_navigation.dart';
 import 'package:rmplanner/app/theme/app_theme.dart';
 import 'package:rmplanner/features/planner/application/calendar_event_creation_draft_provider.dart';
 import 'package:rmplanner/features/planner/application/calendar_event_providers.dart';
@@ -26,8 +27,8 @@ import 'package:rmplanner/features/planner/domain/planner_task.dart';
 import 'package:rmplanner/features/planner/domain/planner_timeline_layout.dart';
 import 'package:rmplanner/features/planner/domain/planner_view.dart';
 import 'package:rmplanner/features/planner/presentation/calendar_event_creation.dart';
-import 'package:rmplanner/features/planner/presentation/calendar_event_detail_screen.dart';
 import 'package:rmplanner/features/planner/presentation/contextual_create_fab.dart';
+import 'package:rmplanner/features/planner/presentation/planner_event_open.dart';
 import 'package:rmplanner/features/planner/presentation/task_creation.dart';
 import 'package:rmplanner/features/planner/presentation/task_preview_sheet.dart';
 import 'package:rmplanner/features/planner/presentation/widgets/anchored_top_bar_popup.dart';
@@ -660,11 +661,14 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
                 icon: Icons.calendar_view_week_outlined,
                 selected: _presentation == PlannerPresentation.week,
               ),
+              // Owner law (2026-09-20): Tasks has exactly ONE canonical home.
+              // This row NAVIGATES to the canonical Tasks screen instead of
+              // switching the Planner into a second Tasks list, so it is never
+              // a selected presentation state.
               _OverflowEntry(
                 action: _PlannerOverflowAction.tasks,
                 label: 'Tasks',
                 icon: Icons.task_alt_outlined,
-                selected: _presentation == PlannerPresentation.tasks,
               ),
             ])
               _OverflowPopupRow(
@@ -817,11 +821,19 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
       }
       return;
     }
+    if (action == _PlannerOverflowAction.tasks) {
+      // Canonical Tasks screen (owner law, 2026-09-20).  The Planner is
+      // recorded as the back origin, so the screen's own back arrow returns
+      // here rather than anywhere else.  Nothing about the Planner's
+      // presentation is written: this row no longer has one.
+      openPlanningDestination(context, RoutePaths.tasks);
+      return;
+    }
     final presentation = switch (action) {
       _PlannerOverflowAction.schedule => PlannerPresentation.schedule,
       _PlannerOverflowAction.day => PlannerPresentation.day,
       _PlannerOverflowAction.week => PlannerPresentation.week,
-      _PlannerOverflowAction.tasks => PlannerPresentation.tasks,
+      _PlannerOverflowAction.tasks ||
       _PlannerOverflowAction.search => settings.preferredPresentation,
     };
     await _setPresentation(ref, settings, presentation);
@@ -1680,13 +1692,6 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
             settings: settings,
             onSelected: (date) =>
                 ref.read(plannerControllerProvider.notifier).selectDate(date),
-          ),
-          PlannerPresentation.tasks => _TasksPresentation(
-            days: days,
-            settings: settings,
-            selectionMode: _selectionMode,
-            selectedItems: _selectedItems,
-            onToggleTask: _toggleTaskSelection,
           ),
           PlannerPresentation.awaitingReports => _AwaitingPresentation(
             days: days,
@@ -3778,14 +3783,19 @@ class _DaySwipeCoordinator {
 ///
 /// The coordinator is intentionally decoupled from the
 /// [_DaySwipeCoordinator]; the two share no state because
-/// their lifetimes and responsibilities differ. The
-/// coordinator is reset on the first pointer-down of each
-/// fresh gesture, so a previous two-pointer pinch cannot
-/// leave stale state behind that would suppress a future
-/// one-finger scroll.
+/// their lifetimes and responsibilities differ.
+///
+/// HOTFIX (2026-09-19) — this doc used to claim the coordinator "is reset on the
+/// first pointer-down of each fresh gesture". It was not: the reset ([begin]) had
+/// no call site anywhere, so a missed pointer-up/cancel left the count >= 2 for
+/// good and pinned both planner scroll views to `NeverScrollableScrollPhysics`.
+/// The timeline now resets the coordinator when the subtree that owns the raw
+/// pointer tracking is disposed, which is the only point at which a missed event
+/// is provably unrecoverable.
 class _PinchCoordinator {
   int _pointerCount = 0;
   bool _externalCancel = false;
+  bool _notifyScheduled = false;
   // Listeners are notified whenever the pinch state changes
   // (pointer count transitions across 2, or cancel is
   // invoked). The parent state subscribes to rebuild the
@@ -3807,9 +3817,36 @@ class _PinchCoordinator {
     }
   }
 
+  /// Drops every tracked pointer and restores ordinary scrolling.
+  ///
+  /// HOTFIX (2026-09-19) — this is the pinch equivalent of
+  /// [_DaySwipeCoordinator]'s fresh-gesture reset, and it is what makes the
+  /// suppression self-healing.
+  ///
+  /// `_pointerCount` is maintained ONLY by pointer-up/cancel events delivered to
+  /// the timeline surface. Before this fix `begin()` existed but was never called
+  /// anywhere, so a single missed up/cancel left the count >= 2 forever and pinned
+  /// BOTH planner scroll views to `NeverScrollableScrollPhysics` — the reported
+  /// "hanging of the app where I can't swipe it up or down" (the app stays alive;
+  /// drags simply stop reaching the scrollable).
+  ///
+  /// The notification is deferred to the next frame so a reset can be requested
+  /// from a dispose/build phase without calling back into the parent's build.
   void begin() {
+    if (_pointerCount == 0 && !_externalCancel) return;
     _pointerCount = 0;
     _externalCancel = false;
+    _notifyAfterFrame();
+  }
+
+  /// Notifies listeners once, on the next frame.
+  void _notifyAfterFrame() {
+    if (_notifyScheduled) return;
+    _notifyScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _notifyScheduled = false;
+      _notify();
+    });
   }
 
   /// Called by the timeline's pointer Listener on every
@@ -4157,6 +4194,13 @@ final class _TimedEventTimelineState extends State<_TimedEventTimeline> {
   void dispose() {
     _pendingPinchHourHeight = null;
     _pendingPinchScrollOffset = null;
+    // HOTFIX (2026-09-19): this subtree is the ONLY owner of the raw pointer
+    // tracking that feeds [_PinchCoordinator]. Once it is gone — planner refresh,
+    // loading/loaded branch swap, day-pager swap, route change — any pointer-up or
+    // cancel it never received is unrecoverable here, and the stale count would
+    // otherwise keep the whole Planner unscrollable forever. Drop it so the parent
+    // re-reads the scroll physics on the next frame.
+    widget.pinchCoordinator.begin();
     super.dispose();
   }
 
@@ -7037,63 +7081,10 @@ final class _WeekPresentation extends StatelessWidget {
   }
 }
 
-final class _TasksPresentation extends StatelessWidget {
-  const _TasksPresentation({
-    required this.days,
-    required this.settings,
-    required this.selectionMode,
-    required this.selectedItems,
-    required this.onToggleTask,
-  });
-
-  final List<PlannerDay> days;
-  final PlannerSettings settings;
-  final bool selectionMode;
-  final Set<PlannerSelectionId> selectedItems;
-  final ValueChanged<PlannerTask> onToggleTask;
-
-  @override
-  Widget build(BuildContext context) {
-    final incomplete = <String, PlannerTask>{
-      for (final day in days)
-        for (final task in <PlannerTask>[...day.overdueTasks, ...day.tasks])
-          task.id: task,
-    }.values.toList(growable: false);
-    final completed = <String, PlannerTask>{
-      for (final day in days)
-        for (final task in day.completedTasks) task.id: task,
-    }.values.toList(growable: false);
-    return ListView(
-      key: const Key('planner-tasks-view'),
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
-      children: <Widget>[
-        const _ViewHeading('Incomplete'),
-        for (final task in incomplete) _taskTile(task),
-        const SizedBox(height: 18),
-        const _ViewHeading('Completed'),
-        if (!settings.contentFilters.tasks ||
-            !settings.contentFilters.completedTasks)
-          const _EmptySectionMessage(
-            'Enable Tasks and Completed Tasks in Filter to show completed '
-            'items.',
-          )
-        else
-          for (final task in completed) _taskTile(task),
-      ],
-    );
-  }
-
-  Widget _taskTile(PlannerTask task) {
-    return _TaskTile(
-      task: task,
-      selectionMode: selectionMode,
-      selected: selectedItems.contains(
-        PlannerSelectionId(kind: PlannerSelectionKind.task, id: task.id),
-      ),
-      onToggleSelection: () => onToggleTask(task),
-    );
-  }
-}
+// RETIRED (owner decision, 2026-09-20): `_TasksPresentation` — the in-Planner
+// Tasks list (key `planner-tasks-view`) — is gone.  Tasks have exactly ONE
+// canonical home, the Tasks screen, and the Planner's overflow `Tasks` row now
+// opens it.  The Planner's own day/schedule/week presentations are untouched.
 
 final class _AwaitingPresentation extends StatelessWidget {
   const _AwaitingPresentation({
@@ -7234,33 +7225,11 @@ final class _PlannerSearchDelegate extends SearchDelegate<void> {
   }
 }
 
-void _openCalendarEvent(BuildContext context, PlannerCalendarItem event) {
-  final eventId = event.eventId;
-  final originalDate = event.originalDate;
-  if (eventId == null || originalDate == null) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'This external calendar item has no editable local record.',
-        ),
-      ),
-    );
-    return;
-  }
-  unawaited(
-    showCalendarEventDetailSheet<void>(
-      context: context,
-      eventId: eventId,
-      originalDate: originalDate,
-      // NX-05: the tapped planner item already knows the activity identity, so
-      // the sheet title is truthful from the first rendered frame (no generic
-      // 'Calendar Event' -> activity-label morph while the record loads).
-      initialHeading: event.activityTypeLabel?.trim().isNotEmpty == true
-          ? event.activityTypeLabel
-          : event.displayTitle,
-    ),
-  );
-}
+/// The shared canonical Event-opening law lives in `planner_event_open.dart`
+/// so the Unreported hub reaches the SAME detail/report flow.  Every existing
+/// Planner call site keeps using this name.
+void _openCalendarEvent(BuildContext context, PlannerCalendarItem event) =>
+    openPlannerCalendarEvent(context, event);
 
 final class _EmptySectionMessage extends StatelessWidget {
   const _EmptySectionMessage(this.message);

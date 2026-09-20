@@ -234,7 +234,8 @@ void main() {
         expect(
           tester.getTopLeft(sheet).dy,
           greaterThan(handleExpandedTop + 300),
-          reason: 'the full-height Event sheet must collapse back toward partial.',
+          reason:
+              'the full-height Event sheet must collapse back toward partial.',
         );
         await tester.drag(
           find.byKey(const Key('calendar-event-sheet-header')),
@@ -520,12 +521,14 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Tasks'));
     await tester.pumpAndSettle();
-    final taskTile = find.byKey(const Key('planner-task-$taskId'));
+    // Owner law (2026-09-20): the Planner overflow `Tasks` row opens the ONE
+    // canonical Tasks screen, so the row contract is `tasks-row-<id>`.
+    final taskTile = find.byKey(const Key('tasks-row-$taskId'));
     await tester.scrollUntilVisible(
       taskTile,
       250,
       scrollable: find.descendant(
-        of: find.byKey(const Key('planner-tasks-view')),
+        of: find.byKey(const Key('tasks-incomplete-list')),
         matching: find.byType(Scrollable),
       ),
     );
@@ -541,7 +544,10 @@ void main() {
     expect(find.text('Does not repeat'), findsOneWidget);
     expect(find.text('Contacts'), findsOneWidget);
     expect(find.byKey(const Key('task-preview-sheet')), findsOneWidget);
-    expect(find.byKey(const Key('task-activity-history-button')), findsOneWidget);
+    expect(
+      find.byKey(const Key('task-activity-history-button')),
+      findsOneWidget,
+    );
     expect(await database.select(database.calendarEvents).get(), isEmpty);
   });
 

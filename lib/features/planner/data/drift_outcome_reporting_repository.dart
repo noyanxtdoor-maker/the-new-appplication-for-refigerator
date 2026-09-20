@@ -941,10 +941,32 @@ final class DriftOutcomeReportingRepository
     if (task == null) {
       return;
     }
-    final target = outcome == OutcomeKind.completedHappened
+    final completed = outcome == OutcomeKind.completedHappened;
+    final target = completed
         ? PlannerTaskStatus.completed.name
         : PlannerTaskStatus.incomplete.name;
     if (task.status == target) {
+      // A Missed (`partiallyCompleted`) or Did Not Attempt (`didNotHappen`)
+      // report ends the Task's OPEN state through the canonical Current Status,
+      // not through the lifecycle column: reporting "Did Not Attempt" must
+      // never claim the Task was completed, and a false `completed` here would
+      // also manufacture Goal contributions for work that did not happen.  The
+      // canonical Task classification therefore reads the report
+      // (`PlannerTask.isOpen`), which leaves this column untouched.
+      //
+      // What the report DOES own is WHEN the Task stopped awaiting action, and
+      // `planner_tasks.updated_at_utc` is the accepted completion-recency
+      // source the Tasks → Completed timeline groups by.  Touching it here —
+      // with no lifecycle write and no status-change row, because no lifecycle
+      // state actually changed — keeps that group dated by the report instead
+      // of by the last unrelated Task edit.
+      if (task.status == PlannerTaskStatus.incomplete.name) {
+        await (database.update(database.plannerTasks)..where(
+              (table) =>
+                  table.profileId.equals(profileId) & table.id.equals(task.id),
+            ))
+            .write(PlannerTasksCompanion(updatedAtUtc: Value<DateTime>(now)));
+      }
       return;
     }
     final contributionEngine = TaskGoalContributionEngine(database: database);
