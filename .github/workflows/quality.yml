@@ -66,47 +66,83 @@ jobs:
       # files under these four roots were selectable at all). Each root now
       # lists both a root-level and a nested pattern, so every Dart file under
       # these roots is selectable under either wildcard reading.
+      # Trigger scope (2026-09-21): the coverage law above decides WHICH files
+      # are eligible, but the comparison anchor decides HOW MANY commits are
+      # inspected. `workflow_dispatch` carries no `github.event.before`, so the
+      # old fallback to `HEAD^` inspected only the TIP commit: on a multi-commit
+      # branch every earlier commit escaped formatting enforcement (proven with
+      # a two-commit probe: dispatch selected 1 of 2 changed Dart files). Worse,
+      # when no anchor was derivable at all the check printed "nothing to
+      # reformat" and exited 0 - a vacuous green. The anchor is now derived per
+      # event and the step FAILS CLOSED on an unresolvable range instead of
+      # silently passing. Event data is passed through the environment rather
+      # than interpolated into the shell.
       - name: Verify formatting of changed Dart files
         shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_BEFORE: ${{ github.event.before }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
 
-          before="${{ github.event.before }}"
           zero_sha="0000000000000000000000000000000000000000"
+          base=""
+          base_source=""
 
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            base="${{ github.event.pull_request.base.sha }}"
-          elif [[ -n "$before" && "$before" != "$zero_sha" ]] \
-            && git cat-file -e "${before}^{commit}" 2>/dev/null; then
-            base="$before"
-          elif git rev-parse -q --verify HEAD^ >/dev/null; then
-            # workflow_dispatch, and a branch pushed for the first time: compare
-            # against the local parent so the check stays truthful.
-            base="HEAD^"
-          else
-            base=""
+          # The anchor differs per event:
+          #   pull_request -> the PR base SHA: the PR's full change range.
+          #   push         -> github.event.before: the full pushed range.
+          #   dispatch     -> no event anchor exists; derived from main below.
+          if [[ "$EVENT_NAME" == "pull_request" && -n "$PR_BASE_SHA" ]] \
+            && git cat-file -e "${PR_BASE_SHA}^{commit}" 2>/dev/null; then
+            base="$PR_BASE_SHA"
+            base_source="pull_request.base.sha"
+          elif [[ -n "$EVENT_BEFORE" && "$EVENT_BEFORE" != "$zero_sha" ]] \
+            && git cat-file -e "${EVENT_BEFORE}^{commit}" 2>/dev/null; then
+            base="$EVENT_BEFORE"
+            base_source="github.event.before"
           fi
 
-          comparison=""
-          if [[ -n "$base" ]]; then
-            comparison="$(git merge-base "$base" HEAD 2>/dev/null || echo "$base")"
+          # A manual dispatch has no `before`, and the first push of a new branch
+          # reports the zero SHA for it. Anchor those to canonical main so the
+          # WHOLE branch range is inspected instead of just the tip commit.
+          if [[ -z "$base" ]] \
+            && git rev-parse -q --verify origin/main >/dev/null; then
+            base="$(git merge-base origin/main HEAD 2>/dev/null || true)"
+            base_source="merge-base origin/main HEAD"
           fi
+
+          if [[ -z "$base" ]]; then
+            echo "::error::No trustworthy comparison base for event" \
+              "'${EVENT_NAME}' (before='${EVENT_BEFORE:-<empty>}'," \
+              "pr_base='${PR_BASE_SHA:-<empty>}'); refusing to verify an" \
+              "unknown range."
+            exit 1
+          fi
+
+          comparison="$(git merge-base "$base" HEAD 2>/dev/null || true)"
+          if [[ -z "$comparison" ]]; then
+            echo "::error::No merge base between '${base}' (${base_source})" \
+              "and HEAD; refusing to verify an unknown range."
+            exit 1
+          fi
+
+          echo "Formatting scope (${base_source}): ${comparison}..HEAD"
 
           changed=()
-          if [[ -n "$comparison" ]]; then
-            while IFS= read -r file; do
-              [[ -n "$file" ]] && changed+=("$file")
-            done < <(git diff --name-only --diff-filter=ACMRT \
-              "$comparison" HEAD -- \
-              'lib/*.dart' 'lib/**/*.dart' \
-              'test/*.dart' 'test/**/*.dart' \
-              'integration_test/*.dart' 'integration_test/**/*.dart' \
-              'tool/*.dart' 'tool/**/*.dart')
-          fi
+          while IFS= read -r file; do
+            [[ -n "$file" ]] && changed+=("$file")
+          done < <(git diff --name-only --diff-filter=ACMRT \
+            "$comparison" HEAD -- \
+            'lib/*.dart' 'lib/**/*.dart' \
+            'test/*.dart' 'test/**/*.dart' \
+            'integration_test/*.dart' 'integration_test/**/*.dart' \
+            'tool/*.dart' 'tool/**/*.dart')
 
           if [[ ${#changed[@]} -eq 0 ]]; then
             echo "No changed Dart files under lib/, test/, integration_test/ or" \
-              "tool/ in this change set - nothing to reformat."
+              "tool/ in ${comparison}..HEAD - nothing to reformat."
             exit 0
           fi
 
