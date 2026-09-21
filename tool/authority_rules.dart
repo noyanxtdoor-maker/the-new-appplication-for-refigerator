@@ -21,9 +21,19 @@
 ///
 /// All of the above live here, in one place, so the negative direction is
 /// provable by `test/tool/authority_gate_test.dart` without running a script.
+/// M-3 (2026-09-21): source-manifest permissions are now parsed as XML instead
+/// of matched with a text regex. The regex recognised only
+/// `<uses-permission android:name="..." />`; four legal shapes were invisible to
+/// it (`android:maxSdkVersion` present, attributes reversed, an explicit closing
+/// tag, `uses-permission-sdk-23`), duplicates were collapsed by the resulting
+/// `Set`, a declaration with no `android:name` was invisible, and a
+/// permission-looking string inside an XML comment was counted as a real
+/// declaration. All of those are now decided from the parsed document.
 library;
 
 import 'dart:convert';
+
+import 'package:xml/xml.dart';
 
 /// Flutter toolchain pin enforced alongside `.flutter-version`.
 const String approvedFlutterVersion = '3.44.7';
@@ -168,12 +178,99 @@ const List<String> requiredSchemaTables = <String>[
   'TextColumn get timeZoneId',
 ];
 
-/// Permissions declared with a self-closing `<uses-permission ... />` tag.
-Set<String> declaredPermissions(String manifest) {
-  final matches = RegExp(
-    r'<uses-permission\s+android:name="([^"]+)"\s*/>',
-  ).allMatches(manifest);
-  return <String>{for (final match in matches) match.group(1)!};
+/// Android's attribute namespace inside `AndroidManifest.xml`.
+const String androidManifestNamespace =
+    'http://schemas.android.com/apk/res/android';
+
+/// Whether an element name declares a permission.
+///
+/// Covers `uses-permission`, the `uses-permission-sdk-*` family, and
+/// `permission` (a permission *definition*), so a differently-shaped but legal
+/// declaration cannot become invisible.
+bool _isPermissionDeclarationElement(String localName) =>
+    localName == 'permission' || localName.startsWith('uses-permission');
+
+/// One permission-declaring element found in the source manifest.
+class ManifestPermissionDeclaration {
+  const ManifestPermissionDeclaration({
+    required this.elementName,
+    required this.name,
+    required this.otherAttributes,
+  });
+
+  /// The declaring element, e.g. `uses-permission` or `uses-permission-sdk-23`.
+  final String elementName;
+
+  /// The value of `android:name`, or an empty string when absent or empty.
+  final String name;
+
+  /// Every attribute except `android:name`, keyed by qualified name.
+  ///
+  /// Any entry here is an unapproved scope/extra attribute: the owner law
+  /// authorizes `android:name` and nothing else on a permission declaration.
+  final Map<String, String> otherAttributes;
+
+  /// Whether a non-empty `android:name` was declared.
+  bool get hasName => name.isNotEmpty;
+}
+
+/// Structured scan of a manifest's permission declarations.
+class ManifestPermissionScan {
+  const ManifestPermissionScan({
+    required this.declarations,
+    required this.failures,
+  });
+
+  /// Every permission-declaring element in document order, INCLUDING ones that
+  /// are malformed (missing or empty `android:name`) — they must be reported,
+  /// not skipped.
+  final List<ManifestPermissionDeclaration> declarations;
+
+  /// Structural problems found while parsing. Only malformed XML lands here;
+  /// the permission policy comparison lives in [checkProductionManifest].
+  final List<String> failures;
+}
+
+/// Parses [manifest] as XML and returns every permission declaration it makes.
+///
+/// Malformed XML is reported as a violation rather than thrown, so the gate
+/// always fails closed with a readable reason instead of crashing.
+ManifestPermissionScan scanManifestPermissions(String manifest) {
+  final XmlDocument document;
+  try {
+    document = XmlDocument.parse(manifest);
+  } on XmlException catch (error) {
+    return ManifestPermissionScan(
+      declarations: const <ManifestPermissionDeclaration>[],
+      failures: <String>['Manifest is not well-formed XML: $error'],
+    );
+  }
+
+  final declarations = <ManifestPermissionDeclaration>[];
+  for (final element in document.descendants.whereType<XmlElement>()) {
+    if (!_isPermissionDeclarationElement(element.name.local)) continue;
+    declarations.add(
+      ManifestPermissionDeclaration(
+        elementName: element.name.local,
+        name:
+            element.getAttribute(
+              'name',
+              namespaceUri: androidManifestNamespace,
+            ) ??
+            '',
+        otherAttributes: <String, String>{
+          for (final attribute in element.attributes)
+            if (!(attribute.name.local == 'name' &&
+                attribute.name.namespaceUri == androidManifestNamespace))
+              attribute.name.qualified: attribute.value,
+        },
+      ),
+    );
+  }
+  return ManifestPermissionScan(
+    declarations: declarations,
+    failures: const <String>[],
+  );
 }
 
 /// The `dependencies:` block of a pubspec, up to the next top-level key.
@@ -243,14 +340,69 @@ List<String> checkProductionManifest(String text) {
   if (!text.contains('android:allowBackup="false"')) {
     failures.add('Manifest backup policy changed');
   }
-  final declared = declaredPermissions(text);
-  final unexpected = declared.difference(approvedManifestPermissions);
-  final missing = approvedManifestPermissions.difference(declared);
-  if (unexpected.isNotEmpty) {
+  failures.addAll(_checkManifestPermissionScope(text));
+  return failures;
+}
+
+/// Source-manifest permission law.
+///
+/// Exact scope: the seven approved permissions, each declared exactly once, and
+/// every declaration carrying nothing but `android:name`. A duplicate, a scope
+/// attribute (`android:maxSdkVersion`, `tools:*`, ...), a declaration without a
+/// name, or an eighth permission all fail closed.
+List<String> _checkManifestPermissionScope(String text) {
+  final failures = <String>[];
+  final scan = scanManifestPermissions(text);
+  failures.addAll(scan.failures);
+  if (scan.failures.isNotEmpty) {
+    // Malformed XML: there is no truthful declaration list, so stop here rather
+    // than adding a misleading "all permissions missing" cascade on top.
+    return failures;
+  }
+
+  final declared = <String>[];
+  for (final declaration in scan.declarations) {
+    if (!declaration.hasName) {
+      failures.add(
+        'Permission declaration <${declaration.elementName}> has no '
+        'android:name',
+      );
+      continue;
+    }
+    final name = declaration.name;
+    for (final attribute in declaration.otherAttributes.keys.toList()..sort()) {
+      failures.add(
+        'Permission $name carries unapproved attribute $attribute; only '
+        'android:name is authorized',
+      );
+    }
+    if (!approvedManifestPermissions.contains(name)) {
+      failures.add('Unexpected Android permission: $name');
+    }
+    declared.add(name);
+  }
+
+  final counts = <String, int>{};
+  for (final name in declared) {
+    counts[name] = (counts[name] ?? 0) + 1;
+  }
+  final duplicates = counts.entries.where((entry) => entry.value > 1).toList()
+    ..sort((a, b) => a.key.compareTo(b.key));
+  for (final duplicate in duplicates) {
     failures.add(
-      'Unexpected Android permission(s): ${(unexpected.toList()..sort()).join(', ')}',
+      'Duplicate Android permission declaration: ${duplicate.key} appears '
+      '${duplicate.value} times; the approved scope declares it exactly once',
     );
   }
+
+  if (scan.declarations.length != approvedManifestPermissions.length) {
+    failures.add(
+      'Expected exactly ${approvedManifestPermissions.length} permission '
+      'declarations, found ${scan.declarations.length}',
+    );
+  }
+
+  final missing = approvedManifestPermissions.difference(declared.toSet());
   if (missing.isNotEmpty) {
     failures.add(
       'Missing expected Android permission(s): ${(missing.toList()..sort()).join(', ')}',
