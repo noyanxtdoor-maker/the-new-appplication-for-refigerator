@@ -171,6 +171,11 @@ jobs:
           flutter build apk --debug
           --dart-define-from-file=tool/env/production.json.example
 
+      - name: Verify merged Android artifact against the accepted baseline
+        run: >-
+          dart run tool/verify_merged_artifact.dart
+          --apk build/app/outputs/flutter-apk/app-debug.apk
+
       - name: Scan repository for secrets
         uses: gitleaks/gitleaks-action@v2
         env:
