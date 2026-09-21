@@ -175,6 +175,34 @@ jobs:
           flutter build apk --debug
           --dart-define-from-file=tool/env/production.json.example
 
+      # M-6 inverted negative control. The ordinary debug APK deliberately
+      # packages the tracked placeholder Maps key (`DEFAULT_API_KEY`), so the
+      # Maps artifact verifier MUST fail here. This step fails CI if the
+      # verifier unexpectedly accepts the artifact, if it fails in an unexpected
+      # way, or if the expected sanitized placeholder classification is absent.
+      # It never prints a raw manifest dump and needs no real Maps secret.
+      - name: Verify Maps key gate rejects the placeholder artifact
+        run: |
+          set +e
+          output="$(dart run tool/verify_maps_key.dart \
+            --apk build/app/outputs/flutter-apk/app-debug.apk 2>&1)"
+          status=$?
+          set -e
+          printf '%s\n' "$output"
+          if [ "$status" -eq 0 ]; then
+            echo "::error::the Maps verifier accepted the placeholder debug artifact"
+            exit 1
+          fi
+          if [ "$status" -ne 1 ]; then
+            echo "::error::the Maps verifier failed unexpectedly (exit $status)"
+            exit 1
+          fi
+          if ! printf '%s\n' "$output" | grep -q 'packages the placeholder Maps key'; then
+            echo "::error::the expected sanitized Maps placeholder classification was absent"
+            exit 1
+          fi
+          echo "Maps gate correctly rejected the placeholder artifact (exit $status)."
+
       - name: Verify merged Android artifact against the accepted baseline
         run: >-
           dart run tool/verify_merged_artifact.dart
