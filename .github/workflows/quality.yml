@@ -166,6 +166,10 @@ jobs:
       - name: VS-01 through VS-08 unit, repository, migration, and widget tests
         run: flutter test
 
+      - name: Verify test integrity (skip registry + discovery floor)
+        run: >-
+          flutter test test/integrity/test_integrity_gate_test.dart
+
       - name: Build debug APK
         run: >-
           flutter build apk --debug
