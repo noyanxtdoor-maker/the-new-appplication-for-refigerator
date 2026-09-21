@@ -11,6 +11,10 @@
 //     anywhere, and the gate never writes either artifact.
 //   * Failure messages name the file plus identity or field and never echo
 //     arbitrary source lines or suppression expression text.
+//   * Suppression and lifecycle-token discovery is lexically code-aware: the
+//     contents of comments and string literals are masked before matching, so a
+//     purely textual mention of a suppression token can never be mistaken for a
+//     real suppression site. (M-5 surgical correction, 2026-09-22.)
 import 'dart:convert';
 import 'dart:io';
 
@@ -25,6 +29,18 @@ const String _selfPath = 'test/integrity/test_integrity_gate_test.dart';
 final RegExp _suppressionTokenPattern = RegExp(r'\bskip\s*:');
 final RegExp _callPattern = RegExp(r'\b(testWidgets|test|group)\s*\(');
 final RegExp _allowedTestPathPattern = RegExp(_testFilePathPattern);
+
+// Fragmented so this gate never carries a contiguous suppression token or
+// marker in its own raw text; the lexer, not string matching, decides meaning.
+const String _suppressionToken =
+    'sk'
+    'ip: true';
+const String _runtimeSuppressionMarker =
+    'markTest'
+    'Skipped';
+const String _platformAnnotationMarker =
+    '@Test'
+    'On';
 
 class _SuppressionSite {
   const _SuppressionSite({
@@ -113,6 +129,54 @@ int _stringEnd(String source, int quoteIndex) {
     index += 1;
   }
   return source.length;
+}
+
+/// Builds a same-length, index-aligned copy of [source] in which the contents
+/// of every line comment, block comment, and string literal are replaced by
+/// inert whitespace. Newlines and all real code are preserved exactly, so any
+/// offset found in the mask addresses the same position in [source].
+///
+/// Normal, raw, triple-quoted, and escaped literals are all handled. This is
+/// what keeps a textual mention of a suppression token from reading as code.
+String _lexicalCodeMask(String source) {
+  final buffer = StringBuffer();
+  var index = 0;
+  while (index < source.length) {
+    final char = source[index];
+    if (char == '/' && index + 1 < source.length && source[index + 1] == '/') {
+      final newline = source.indexOf('\n', index);
+      final end = newline == -1 ? source.length : newline;
+      buffer.write(_inertSpan(source, index, end));
+      index = end;
+      continue;
+    }
+    if (char == '/' && index + 1 < source.length && source[index + 1] == '*') {
+      final close = source.indexOf('*/', index + 2);
+      final end = close == -1 ? source.length : close + 2;
+      buffer.write(_inertSpan(source, index, end));
+      index = end;
+      continue;
+    }
+    if (char == "'" || char == '"') {
+      final end = _stringEnd(source, index);
+      buffer.write(_inertSpan(source, index, end));
+      index = end;
+      continue;
+    }
+    buffer.write(char);
+    index += 1;
+  }
+  return buffer.toString();
+}
+
+/// Replaces [start]..[end) with spaces, preserving every newline and the
+/// original character count.
+String _inertSpan(String source, int start, int end) {
+  final buffer = StringBuffer();
+  for (var index = start; index < end; index += 1) {
+    buffer.write(source[index] == '\n' ? '\n' : ' ');
+  }
+  return buffer.toString();
 }
 
 /// Returns the matching close paren index for [openIndex], skipping strings
@@ -285,56 +349,12 @@ List<File> _dartFilesUnderTest() {
 List<_SuppressionSite> _detectSuppressionSites() {
   final sites = <_SuppressionSite>[];
   for (final file in _dartFilesUnderTest()) {
-    final path = _normalizePath(file.path);
-    final source = file.readAsStringSync();
-    final calls = _callPattern.allMatches(source).toList();
-    for (final token in _suppressionTokenPattern.allMatches(source)) {
-      String? callKind;
-      var openIndex = -1;
-      for (final call in calls) {
-        if (call.start >= token.start) {
-          break;
-        }
-        final candidateOpen = call.end - 1;
-        final closeIndex = _matchingDelimiter(source, candidateOpen);
-        if (closeIndex == null) {
-          _fail(
-            '$path: an unbalanced argument list surrounds a suppression token',
-          );
-        }
-        if (closeIndex > token.start) {
-          callKind = call.group(1);
-          openIndex = candidateOpen;
-        }
-      }
-      if (callKind == null) {
-        _fail(
-          '$path: a suppression token is not bound to a recognized test, testWidgets, or group call',
-        );
-      }
-      final literal = _readFirstStringLiteral(source, openIndex + 1);
-      if (literal == null) {
-        _fail(
-          '$path: a lifecycle call containing a suppression token has no string-literal identity',
-        );
-      }
-      final identity = literal.$1;
-      final expression = _extractExpression(source, token.end);
-      if (identity.trim().isEmpty) {
-        _fail('$path: a suppression site has an empty identity');
-      }
-      if (expression.isEmpty) {
-        _fail('$path: a suppression site has an empty expression');
-      }
-      sites.add(
-        _SuppressionSite(
-          file: path,
-          kind: callKind == 'group' ? 'group' : 'test',
-          identity: identity,
-          expression: expression,
-        ),
-      );
-    }
+    sites.addAll(
+      _suppressionSitesInSource(
+        _normalizePath(file.path),
+        file.readAsStringSync(),
+      ),
+    );
   }
   sites.sort((a, b) => a.bindingKey.compareTo(b.bindingKey));
   final seen = <String>{};
@@ -344,6 +364,66 @@ List<_SuppressionSite> _detectSuppressionSites() {
         '${site.file}: duplicate suppression identity "${site.identity}" (kind ${site.kind})',
       );
     }
+  }
+  return sites;
+}
+
+/// Detects every real suppression site in one already-read source file.
+///
+/// Token and lifecycle-call matching run against the lexical code mask, so a
+/// comment or string literal can never contribute a false site. Identity and
+/// expression extraction read the original source at the offsets the mask
+/// points to.
+List<_SuppressionSite> _suppressionSitesInSource(String path, String source) {
+  final sites = <_SuppressionSite>[];
+  final mask = _lexicalCodeMask(source);
+  final calls = _callPattern.allMatches(mask).toList();
+  for (final token in _suppressionTokenPattern.allMatches(mask)) {
+    String? callKind;
+    var openIndex = -1;
+    for (final call in calls) {
+      if (call.start >= token.start) {
+        break;
+      }
+      final candidateOpen = call.end - 1;
+      final closeIndex = _matchingDelimiter(source, candidateOpen);
+      if (closeIndex == null) {
+        _fail(
+          '$path: an unbalanced argument list surrounds a suppression token',
+        );
+      }
+      if (closeIndex > token.start) {
+        callKind = call.group(1);
+        openIndex = candidateOpen;
+      }
+    }
+    if (callKind == null) {
+      _fail(
+        '$path: a suppression token is not bound to a recognized test, testWidgets, or group call',
+      );
+    }
+    final literal = _readFirstStringLiteral(source, openIndex + 1);
+    if (literal == null) {
+      _fail(
+        '$path: a lifecycle call containing a suppression token has no string-literal identity',
+      );
+    }
+    final identity = literal.$1;
+    final expression = _extractExpression(source, token.end);
+    if (identity.trim().isEmpty) {
+      _fail('$path: a suppression site has an empty identity');
+    }
+    if (expression.isEmpty) {
+      _fail('$path: a suppression site has an empty expression');
+    }
+    sites.add(
+      _SuppressionSite(
+        file: path,
+        kind: callKind == 'group' ? 'group' : 'test',
+        identity: identity,
+        expression: expression,
+      ),
+    );
   }
   return sites;
 }
@@ -450,7 +530,23 @@ List<String> _loadManifest() {
     }
     paths.add(raw);
   }
+  _assertManifestSorted(paths);
   return paths;
+}
+
+/// Fails unless [paths] is in the exact lexicographic order the committed
+/// manifest uses. The manifest is a committed artifact: keeping it sorted makes
+/// every legitimate addition or removal a single reviewable line in the diff.
+void _assertManifestSorted(List<String> paths) {
+  final ordered = List<String>.of(paths)..sort();
+  for (var index = 0; index < paths.length; index += 1) {
+    if (paths[index] != ordered[index]) {
+      _fail(
+        'the discovery manifest is not sorted lexicographically '
+        '(first out-of-order entry at index $index)',
+      );
+    }
+  }
 }
 
 Set<String> _discoveredTestFiles() {
@@ -467,6 +563,19 @@ Set<String> _discoveredTestFiles() {
     }
   }
   return discovered;
+}
+
+/// Fails when a real runtime suppression call or platform test annotation
+/// appears in [source]. Matching runs against the lexical code mask, so the
+/// same words appearing in a comment or string literal are ignored.
+void _assertNoUnregisteredMechanismsIn(String path, String source) {
+  final mask = _lexicalCodeMask(source);
+  if (mask.contains(_runtimeSuppressionMarker)) {
+    _fail('an unregistered runtime suppression call exists in $path');
+  }
+  if (mask.contains(_platformAnnotationMarker)) {
+    _fail('an unregistered platform test annotation exists in $path');
+  }
 }
 
 void main() {
@@ -514,21 +623,11 @@ void main() {
     });
 
     test('no unregistered suppression mechanisms exist under test/', () {
-      final runtimeCallMarker =
-          'markTest'
-          'Skipped';
-      final platformAnnotationMarker =
-          '@Test'
-          'On';
       for (final file in _dartFilesUnderTest()) {
-        final path = _normalizePath(file.path);
-        final source = file.readAsStringSync();
-        if (source.contains(runtimeCallMarker)) {
-          _fail('an unregistered runtime suppression call exists in $path');
-        }
-        if (source.contains(platformAnnotationMarker)) {
-          _fail('an unregistered platform test annotation exists in $path');
-        }
+        _assertNoUnregisteredMechanismsIn(
+          _normalizePath(file.path),
+          file.readAsStringSync(),
+        );
       }
     });
 
@@ -592,6 +691,202 @@ void main() {
           );
         }
       }
+    });
+
+    // M-5 surgical correction (2026-09-22): the scanner must decide from real
+    // Dart code, never from text that merely looks like code. Every fixture
+    // below is assembled from fragments, so this gate's own raw text never
+    // carries a contiguous suppression token or marker. Nothing here weakens
+    // detection of real suppression code.
+    group('scanner lexical correction', () {
+      String realCall({String identity = 'probe real test'}) =>
+          "test('$identity', () {}, sk"
+          'ip: true);';
+      String realGroup() =>
+          "group('probe real group', () {}, sk"
+          'ip: true);';
+
+      /// Wraps the suppression token in [open]/[close] literal delimiters so the
+      /// decoy text exists only at runtime, never contiguously in this file.
+      String decoy(String open, String close) =>
+          'final value = $open$_suppressionToken$close;';
+
+      test('CORR-N1 a token inside a line comment is ignored', () {
+        expect(
+          _suppressionSitesInSource(
+            'test/probe_fixture.dart',
+            '// textual mention only: $_suppressionToken',
+          ),
+          isEmpty,
+        );
+      });
+
+      test('CORR-N2 a token inside a block comment is ignored', () {
+        expect(
+          _suppressionSitesInSource(
+            'test/probe_fixture.dart',
+            '/* textual mention only: $_suppressionToken */',
+          ),
+          isEmpty,
+        );
+      });
+
+      test('CORR-N3 a token inside string literals is ignored', () {
+        final literals = <String>[
+          decoy("'", "'"),
+          decoy("r'", "'"),
+          decoy("'''", "'''"),
+          decoy('"""', '"""'),
+          decoy("'a\\'", "'"),
+        ];
+        for (final literal in literals) {
+          expect(
+            _suppressionSitesInSource('test/probe_fixture.dart', literal),
+            isEmpty,
+          );
+        }
+      });
+
+      test('CORR-N4 fake lifecycle text cannot bias suppression binding', () {
+        final fromComment = [
+          "// test('decoy comment', (",
+          realCall(),
+        ].join('\n');
+        final stringDecoy = [
+          'final String s = "test(',
+          "'decoy string', (",
+          '";',
+        ].join();
+        final fromString = [stringDecoy, realCall()].join('\n');
+        for (final source in <String>[fromComment, fromString]) {
+          final sites = _suppressionSitesInSource(
+            'test/probe_fixture.dart',
+            source,
+          );
+          expect(sites, hasLength(1));
+          expect(sites.single.identity, 'probe real test');
+        }
+      });
+
+      test('CORR-N5 marker text inside comments and strings is ignored', () {
+        final sources = <String>[
+          '// $_runtimeSuppressionMarker appears as prose only',
+          "final marker = '$_runtimeSuppressionMarker';",
+          '/* $_platformAnnotationMarker and $_platformAnnotationMarker */',
+          "final annotation = '$_platformAnnotationMarker';",
+        ];
+        for (final source in sources) {
+          expect(
+            () => _assertNoUnregisteredMechanismsIn(
+              'test/probe_fixture.dart',
+              source,
+            ),
+            returnsNormally,
+          );
+        }
+      });
+
+      test(
+        'CORR-N6 a real suppression on a real call is detected and bound',
+        () {
+          final sites = _suppressionSitesInSource(
+            'test/probe_fixture.dart',
+            realCall(),
+          );
+          expect(sites, hasLength(1));
+          expect(sites.single.kind, 'test');
+          expect(sites.single.identity, 'probe real test');
+          expect(sites.single.expression, 'true');
+
+          final groupSites = _suppressionSitesInSource(
+            'test/probe_fixture.dart',
+            realGroup(),
+          );
+          expect(groupSites, hasLength(1));
+          expect(groupSites.single.kind, 'group');
+          expect(groupSites.single.identity, 'probe real group');
+        },
+      );
+
+      test('CORR-N7 a real unregistered suppression is still unregistered', () {
+        final sites = _suppressionSitesInSource(
+          'test/probe_fixture.dart',
+          realCall(identity: 'probe unregistered real'),
+        );
+        final registry = <String, _RegistryEntry>{
+          for (final entry in _loadRegistry()) entry.bindingKey: entry,
+        };
+        final unregistered = sites
+            .where((site) => !registry.containsKey(site.bindingKey))
+            .toList();
+        expect(unregistered, hasLength(1));
+        expect(unregistered.single.identity, 'probe unregistered real');
+      });
+
+      test('CORR-N8 real marker constructs still fail closed', () {
+        expect(
+          () => _assertNoUnregisteredMechanismsIn(
+            'test/probe_fixture.dart',
+            'void probe() { $_runtimeSuppressionMarker(); }',
+          ),
+          throwsA(isA<_GateFailure>()),
+        );
+        expect(
+          () => _assertNoUnregisteredMechanismsIn(
+            'test/probe_fixture.dart',
+            "$_platformAnnotationMarker('vm')",
+          ),
+          throwsA(isA<_GateFailure>()),
+        );
+      });
+
+      test('CORR-N9 an unsorted discovery manifest fails closed', () {
+        final committed = _loadManifest();
+        expect(() => _assertManifestSorted(committed), returnsNormally);
+
+        final swapped = List<String>.of(committed);
+        final index = swapped.length ~/ 2;
+        final held = swapped[index];
+        swapped[index] = swapped[index + 1];
+        swapped[index + 1] = held;
+
+        expect(
+          () => _assertManifestSorted(swapped),
+          throwsA(
+            predicate(
+              (Object? error) =>
+                  error.toString().contains('not sorted lexicographically'),
+            ),
+          ),
+        );
+      });
+
+      test('the lexical mask preserves length, offsets and newlines', () {
+        final source = [
+          "final value = '$_suppressionToken';",
+          realCall(),
+        ].join('\n');
+        final mask = _lexicalCodeMask(source);
+        expect(mask.length, source.length);
+        expect(_suppressionTokenPattern.allMatches(source), hasLength(2));
+        expect(_suppressionTokenPattern.allMatches(mask), hasLength(1));
+        expect('\n'.allMatches(mask).length, '\n'.allMatches(source).length);
+      });
+
+      test('failure output stays structural and never echoes source text', () {
+        const planted = 'PROBE_MARKER_9F3C7';
+        final source = "final planted = '$planted';\n$_suppressionToken\n";
+        expect(
+          () => _suppressionSitesInSource('test/probe_fixture.dart', source),
+          throwsA(
+            predicate(
+              (Object? error) =>
+                  error.toString().contains('test/probe_fixture.dart') &&
+                  !error.toString().contains(planted),
+            ),
+          ),
+        );
+      });
     });
   });
 }
