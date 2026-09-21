@@ -81,10 +81,17 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
+      # M-1a (2026-09-21): the runner JDK was pinned to 17 while the pinned
+      # maplibre_gl 0.26.2 compiles its own Android sources with Java 21, so
+      # EVERY matrix job died in `:maplibre_gl:compileDebugJavaWithJavac` with
+      # "invalid source release: 21" before any smoke flow could run. This
+      # matches the toolchain alignment already applied to quality.yml. The
+      # app's own bytecode target is unchanged at 17 (tool/toolchain.json
+      # `java_bytecode_target`); this is the JDK that runs Gradle.
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: "21"
 
       - uses: subosito/flutter-action@v2
         with:

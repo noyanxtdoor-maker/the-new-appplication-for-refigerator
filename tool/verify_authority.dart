@@ -1,11 +1,11 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 
 import 'authority_rules.dart';
 
-const _organization = 'com.nexttransfer';
+// Android identity and Flutter pin are asserted from `authority_rules.dart`
+// (including `tool/toolchain.json`), so they are not duplicated here.
 const _applicationId = 'com.nexttransfer.rmplanner';
 const _flutterVersion = '3.44.7';
 
@@ -110,19 +110,12 @@ Future<void> main() async {
     'The active authorization overlay does not stop after VS-08',
     failures,
   );
-  _expectFileText(
-    File('tool/toolchain.json'),
-    (text) {
-      final value = jsonDecode(text) as Map<String, Object?>;
-      return value['flutter'] == _flutterVersion &&
-          value['android_organization'] == _organization &&
-          value['android_application_id'] == _applicationId &&
-          value['android_min_sdk'] == 24 &&
-          value['android_target_sdk'] == 36;
-    },
-    'tool/toolchain.json differs from the locked baseline',
-    failures,
-  );
+  // M-1c (2026-09-21): the single ambiguous `java` field became two explicit
+  // ones — the bytecode target the app compiles to (17) and the JDK that
+  // actually runs Gradle (21, required by the pinned maplibre_gl). The rules
+  // live in `authority_rules.dart` so both values are provable in BOTH
+  // directions from `test/tool/authority_gate_test.dart`.
+  _expectRules(File('tool/toolchain.json'), checkToolchain, failures);
 
   if (!File('pubspec.lock').existsSync()) {
     failures.add('pubspec.lock is missing');

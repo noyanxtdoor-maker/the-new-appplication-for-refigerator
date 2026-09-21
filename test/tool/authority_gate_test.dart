@@ -35,6 +35,7 @@ const String _mainActivityPath =
 const String _manifestPath = 'android/app/src/main/AndroidManifest.xml';
 const String _pubspecPath = 'pubspec.yaml';
 const String _schemaPath = 'lib/core/database/app_database.dart';
+const String _toolchainPath = 'tool/toolchain.json';
 
 String _read(String path) => File(path).readAsStringSync();
 
@@ -259,6 +260,104 @@ void main() {
           'dev_dependencies:\n  workmanager: 0.10.9\n';
 
       expect(checkPubspec(pubspec), isNotEmpty);
+    });
+  });
+
+  // M-1c (2026-09-21): one ambiguous `"java": "17"` field became two explicit
+  // ones. Both directions are proven for BOTH values, so neither the bytecode
+  // target nor the build JDK can drift unnoticed again.
+  group('authority gate — toolchain authority', () {
+    late String toolchain;
+
+    setUp(() {
+      toolchain = _read(_toolchainPath);
+    });
+
+    test('the live toolchain.json satisfies the locked baseline', () {
+      expect(checkToolchain(toolchain), isEmpty);
+      expect(toolchain, contains('"flutter": "$approvedFlutterVersion"'));
+      expect(
+        toolchain,
+        contains('"android_organization": "$approvedOrganization"'),
+      );
+    });
+
+    test('the ambiguous single java field is gone', () {
+      expect(toolchain, isNot(contains('"java"')));
+    });
+
+    test('the two Java facts are stated separately', () {
+      expect(
+        toolchain,
+        contains('"java_bytecode_target": $approvedJavaBytecodeTarget'),
+      );
+      expect(toolchain, contains('"java_build_jdk": $approvedJavaBuildJdk'));
+      expect(approvedJavaBytecodeTarget, 17);
+      expect(approvedJavaBuildJdk, 21);
+    });
+
+    test('a build JDK pinned back to 17 fails', () {
+      final mutated = toolchain.replaceFirst(
+        '"java_build_jdk": 21',
+        '"java_build_jdk": 17',
+      );
+
+      expect(checkToolchain(mutated), isNotEmpty);
+    });
+
+    test('a bytecode target raised to 21 fails', () {
+      final mutated = toolchain.replaceFirst(
+        '"java_bytecode_target": 17',
+        '"java_bytecode_target": 21',
+      );
+
+      expect(checkToolchain(mutated), isNotEmpty);
+    });
+
+    test('a missing build JDK fails', () {
+      final mutated = toolchain.replaceFirst(
+        RegExp(r'\s*"java_build_jdk": 21,'),
+        '',
+      );
+
+      expect(checkToolchain(mutated), isNotEmpty);
+    });
+
+    test('a missing bytecode target fails', () {
+      final mutated = toolchain.replaceFirst(
+        RegExp(r'\s*"java_bytecode_target": 17,'),
+        '',
+      );
+
+      expect(checkToolchain(mutated), isNotEmpty);
+    });
+
+    test('a changed Flutter pin fails', () {
+      final mutated = toolchain.replaceFirst(
+        '"flutter": "3.44.7"',
+        '"flutter": "3.44.6"',
+      );
+
+      expect(checkToolchain(mutated), isNotEmpty);
+    });
+
+    test('malformed JSON fails closed instead of throwing', () {
+      expect(checkToolchain('{ not json'), isNotEmpty);
+    });
+
+    test('the controls are real: correcting a mutation restores a pass', () {
+      final mutated = toolchain.replaceFirst(
+        '"java_build_jdk": 21',
+        '"java_build_jdk": 17',
+      );
+
+      expect(checkToolchain(mutated), isNotEmpty);
+      expect(
+        checkToolchain(
+          mutated.replaceFirst('"java_build_jdk": 17', '"java_build_jdk": 21'),
+        ),
+        isEmpty,
+      );
     });
   });
 }

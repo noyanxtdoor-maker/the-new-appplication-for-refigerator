@@ -23,6 +23,8 @@
 /// provable by `test/tool/authority_gate_test.dart` without running a script.
 library;
 
+import 'dart:convert';
+
 /// Flutter toolchain pin enforced alongside `.flutter-version`.
 const String approvedFlutterVersion = '3.44.7';
 
@@ -32,6 +34,36 @@ const String approvedApplicationId = 'com.nexttransfer.rmplanner';
 const int approvedMinSdk = 24;
 const int approvedCompileSdk = 36;
 const int approvedTargetSdk = 36;
+
+/// JDK facts, split apart because they are genuinely different questions.
+///
+/// M-1c (2026-09-21): a single ambiguous `"java": "17"` field used to stand for
+/// both halves of this, and it was never read by any gate. Two facts were being
+/// conflated:
+///
+///   * [approvedJavaBytecodeTarget] — what Android/Kotlin compile *to*. Still 17
+///     (`sourceCompatibility` / `targetCompatibility` / Kotlin `jvmTarget` in
+///     `android/app/build.gradle.kts`), unchanged.
+///   * [approvedJavaBuildJdk] — the JDK that actually runs Gradle. The pinned
+///     `maplibre_gl 0.26.2` compiles its own Android sources with Java 21, so a
+///     JDK 17 runner fails with `invalid source release: 21` before any test
+///     runs.
+const int approvedJavaBytecodeTarget = 17;
+const int approvedJavaBuildJdk = 21;
+
+/// Every value `tool/toolchain.json` must state, exactly.
+///
+/// One table, so a new toolchain fact is added in one place and is checked by
+/// both directions of `test/tool/authority_gate_test.dart`.
+const Map<String, Object?> lockedToolchainValues = <String, Object?>{
+  'flutter': approvedFlutterVersion,
+  'android_organization': approvedOrganization,
+  'android_application_id': approvedApplicationId,
+  'android_min_sdk': approvedMinSdk,
+  'android_target_sdk': approvedTargetSdk,
+  'java_bytecode_target': approvedJavaBytecodeTarget,
+  'java_build_jdk': approvedJavaBuildJdk,
+};
 
 /// Frozen product law (M6): schema 47 through v0.1.1 build 3; schema 48 from
 /// the owner-authorized Detailed Content master pass (2026-09-19, item E).
@@ -264,6 +296,34 @@ List<String> checkSchemaBoundary(String text) {
   for (final table in requiredSchemaTables) {
     if (!text.contains(table)) {
       failures.add('Frozen schema is missing required declaration: $table');
+    }
+  }
+  return failures;
+}
+
+/// `tool/toolchain.json` must state the locked toolchain exactly.
+///
+/// Fail-closed by construction: malformed JSON is reported as a violation
+/// rather than allowed to throw, and a MISSING key is a violation too — a null
+/// lookup never silently equals an expected value. Both Java facts are checked,
+/// so neither the bytecode target nor the build JDK can drift unnoticed.
+List<String> checkToolchain(String text) {
+  final Object? parsed;
+  try {
+    parsed = jsonDecode(text);
+  } on FormatException {
+    return <String>['toolchain.json is not valid JSON'];
+  }
+  if (parsed is! Map<String, Object?>) {
+    return <String>['toolchain.json is not a JSON object'];
+  }
+  final failures = <String>[];
+  for (final entry in lockedToolchainValues.entries) {
+    final actual = parsed[entry.key];
+    if (actual != entry.value) {
+      failures.add(
+        'toolchain.json ${entry.key} is $actual (locked: ${entry.value})',
+      );
     }
   }
   return failures;
