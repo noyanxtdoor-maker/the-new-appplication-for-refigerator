@@ -89,10 +89,10 @@ final class PlannerSelectionId {
 }
 
 abstract final class PlannerZoomPolicy {
-  // Discrete preset anchors used by the Planner Settings dropdown
-  // and by the Settings screen's preset classification. The pinch
-  // gesture can move continuously between these anchors and beyond
-  // them up to the viewport-derived min/max clamp range below.
+  // Discrete preset anchors. The Planner Settings zoom dropdown was
+  // retired by the owner (P1, 2026-09-21); the live zoom surface is the
+  // pinch gesture, which moves continuously between these anchors and
+  // beyond them up to the viewport-derived min/max clamp range below.
   static const double compactHourHeight = 44;
   static const double normalHourHeight = 60;
   static const double expandedHourHeight = 88;
@@ -153,9 +153,45 @@ abstract final class PlannerZoomPolicy {
         .toDouble();
   }
 
+  /// The ORDERED runtime pinch bounds for a usable viewport and a
+  /// configured visible-window span.
+  ///
+  /// The two derived limits answer different questions and can legitimately
+  /// invert for a very short window. The zoom-out floor is "the hour height at
+  /// which the whole configured window fits", while the zoom-in ceiling is "the
+  /// hour height that shows [maxZoomInVisibleHours] intervals". For a 1-hour
+  /// window on a ~700 dp viewport the floor is the absolute ceiling (320) while
+  /// the ceiling is ~254.5 — lower > upper. `num.clamp` throws
+  /// `ArgumentError` when lower > upper, which is the reachable P1 defect this
+  /// method exists to remove.
+  ///
+  /// The floor always wins: showing the whole configured window is mandatory,
+  /// so the pair collapses to a single permitted value instead of raising.
+  /// Every permitted 1–24-hour window therefore yields non-inverted bounds.
+  static ({double minimum, double maximum}) zoomBoundsFor({
+    required double viewportHeight,
+    required int configuredHours,
+  }) {
+    if (viewportHeight <= 0) {
+      return (
+        minimum: absoluteMinimumHourHeight,
+        maximum: absoluteMaximumHourHeight,
+      );
+    }
+    final minimum = minimumHourHeightFor(
+      viewportHeight: viewportHeight,
+      configuredHours: configuredHours,
+    );
+    final maximum = maximumHourHeightFor(viewportHeight: viewportHeight);
+    return (minimum: minimum, maximum: maximum < minimum ? minimum : maximum);
+  }
+
   /// Runtime pinch clamp derived from the actual usable timeline
   /// viewport and the configured planning-window span. Falls back to
   /// the absolute safety range when the viewport is unknown.
+  ///
+  /// Uses the ordered bounds from [zoomBoundsFor], so every permitted
+  /// 1–24-hour visible window has a valid, non-inverted clamp range.
   static double clampForViewport(
     double value, {
     required double viewportHeight,
@@ -164,15 +200,11 @@ abstract final class PlannerZoomPolicy {
     if (viewportHeight <= 0) {
       return clampAbsolute(value);
     }
-    return value
-        .clamp(
-          minimumHourHeightFor(
-            viewportHeight: viewportHeight,
-            configuredHours: configuredHours,
-          ),
-          maximumHourHeightFor(viewportHeight: viewportHeight),
-        )
-        .toDouble();
+    final bounds = zoomBoundsFor(
+      viewportHeight: viewportHeight,
+      configuredHours: configuredHours,
+    );
+    return value.clamp(bounds.minimum, bounds.maximum).toDouble();
   }
 
   /// The pinch dead-zone contract was tightened in Stage B3-R1

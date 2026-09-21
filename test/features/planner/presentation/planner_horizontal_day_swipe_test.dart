@@ -26,11 +26,13 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:rmplanner/core/database/app_database.dart';
 import 'package:rmplanner/core/diagnostics/sanitized_diagnostics.dart';
 import 'package:rmplanner/core/platform/app_environment.dart';
 import 'package:rmplanner/features/planner/application/calendar_event_repository.dart';
+import 'package:rmplanner/features/planner/application/event_type_providers.dart';
 import 'package:rmplanner/features/planner/data/calendar_event_time_zones.dart';
 import 'package:rmplanner/features/planner/data/drift_calendar_event_repository.dart';
 import 'package:rmplanner/features/planner/data/drift_outcome_reporting_repository.dart';
@@ -1671,10 +1673,36 @@ void main() {
           frequency: CalendarRecurrenceFrequency.weekly,
         ),
       );
+      // P1 (2026-09-21): the canvas IS the configured visible window, and this
+      // owner scenario resizes a 12:00 AM-5:30 AM recurring Event. Widen the
+      // configured window to the whole civil day so that Event is on-canvas and
+      // its END handle is reachable. The scenario itself (END shrink of a
+      // long recurring Event, then "All events") is unchanged.
+      final resizeContainer = ProviderScope.containerOf(
+        tester.element(find.byType(MaterialApp).first),
+      );
+      await resizeContainer
+          .read(eventTypeControllerProvider.notifier)
+          .saveSettings(
+            resizeContainer
+                .read(eventTypeControllerProvider)
+                .settings
+                .copyWith(visibleStartHour: 0, visibleEndHour: 24),
+          );
+      await tester.pumpAndSettle();
+
       final profileId =
           (await database.select(database.localProfiles).getSingle()).id;
       final occurrenceId = occurrenceIdFor(scheduledEventId2, selected);
       final blockFinder = find.byKey(Key('planner-timed-event-$occurrenceId'));
+      // P1 (2026-09-21): widening the window preserves the anchored view (the
+      // documented one-shot range reconciliation keeps the previously visible
+      // hours under the viewport), so the 12:00 AM-5:30 AM Event is on-canvas
+      // but above the fold. An owner would scroll to it; put the owner-scenario
+      // Event in view deterministically before the resize gesture so the long
+      // press lands on the block itself instead of on empty viewport space.
+      await tester.ensureVisible(blockFinder);
+      await tester.pumpAndSettle();
       await tester.longPress(blockFinder);
       await tester.pumpAndSettle();
 
@@ -2388,7 +2416,9 @@ void main() {
         final gridRect = tester.getRect(
           find.byKey(const Key('planner-time-grid')),
         );
-        final hourHeight = gridRect.height / 24;
+        // P1 (2026-09-21): the canvas IS the configured 06:00-22:00 window,
+        // so the live hour height is the grid height over 16 slots.
+        final hourHeight = gridRect.height / 16;
         final sourceRange = '9:00 AM - 11:00 AM';
         // Candidate is at 11:00 AM; the ghost INTERNAL text is still the
         // frozen source snapshot, not the candidate range.
@@ -2768,7 +2798,9 @@ void main() {
         final gridRect = tester.getRect(
           find.byKey(const Key('planner-time-grid')),
         );
-        final hourHeight = gridRect.height / 24;
+        // P1 (2026-09-21): the canvas IS the configured 06:00-22:00 window,
+        // so the live hour height is the grid height over 16 slots.
+        final hourHeight = gridRect.height / 16;
         await tester.longPress(source);
         await tester.pumpAndSettle();
         final gesture = await tester.startGesture(tester.getCenter(source));
@@ -2789,9 +2821,12 @@ void main() {
           findsNothing,
           reason: 'the ghost disappears on drop',
         );
+        // P1 (2026-09-21): the canvas origin is the configured 06:00 window
+        // start, so the 11:00 AM candidate sits (11 - 6) canvas hours below
+        // the grid top rather than eleven midnight-based hours.
         expect(
           tester.getRect(projected).top,
-          closeTo(gridRect.top + 11 * hourHeight, 0.5),
+          closeTo(gridRect.top + (11 - 6) * hourHeight, 0.5),
           reason:
               'the pending projection appears at the candidate 11:00 '
               'position before the commit completes',

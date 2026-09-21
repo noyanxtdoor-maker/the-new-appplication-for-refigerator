@@ -938,7 +938,11 @@ class _PlannerInteractiveDayPagerState extends State<PlannerInteractiveDayPager>
           final translationX = -viewportWidth + _liveDragOffset;
           return SizedBox(
             width: viewportWidth,
-            height: widget.timelineHeight,
+            // The clip is taller than the canvas by exactly the bottom
+            // boundary allowance, so the final boundary label (drawn just
+            // below the final line, matching every other hour label) stays
+            // visible instead of being cut off at the canvas edge.
+            height: widget.timelineHeight + widget.bottomBoundaryExtent,
             child: ClipRect(
               child: Stack(
                 clipBehavior: Clip.hardEdge,
@@ -973,6 +977,7 @@ class _PlannerInteractiveDayPagerState extends State<PlannerInteractiveDayPager>
                             width: viewportWidth,
                             isToday: widget.today == widget.previousDate,
                             currentTimeListenable: widget.currentTimeListenable,
+                            visibleRange: widget.visibleRange,
                           ),
                           KeyedSubtree(
                             key: Key(
@@ -1001,6 +1006,7 @@ class _PlannerInteractiveDayPagerState extends State<PlannerInteractiveDayPager>
                             width: viewportWidth,
                             isToday: widget.today == widget.nextDate,
                             currentTimeListenable: widget.currentTimeListenable,
+                            visibleRange: widget.visibleRange,
                           ),
                         ],
                       ),
@@ -1064,11 +1070,14 @@ class _PlannerInteractiveDayPagerState extends State<PlannerInteractiveDayPager>
     if (events.isEmpty) {
       return const <Widget>[];
     }
+    final range = PlannerEffectiveRange.of(settings);
     final placements = PlannerDisplayGeometry.resolve(
       events: events,
       hourHeight: widget.previewHourHeight ?? widget.hourHeight,
       viewportHeight: widget.viewportHeight,
-      configuredHours: settings.visibleEndHour - settings.visibleStartHour,
+      configuredHours: range.spanHours,
+      rangeStartMinute: range.startMinute,
+      rangeEndMinute: range.endMinute,
     );
     final accentWidth = PlannerEventBlockLayoutPolicy.eventAccentWidth;
     final strips = <Widget>[];
@@ -1083,8 +1092,7 @@ class _PlannerInteractiveDayPagerState extends State<PlannerInteractiveDayPager>
       // The previous column sits at Row x 0, so the block's left edge in
       // viewport coordinates is the strip translation plus its column-local
       // left. The strip translation already includes the live drag offset.
-      final blockLeftInViewport =
-          -viewportWidth + liveDrag + horizontal.left;
+      final blockLeftInViewport = -viewportWidth + liveDrag + horizontal.left;
       final blockRightInViewport = blockLeftInViewport + horizontal.width;
       // Fragment accent only when the body is visible but the true left
       // accent (the first `accentWidth` px of the block) is fully clipped.
@@ -1148,6 +1156,13 @@ class PlannerInteractiveDayPager extends StatefulWidget {
     // non-pinch callers and tests unchanged).
     this.previewHourHeight,
     required this.timelineHeight,
+    // P1 owner correction (2026-09-21): vertical allowance appended to the
+    // CLIPPED pager box below the canvas. The final configured boundary label
+    // sits just below its line like every other hour label, and it needs to be
+    // inside the clip to be visible. The canvas/page height itself stays
+    // [timelineHeight], so no canvas, extent or zoom geometry changes; callers
+    // that do not need the allowance leave it at 0.
+    this.bottomBoundaryExtent = 0,
     required this.viewportWidth,
     this.viewportHeight = 0,
     required this.onSwipePointerDown,
@@ -1161,6 +1176,7 @@ class PlannerInteractiveDayPager extends StatefulWidget {
     this.onPagerCommitPrepared,
     required this.currentPage,
     required this.currentTimeListenable,
+    this.visibleRange,
     PlannerInteractiveDayPagerController? controller,
   }) : controller = controller ?? PlannerInteractiveDayPagerController();
 
@@ -1180,10 +1196,21 @@ class PlannerInteractiveDayPager extends StatefulWidget {
   final Map<String, EventColorPreference> eventColorsByTypeId;
   final double hourHeight;
 
+  /// The effective presentation window (P1, 2026-09-21). Null derives it from
+  /// [settings] inside each preview column. The parent passes an explicit
+  /// value only while the temporary full-day disclosure override is active so
+  /// the offscreen previews match the centered canvas exactly.
+  final PlannerEffectiveRange? visibleRange;
+
   /// S2A committed preview height; see constructor docs.
   final double? previewHourHeight;
 
   final double timelineHeight;
+
+  /// Extra clipped vertical space below the canvas so the final configured
+  /// boundary label is visible below its line. See the constructor docs.
+  final double bottomBoundaryExtent;
+
   final double viewportWidth;
 
   /// The usable vertical viewport height of the day scroll view.  Shared by
@@ -1253,6 +1280,7 @@ class PlannerInteractiveDayPager extends StatefulWidget {
       scrollController: scrollController,
       settings: settings,
       viewportHeight: timelineHeight,
+      visibleRange: visibleRange,
     );
   }
 
@@ -1282,6 +1310,7 @@ class PlannerLoadingDayTimeline extends StatelessWidget {
     required this.hourHeight,
     required this.viewportHeight,
     required this.currentTimeListenable,
+    this.visibleRange,
   });
 
   final PlannerDate selectedDate;
@@ -1290,6 +1319,11 @@ class PlannerLoadingDayTimeline extends StatelessWidget {
   final double hourHeight;
   final double viewportHeight;
   final ValueListenable<DateTime> currentTimeListenable;
+
+  /// The effective presentation window (P1, 2026-09-21); null derives it from
+  /// [settings]. The parent passes the active range (including the temporary
+  /// full-day override) so the loading grid matches the settled canvas.
+  final PlannerEffectiveRange? visibleRange;
 
   @override
   Widget build(BuildContext context) {
@@ -1306,6 +1340,7 @@ class PlannerLoadingDayTimeline extends StatelessWidget {
           width: constraints.maxWidth,
           isToday: selectedDate == today,
           currentTimeListenable: currentTimeListenable,
+          visibleRange: visibleRange,
         );
       },
     );
@@ -1332,6 +1367,7 @@ class _PagerPreviewColumn extends StatefulWidget {
     required this.width,
     required this.isToday,
     required this.currentTimeListenable,
+    this.visibleRange,
   });
 
   final PlannerDate pageDate;
@@ -1342,6 +1378,12 @@ class _PagerPreviewColumn extends StatefulWidget {
   final double viewportHeight;
   final double width;
   final bool isToday;
+
+  /// The effective presentation window (P1, 2026-09-21). Null derives it from
+  /// [settings]; the parent passes an explicit value only while the temporary
+  /// full-day disclosure override is active, so the previews stay exactly as
+  /// tall and as aligned as the centered canvas.
+  final PlannerEffectiveRange? visibleRange;
 
   /// Authoritative current-time source shared with the
   /// centered timeline. The preview column uses this
@@ -1360,6 +1402,12 @@ class _PagerPreviewColumnState extends State<_PagerPreviewColumn> {
   double? _cachedViewportHeight;
   PlannerDay? _cachedPageDay;
   PlannerSettings? _cachedSettings;
+  PlannerEffectiveRange? _cachedRange;
+
+  /// The effective presentation window for this column (P1). Null means the
+  /// whole civil day, which is exactly the pre-P1 behaviour.
+  PlannerEffectiveRange get _range =>
+      widget.visibleRange ?? PlannerEffectiveRange.of(widget.settings);
 
   bool get _geometryInputsChanged {
     final widget = this.widget;
@@ -1367,7 +1415,8 @@ class _PagerPreviewColumnState extends State<_PagerPreviewColumn> {
         _cachedHourHeight != widget.hourHeight ||
         _cachedViewportHeight != widget.viewportHeight ||
         !identical(_cachedPageDay, widget.pageDay) ||
-        !identical(_cachedSettings, widget.settings);
+        !identical(_cachedSettings, widget.settings) ||
+        _cachedRange != _range;
   }
 
   /// Recompute display geometry only when a resolve input actually changed.
@@ -1388,18 +1437,21 @@ class _PagerPreviewColumnState extends State<_PagerPreviewColumn> {
                       event.state != PlannerEventState.cancelled),
             )
             .toList(growable: false);
+    final range = _range;
     final placements = PlannerDisplayGeometry.resolve(
       events: events,
       hourHeight: widget.hourHeight,
       viewportHeight: widget.viewportHeight,
-      configuredHours:
-          widget.settings.visibleEndHour - widget.settings.visibleStartHour,
+      configuredHours: range.spanHours,
+      rangeStartMinute: range.startMinute,
+      rangeEndMinute: range.endMinute,
     );
     _placements = placements;
     _cachedHourHeight = widget.hourHeight;
     _cachedViewportHeight = widget.viewportHeight;
     _cachedPageDay = widget.pageDay;
     _cachedSettings = widget.settings;
+    _cachedRange = range;
   }
 
   @override
@@ -1419,15 +1471,18 @@ class _PagerPreviewColumnState extends State<_PagerPreviewColumn> {
     _resolveIfNeeded();
     final hourHeight = widget.hourHeight;
     final placements = _placements ?? const <PlannerDisplayPlacement>[];
-    // The preview grid mirrors the centered timeline: the canvas spans
-    // the full civil day, and the configured planning window is a soft
-    // window (PMG parity) that only gates the current-time indicator.
-    final firstHour = kPlannerCivilDayStartHour;
-    final lastHour = kPlannerCivilDayEndHour;
-    final slotCount = lastHour - firstHour;
+    // P1 (2026-09-21): the preview grid mirrors the centered timeline exactly,
+    // so it consumes the SAME effective presentation range: firstHour IS the
+    // configured start hour (pixel 0) and lastHour the inclusive final
+    // boundary. The hidden-midnight rule survives in its only true form — a
+    // midnight boundary (00:00 or 24:00) is never labelled or lined.
+    final range = _range;
+    final firstHour = range.startHour;
+    final lastHour = range.endHour;
+    final slotCount = range.spanHours;
     final pixelsPerMinute = PlannerTimelineGeometry.pixelsPerMinute(hourHeight);
-    final visibleStart = kPlannerCivilDayStartMinute;
-    final visibleEnd = kPlannerCivilDayEndMinute;
+    final visibleStart = range.startMinute;
+    final visibleEnd = range.endMinute;
     final width = widget.width;
     return SizedBox(
       width: width,
@@ -1435,43 +1490,49 @@ class _PagerPreviewColumnState extends State<_PagerPreviewColumn> {
       child: Stack(
         clipBehavior: Clip.none,
         children: <Widget>[
-          // PMG hidden-midnight model: the 12 AM top and bottom boundaries
-          // are hidden (no label, no line); 1 AM is the first visible label
-          // and 11 PM the last. The 12 AM-1 AM and 11 PM-12 AM slots remain
-          // fully usable because the canvas still spans 0..1440 minutes.
-          for (var index = 1; index < slotCount; index++) ...<Widget>[
-            Positioned(
-              // Match the centered timeline: the boundary line comes first
-              // and its label sits immediately below it inside the hour cell.
-              top: index * hourHeight + 2,
-              left: 0,
-              width: kPlannerPagerTimeColumnWidth,
-              child: Text(
-                _hourLabel(index, widget.settings.use24HourTime),
-                // Hour labels must never wrap (the test fallback font
-                // renders every glyph at fontSize width, which would wrap
-                // short labels and push them below the final line).
-                maxLines: 1,
-                softWrap: false,
-                textAlign: TextAlign.right,
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  // Preview/settled parity (audit 2026-08-16): the preview
-                  // column must render the EXACT same hour labels as the
-                  // settled timeline — the old 0xB3/0xFF (white70) made the
-                  // preview labels visibly stronger than the settled 0.54
-                  // (white54) and the labels changed opacity at commit.
-                  color: AppTheme.onFillTextOf(context, 0.54),
+          // Midnight boundaries stay hidden (no label, no line): 00:00 is
+          // always the hidden canvas top when the window starts at midnight,
+          // and 24:00 is never dressed up as a synthetic row. Every other
+          // configured boundary — including the final one — is labelled
+          // inclusively, so a 6 AM-6 PM window reads 6 AM first and 6 PM last.
+          for (var index = firstHour; index <= lastHour; index++)
+            if (index != 0 && index != 24) ...<Widget>[
+              Positioned(
+                // Match the centered timeline: the boundary line comes first
+                // and its label sits immediately below it inside the hour cell.
+                top: (index - firstHour) * hourHeight + 2,
+                left: 0,
+                width: kPlannerPagerTimeColumnWidth,
+                child: Text(
+                  _hourLabel(index, widget.settings.use24HourTime),
+                  // Hour labels must never wrap (the test fallback font
+                  // renders every glyph at fontSize width, which would wrap
+                  // short labels and push them below the final line).
+                  maxLines: 1,
+                  softWrap: false,
+                  textAlign: TextAlign.right,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    // Preview/settled parity (audit 2026-08-16): the preview
+                    // column must render the EXACT same hour labels as the
+                    // settled timeline — the old 0xB3/0xFF (white70) made the
+                    // preview labels visibly stronger than the settled 0.54
+                    // (white54) and the labels changed opacity at commit.
+                    color: AppTheme.onFillTextOf(context, 0.54),
+                  ),
                 ),
               ),
-            ),
-            Positioned(
-              key: Key('planner-pager-full-hour-line-$index'),
-              top: index * hourHeight,
-              left: kPlannerPagerTimeColumnWidth,
-              right: 0,
-              child: Divider(height: 1, color: AppTheme.outlineOf(context)),
-            ),
-          ],
+              Positioned(
+                key: Key('planner-pager-full-hour-line-$index'),
+                // The final configured boundary IS the canvas bottom edge, so its
+                // 1px line is drawn just inside the canvas instead of past it.
+                top: index == lastHour
+                    ? (index - firstHour) * hourHeight - 1
+                    : (index - firstHour) * hourHeight,
+                left: kPlannerPagerTimeColumnWidth,
+                right: 0,
+                child: Divider(height: 1, color: AppTheme.outlineOf(context)),
+              ),
+            ],
           // Current-time indicator: painted BEFORE the Event blocks so the
           // final z-order (hour grid -> current-time indicator -> Event
           // blocks) matches the centered timeline and cards cover the line
@@ -1479,7 +1540,7 @@ class _PagerPreviewColumnState extends State<_PagerPreviewColumn> {
           // centered timeline so a focused test can drive minute, hour, and
           // date transitions deterministically. The ValueListenableBuilder
           // rebuilds only this subtree on a minute tick.
-          if (widget.settings.showCurrentTime && widget.isToday)
+          if (widget.settings.effectiveShowCurrentTime && widget.isToday)
             ValueListenableBuilder<DateTime>(
               valueListenable: widget.currentTimeListenable,
               builder: (context, now, _) {
@@ -1636,7 +1697,7 @@ class _PagerPreviewColumnState extends State<_PagerPreviewColumn> {
     required int visibleStart,
     required int visibleEnd,
   }) {
-    if (widget.settings.showCurrentTime != true) {
+    if (!widget.settings.effectiveShowCurrentTime) {
       return const SizedBox.shrink();
     }
     final current = PlannerDate.fromDateTime(now);
@@ -1644,15 +1705,17 @@ class _PagerPreviewColumnState extends State<_PagerPreviewColumn> {
       return const SizedBox.shrink();
     }
     final minuteOfDay = now.hour * 60 + now.minute;
-    // M6 closure: the bound is the CANVAS minute range the caller passes
-    // in (the full 00:00-1440 civil day), never the soft planning window.
-    // The planning window only seeds the initial scroll position and the
-    // max-zoom-out fit target, so gating visibility on it blanked the
-    // indicator during the boundary hours of any narrower window.
+    // P1 (2026-09-21): the bound is the CANVAS minute range the caller passes
+    // in, which is now the effective presentation window. A current time
+    // outside the configured window is genuinely absent — never painted at a
+    // clamped false boundary — and the temporary full-day override reveals it
+    // naturally because the window passed in becomes the whole civil day.
     if (minuteOfDay < visibleStart || minuteOfDay >= visibleEnd) {
       return const SizedBox.shrink();
     }
-    final resolvedMinuteY = minuteOfDay * pixelsPerMinute;
+    // Pixel 0 is the canvas origin (the configured start hour), so the
+    // indicator measures from the window start, not from midnight.
+    final resolvedMinuteY = (minuteOfDay - visibleStart) * pixelsPerMinute;
     final resolvedIndicatorTop =
         resolvedMinuteY - kPlannerPagerCurrentTimeIndicatorHeight / 2;
     return Positioned(
@@ -1684,8 +1747,8 @@ class _PagerPreviewColumnState extends State<_PagerPreviewColumn> {
                       // time text itself is the highlighted element — semantic
                       // primary, larger (fontSize 15) in a 62dp leftward-
                       // widened area with 4dp padding.
-                      height: PlannerCurrentTimeHorizontalGeometry
-                          .capsuleHeight,
+                      height:
+                          PlannerCurrentTimeHorizontalGeometry.capsuleHeight,
                       alignment: Alignment.center,
                       padding: const EdgeInsets.symmetric(horizontal: 4),
                       child: Text(

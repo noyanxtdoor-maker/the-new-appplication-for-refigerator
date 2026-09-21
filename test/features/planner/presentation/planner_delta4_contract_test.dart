@@ -169,7 +169,7 @@ void main() {
       final topLeft = tester.getTopLeft(surface);
       final threeAmLabel = find.descendant(
         of: find.byKey(const Key('planner-day-page-2026-08-08')),
-        matching: find.text('3 AM'),
+        matching: find.text('6 AM'),
       );
       expect(threeAmLabel, findsOneWidget);
       await tester.tapAt(tester.getCenter(threeAmLabel));
@@ -187,8 +187,10 @@ void main() {
       );
       expect(
         labelContainer.read(plannerEventCreationDraftProvider)!.startMinute,
-        3 * 60,
-        reason: 'tapping the 3 AM label must create at exactly 3:00 AM',
+        6 * 60,
+        reason:
+            'tapping the first configured gutter label (6 AM) must create '
+            'at exactly 6:00 AM',
       );
       tester
           .widget<IconButton>(
@@ -198,8 +200,10 @@ void main() {
           ?.call();
       await tester.pump(const Duration(milliseconds: 600));
       expect(labelContainer.read(plannerEventCreationDraftProvider), isNull);
-      // x=20 is inside the left time gutter; y=210 maps to 3:30 AM at the
-      // default 60 px/hour density.
+      // x=20 is inside the left time gutter; P1 (2026-09-21) makes the
+      // canvas origin the configured 06:00 start, so y=210 maps to 9:30 AM
+      // (360 + 210) at the default 60 px/hour density — the same tap offset
+      // now lands six hours later on the clock.
       await tester.tapAt(topLeft + const Offset(20, 210));
       await tester.pumpAndSettle();
       expect(find.text('Select Event Type'), findsOneWidget);
@@ -216,10 +220,10 @@ void main() {
         expect(await database.select(database.calendarEvents).get(), isEmpty);
         final container = ProviderScope.containerOf(tester.element(form));
         var draft = container.read(plannerEventCreationDraftProvider)!;
-        expect(draft.startMinute, 3 * 60 + 30);
+        expect(draft.startMinute, 9 * 60 + 30);
         // Delta 4.2R R9: the provisional draft follows the configured
         // Planner default (30 minutes), not the Event Type default.
-        expect(draft.endMinute, 4 * 60);
+        expect(draft.endMinute, 10 * 60);
         // Delta 4.1 draggable editor sheet: the form starts at ~40% so the
         // draft block and its endpoint handles stay above the sheet and
         // reachable.  Resize the draft FIRST (while the sheet is at its
@@ -238,7 +242,7 @@ void main() {
         draft = container.read(plannerEventCreationDraftProvider)!;
         expect(
           draft.endMinute,
-          4 * 60 + 30,
+          10 * 60 + 30,
           reason:
               'the endpoint handle must resize after ordinary touch slop '
               'without an additional hold',
@@ -260,8 +264,8 @@ void main() {
         }
         await tester.ensureVisible(startTime.first);
         await tester.pump(const Duration(milliseconds: 300));
-        expect(find.text('3:30 AM'), findsOneWidget);
-        expect(find.text('4:30 AM'), findsOneWidget);
+        expect(find.text('9:30 AM'), findsOneWidget);
+        expect(find.text('10:30 AM'), findsOneWidget);
 
         final titleField = find.byKey(const Key('event-title-field'));
         for (
@@ -287,8 +291,8 @@ void main() {
         final rows = await database.select(database.calendarEvents).get();
         expect(rows, hasLength(1));
         expect(rows.single.title, 'Delta 4 gutter Event');
-        expect(rows.single.startMinute, 3 * 60 + 30);
-        expect(rows.single.endMinute, 4 * 60 + 30);
+        expect(rows.single.startMinute, 9 * 60 + 30);
+        expect(rows.single.endMinute, 10 * 60 + 30);
         expect(container.read(plannerEventCreationDraftProvider), isNull);
         expect(
           find.byKey(const Key('planner-provisional-event-block')),

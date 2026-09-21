@@ -4,18 +4,100 @@ import 'package:rmplanner/features/planner/domain/planner_date.dart';
 import 'package:rmplanner/features/planner/domain/planner_day.dart';
 import 'package:rmplanner/features/planner/domain/planner_settings.dart';
 
-/// The Planner timeline canvas always spans the full civil day.
+/// The full civil day: the outermost bound any presentation range may use.
 ///
-/// The configured planning window (PlannerSettings.visibleStartHour /
-/// visibleEndHour) is a soft planning window used for the default
-/// initial scroll position and the maximum-zoom-out fit target; it no
-/// longer clips the canvas. Times before the configured start and after
-/// the configured end remain reachable, creatable, and editable within
-/// the 00:00 - 24:00 civil-day bounds (PMG parity).
+/// P1 (2026-09-21): the Planner timeline canvas no longer always spans the
+/// whole civil day. The configured Visible Start/End Hours now define the
+/// DEFAULT canvas (see [PlannerEffectiveRange]); the civil-day constants below
+/// remain the absolute bounds a range is validated against and the safe
+/// full-day fallback when stored range data is unusable.
 const int kPlannerCivilDayStartHour = 0;
 const int kPlannerCivilDayEndHour = 24;
 const int kPlannerCivilDayStartMinute = 0;
 const int kPlannerCivilDayEndMinute = 24 * 60;
+
+/// The ONE effective Planner presentation window (P1, 2026-09-21).
+///
+/// Every consumer that measures the timeline — the centered canvas and its
+/// ruler, the pager preview columns, the scroll extent, the initial focus, the
+/// current-time coordinates, the pinch extent prediction, the drag ghost and
+/// resize hit testing — derives its origin and span from this single value.
+/// [startMinute] is the canvas origin (pixel 0) and [endMinute] is the inclusive
+/// final boundary.
+///
+/// This is a PRESENTATION range only. Factual Event minutes stay civil-day based
+/// and are never rewritten, and no persistence is read or written from here.
+final class PlannerEffectiveRange {
+  const PlannerEffectiveRange({
+    required this.startMinute,
+    required this.endMinute,
+  });
+
+  /// Canvas origin as civil-day minutes (pixel 0 of the timeline).
+  final int startMinute;
+
+  /// Inclusive final boundary as civil-day minutes. 1440 means next-day
+  /// midnight, so a 0-24 window spans the whole civil day.
+  final int endMinute;
+
+  /// The whole civil day: the safe fallback and the temporary full-day
+  /// disclosure override.
+  static const PlannerEffectiveRange fullDay = PlannerEffectiveRange(
+    startMinute: kPlannerCivilDayStartMinute,
+    endMinute: kPlannerCivilDayEndMinute,
+  );
+
+  /// The configured window, or [fullDay] when the stored range data is not
+  /// usable (reversed, out of bounds, or shorter than one hour).
+  ///
+  /// The error/fallback law deliberately falls back to full-day PRESENTATION
+  /// rather than repairing or overwriting the stored value: a bad range must
+  /// never make saved Events unreachable, and it must never trigger a silent
+  /// database write.
+  static PlannerEffectiveRange of(PlannerSettings settings) {
+    final start = settings.visibleStartMinute;
+    final end = settings.visibleEndMinute;
+    final ordered = end > start;
+    final inBounds =
+        start >= kPlannerCivilDayStartMinute &&
+        end <= kPlannerCivilDayEndMinute;
+    if (ordered && inBounds && (end - start) >= 60) {
+      return PlannerEffectiveRange(startMinute: start, endMinute: end);
+    }
+    return fullDay;
+  }
+
+  int get startHour => startMinute ~/ 60;
+  int get endHour => endMinute ~/ 60;
+
+  /// Span of the window in minutes. Always positive.
+  int get spanMinutes => endMinute - startMinute;
+
+  /// Span of the window in whole hours. Always at least 1.
+  int get spanHours => spanMinutes ~/ 60;
+
+  bool get isFullDay =>
+      startMinute == kPlannerCivilDayStartMinute &&
+      endMinute == kPlannerCivilDayEndMinute;
+
+  /// Whether [minute] falls inside the window. The final boundary is
+  /// exclusive for containment (a 6-18 window contains 17:59 but not 18:00),
+  /// which matches the existing civil-day containment law.
+  bool containsMinute(int minute) =>
+      minute >= startMinute && minute < endMinute;
+
+  @override
+  bool operator ==(Object other) =>
+      other is PlannerEffectiveRange &&
+      other.startMinute == startMinute &&
+      other.endMinute == endMinute;
+
+  @override
+  int get hashCode => Object.hash(startMinute, endMinute);
+
+  @override
+  String toString() => 'PlannerEffectiveRange($startMinute..$endMinute)';
+}
 
 /// R5-03 owner-defined horizontal priority classes.
 ///
@@ -533,10 +615,13 @@ int plannerInitialScrollMinute({
   required DateTime now,
   int? firstRelevantEventMinute,
 }) {
-  // The canvas spans the full civil day, so the initial target is a
-  // minute-of-day clamped to 00:00-23:45. The configured start is the
-  // default anchor; the rest of the day remains reachable by scrolling.
-  final visibleStart = settings.visibleStartHour * 60;
+  // P1 (2026-09-21): the timeline canvas now IS the configured effective
+  // range, so the initial target is clamped INSIDE that range rather than the
+  // whole civil day. The configured start remains the default anchor and a
+  // current time outside the configured window lands on the nearest visible
+  // boundary instead of being stranded past the canvas.
+  final range = PlannerEffectiveRange.of(settings);
+  final visibleStart = range.startMinute;
   final requested = switch (settings.initialScrollBehavior) {
     PlannerInitialScrollBehavior.currentTime
         when selectedDate == PlannerDate.fromDateTime(now) =>
@@ -546,8 +631,5 @@ int plannerInitialScrollMinute({
     PlannerInitialScrollBehavior.visibleStart ||
     PlannerInitialScrollBehavior.dayStart => visibleStart,
   };
-  return requested.clamp(
-    kPlannerCivilDayStartMinute,
-    kPlannerCivilDayEndMinute - 15,
-  );
+  return requested.clamp(range.startMinute, range.endMinute - 15);
 }

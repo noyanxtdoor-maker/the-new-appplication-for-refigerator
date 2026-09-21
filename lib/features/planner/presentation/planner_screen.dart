@@ -120,6 +120,78 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
       PlannerDateStripController();
   String? _initialScrollSignature;
   bool _initialScrollPerformed = false;
+
+  /// P1-C temporary full-day inspection override.
+  ///
+  /// Pure presentation state: it is never persisted, never sent to the
+  /// database, and never auto-enabled. It exists so an Event entirely outside
+  /// the configured window stays reachable from the outside-range disclosure,
+  /// and it is reversible through the explicit exit control on its banner.
+  bool _timelineFullDayOverride = false;
+
+  /// The last effective range this screen rendered. Used to reconcile the
+  /// scroll offset exactly ONCE when the range deliberately changes.
+  PlannerEffectiveRange? _lastTimelineRange;
+
+  /// The ONE effective presentation range for [settings] (P1, 2026-09-21).
+  /// The temporary full-day inspection override widens it to the whole civil
+  /// day for as long as the owner is inspecting; otherwise it is the
+  /// configured visible window, with a safe full-day fallback when the stored
+  /// range data is unusable.
+  PlannerEffectiveRange _timelineRangeFor(PlannerSettings settings) =>
+      _timelineFullDayOverride
+      ? PlannerEffectiveRange.fullDay
+      : PlannerEffectiveRange.of(settings);
+
+  /// Keeps the vertical viewport coherent when the effective range deliberately
+  /// changes (a Settings range change, or the temporary full-day inspection
+  /// toggle).
+  ///
+  /// Ordinary date navigation never changes the range, so it never re-scrolls.
+  /// This runs at most once per distinct range: it shifts the offset by the
+  /// pixel distance the canvas ORIGIN moved so the same content stays under the
+  /// viewport instead of jumping by the prepended hours, then clamps into the
+  /// new extent. No timer, no debounce, no persistence.
+  void _reconcileTimelineRange(PlannerEffectiveRange range, double hourHeight) {
+    // P1 OPEN-1 (2026-09-21): a pre-load placeholder is NOT the owner's
+    // configured range. While the settings controller still publishes
+    // `loading` its effective range is only the default window, and staking the
+    // anchor on it would turn the later arrival of the SAVED window into a fake
+    // "deliberate range change" — shifting the viewport by the origin delta at
+    // the very first paint and stranding the one-shot initial focus. Leaving
+    // the anchor unset lets the first REAL range own it, so a resolved
+    // 12:00 AM-6:00 AM start still opens with the canvas and the focus the
+    // owner's window actually asks for.
+    if (ref.read(eventTypeControllerProvider).isLoading) {
+      return;
+    }
+    final previous = _lastTimelineRange;
+    if (previous == range) {
+      return;
+    }
+    _lastTimelineRange = range;
+    if (previous == null || !_initialScrollPerformed) {
+      // First build, or before the one-shot initial focus has run: the
+      // initial focus owns the offset.
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_dayScrollController.hasClients) {
+        return;
+      }
+      final pixelsPerMinute = PlannerTimelineGeometry.pixelsPerMinute(
+        hourHeight,
+      );
+      final originShift =
+          (previous.startMinute - range.startMinute) * pixelsPerMinute;
+      final target = (_dayScrollController.offset + originShift).clamp(
+        0.0,
+        _dayScrollController.position.maxScrollExtent,
+      );
+      _dayScrollController.jumpTo(target);
+    });
+  }
+
   String? _taskDraftRevealSignature;
   bool _taskDraftRevealPending = false;
   PlannerPresentation? _presentation;
@@ -924,6 +996,7 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
   Widget _buildSavedDragOverlay({
     required double hourHeight,
     required double timelineHeight,
+    required PlannerEffectiveRange visibleRange,
     required bool use24HourTime,
     required PlannerDate selectedDate,
     required Map<String, EventColorPreference> eventColorsByTypeId,
@@ -957,11 +1030,17 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
         final overlayTopLeft = overlayBox.localToGlobal(Offset.zero);
         final origin = timelineTopLeft - overlayTopLeft;
         final pointerLocal = timeline.globalToLocal(frame.latestGlobalPointer);
+        // P1 (2026-09-21): the ghost is painted inside the overlay, whose
+        // origin is aligned to the timeline's own top-left, and the canvas
+        // origin is now the configured start hour. Measuring from the range
+        // origin keeps the ghost exactly under the finger; the lower clamp
+        // stops a candidate dragged above the window from painting into the
+        // header above the canvas.
         final candidateY = PlannerTimelineGeometry.yForMinute(
           minute: frame.currentStartMinute,
-          visibleStartMinute: kPlannerCivilDayStartMinute,
+          visibleStartMinute: visibleRange.startMinute,
           hourHeight: hourHeight,
-        );
+        ).clamp(0.0, timelineHeight).toDouble();
         final ghostWidth = math.min(
           session.ghostSize.width,
           math.max(
@@ -1225,7 +1304,7 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
         'h${settings.timelineHourHeight.toStringAsFixed(2)}:'
         'v${settings.visibleStartHour}-${settings.visibleEndHour}:'
         't${settings.use24HourTime ? 1 : 0}:'
-        'c${settings.showCurrentTime ? 1 : 0}:'
+        'c${settings.effectiveShowCurrentTime ? 1 : 0}:'
         'x${settings.showCancelledItems ? 1 : 0}:'
         'f${settings.contentFilters.hashCode}';
     if (_previewSignature != previewSignature) {
@@ -1283,13 +1362,36 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
 
     final hourHeight =
         _liveTimelineHourHeight.value ?? settings.timelineHourHeight;
-    // The timeline canvas always spans the full civil day so times
-    // outside the configured planning window remain reachable (PMG
-    // parity). The configured window is a soft planning window used
-    // for the default initial scroll position and the maximum
-    // zoom-out fit target; it no longer clips the canvas.
-    final slotCount = kPlannerCivilDayEndHour - kPlannerCivilDayStartHour;
+    // P1 (2026-09-21): the timeline canvas IS the effective presentation range
+    // — the configured visible hours, or the whole civil day for as long as
+    // the temporary full-day inspection override is active. The scroll extent,
+    // ruler, initial focus, pinch extents, drag ghost and hit testing all
+    // derive from this ONE range; factual Event minutes never move.
+    final timelineRange = _timelineRangeFor(settings);
+    _reconcileTimelineRange(timelineRange, hourHeight);
+    final slotCount = timelineRange.spanHours;
     final timelineHeight = slotCount * hourHeight;
+    // P1-C: the outside-range disclosure counts the SAME already-filtered day
+    // items the timeline renders. It never queries, never fabricates a row and
+    // never auto-expands the saved visible hours; it only reports what the
+    // configured window is currently hiding and offers a way to look.
+    final outsideRange = _outsideRangeCounts(
+      _visibleEvents(
+            _applyPendingMoveProjection(day.timedEvents, state.selectedDate),
+            settings,
+          )
+          .where(
+            (event) =>
+                (settings.showCancelledItems ||
+                    event.state != PlannerEventState.cancelled) &&
+                !ref
+                    .read(plannerControllerProvider.notifier)
+                    .isPendingEventDeletion(event),
+          )
+          .toList(growable: false),
+      timelineRange,
+    );
+    final configuredRange = PlannerEffectiveRange.of(settings);
     // The timeline content is exactly bounded: the final civil-day
     // 12 AM boundary (plus the small [kPlannerTimelineBottomBoundaryExtent]
     // spacer that follows it) is the last scrollable content. The shell
@@ -1336,6 +1438,18 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
                   _PlannerNotice(message: state.message!),
                   const SizedBox(height: 12),
                 ],
+                if (_timelineFullDayOverride)
+                  _buildFullDayOverrideBanner(
+                    settings: settings,
+                    configuredRange: configuredRange,
+                  ),
+                if (!timelineRange.isFullDay && outsideRange.before > 0)
+                  _buildOutsideRangeDisclosure(
+                    above: true,
+                    count: outsideRange.before,
+                    range: timelineRange,
+                    settings: settings,
+                  ),
                 FutureBuilder<_PlannerPreviewWindow>(
                   future: _previewLoad,
                   builder: (context, snapshot) {
@@ -1416,6 +1530,7 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
                               nextDay: nextDay,
                               today: today,
                               settings: settings,
+                              visibleRange: timelineRange,
                               eventColorsByTypeId: eventColorsByTypeId,
                               hourHeight: stripHourHeight,
                               // S2A: offscreen prev/next previews keep the
@@ -1427,6 +1542,14 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
                               // next horizontal swipe can expose them.
                               previewHourHeight: settings.timelineHourHeight,
                               timelineHeight: stripTimelineHeight,
+                              // The final configured boundary label is drawn just
+                              // below the final line (same one-hour rhythm as
+                              // every other label), so the clipped pager box
+                              // includes the small bottom boundary allowance.
+                              // The trailing spacer below is zeroed in exchange,
+                              // so the total scroll extent is unchanged.
+                              bottomBoundaryExtent:
+                                  kPlannerTimelineBottomBoundaryExtent,
                               viewportWidth: viewportWidth,
                               viewportHeight: _dayViewportHeight(),
                               onSwipePointerDown:
@@ -1504,6 +1627,7 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
                                   ],
                                   selectedDate: state.selectedDate,
                                   settings: settings,
+                                  visibleRange: timelineRange,
                                   eventColorsByTypeId: eventColorsByTypeId,
                                   scrollController: _dayScrollController,
                                   onCreate: (minute) => _createTimedEvent(
@@ -1546,7 +1670,7 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
                                   onMoveSessionCancel: _cancelCrossDateDrag,
                                   hourHeight: hourHeight,
                                   onZoomEnd: (value) =>
-                                      _persistZoom(ref, settings, value),
+                                      _persistZoom(ref, value),
                                   onZoomUpdate: _onZoomUpdateLive,
                                   daySwipeCoordinator: _daySwipeCoordinator,
                                   pinchCoordinator: _pinchCoordinator,
@@ -1572,9 +1696,23 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
                     );
                   },
                 ),
+                if (!timelineRange.isFullDay && outsideRange.after > 0)
+                  _buildOutsideRangeDisclosure(
+                    above: false,
+                    count: outsideRange.after,
+                    range: timelineRange,
+                    settings: settings,
+                  ),
+                // P1 owner correction (2026-09-21): the bottom boundary
+                // allowance now lives INSIDE the clipped pager box (see
+                // `bottomBoundaryExtent` above) so the final boundary label can
+                // sit below its line without crowding. The keyed spacer is kept
+                // as the content reachability probe but contributes no extra
+                // height, so the total scroll extent — and therefore the "no
+                // dead region below the final boundary" law — is unchanged.
                 const SizedBox(
                   key: Key('planner-timeline-bottom-boundary'),
-                  height: kPlannerTimelineBottomBoundaryExtent,
+                  height: 0,
                 ),
                 // The form is an overlay, not a replacement Planner route.
                 // While its one B7 Task draft exists, reserve only enough
@@ -1595,12 +1733,173 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
           child: _buildSavedDragOverlay(
             hourHeight: hourHeight,
             timelineHeight: timelineHeight,
+            visibleRange: timelineRange,
             use24HourTime: settings.use24HourTime,
             selectedDate: state.selectedDate,
             eventColorsByTypeId: eventColorsByTypeId,
           ),
         ),
       ],
+    );
+  }
+
+  /// P1-C: compact outside-range disclosure counts.
+  ///
+  /// Counts come from the SAME already-filtered Planner day items the renderer
+  /// paints (content filters + cancelled filter + pending-deletion filter), so
+  /// a filtered-out or deleted Event can never inflate a count and the
+  /// disclosure can never fabricate a row. Provisional Events and Task drafts
+  /// are deliberately excluded: they are unsaved presentation placeholders,
+  /// not saved day items.
+  ///
+  /// An Event counts as outside only when it lies ENTIRELY outside the window.
+  /// A partial overlap is clipped visually and stays tappable, so it is not
+  /// counted and never duplicated.
+  ({int before, int after}) _outsideRangeCounts(
+    List<PlannerCalendarItem> events,
+    PlannerEffectiveRange range,
+  ) {
+    var before = 0;
+    var after = 0;
+    for (final event in events) {
+      final start = event.startLocal;
+      final end = event.endLocal;
+      if (start == null || end == null) {
+        continue;
+      }
+      final startMinute = start.hour * 60 + start.minute;
+      final endMinute = plannerEndMinuteOfDay(start, end);
+      if (endMinute <= range.startMinute) {
+        before += 1;
+      } else if (startMinute >= range.endMinute) {
+        after += 1;
+      }
+    }
+    return (before: before, after: after);
+  }
+
+  /// Hour-boundary label shared by the disclosure copy and the override banner.
+  String _boundaryLabel(int minute, {required bool use24HourTime}) {
+    final hour24 = minute ~/ 60;
+    if (use24HourTime) {
+      return '${hour24.toString().padLeft(2, '0')}:00';
+    }
+    final normalized = hour24 % 24;
+    final hour = normalized == 0
+        ? 12
+        : normalized > 12
+        ? normalized - 12
+        : normalized;
+    return '$hour ${normalized >= 12 ? 'PM' : 'AM'}';
+  }
+
+  /// Opens the TEMPORARY full-day inspection view. Presentation state only:
+  /// nothing is persisted, and the configured window is restored the moment
+  /// the owner exits.
+  void _enterFullDayInspection() {
+    if (_timelineFullDayOverride) {
+      return;
+    }
+    setState(() => _timelineFullDayOverride = true);
+  }
+
+  /// Reverses the temporary full-day inspection view.
+  void _exitFullDayInspection() {
+    if (!_timelineFullDayOverride) {
+      return;
+    }
+    setState(() => _timelineFullDayOverride = false);
+  }
+
+  /// P1-C: the temporary full-day banner. It states plainly that the full day
+  /// is showing and that the state is temporary, and it offers the reversible
+  /// exit back to the configured window. It is never persisted.
+  Widget _buildFullDayOverrideBanner({
+    required PlannerSettings settings,
+    required PlannerEffectiveRange configuredRange,
+  }) {
+    final use24 = settings.use24HourTime;
+    final label =
+        '${_boundaryLabel(configuredRange.startMinute, use24HourTime: use24)}'
+        ' – '
+        '${_boundaryLabel(configuredRange.endMinute, use24HourTime: use24)}';
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        key: const Key('planner-full-day-override-banner'),
+        color: Theme.of(context).colorScheme.secondaryContainer,
+        borderRadius: BorderRadius.circular(10),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 2, 4, 2),
+          child: Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  'Temporary full-day view. Every hour is showing.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+              TextButton(
+                key: const Key('planner-full-day-override-exit'),
+                onPressed: _exitFullDayInspection,
+                child: Text('Back to $label'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// P1-C: one compact before/after-range disclosure. Tapping it opens the
+  /// temporary full-day view so the hidden Events are reachable immediately.
+  Widget _buildOutsideRangeDisclosure({
+    required bool above,
+    required int count,
+    required PlannerEffectiveRange range,
+    required PlannerSettings settings,
+  }) {
+    final boundary = _boundaryLabel(
+      above ? range.startMinute : range.endMinute,
+      use24HourTime: settings.use24HourTime,
+    );
+    final plural = count == 1 ? 'Event' : 'Events';
+    return Padding(
+      padding: EdgeInsets.only(top: above ? 0 : 6, bottom: above ? 6 : 0),
+      child: Material(
+        key: Key(
+          above
+              ? 'planner-outside-range-before-disclosure'
+              : 'planner-outside-range-after-disclosure',
+        ),
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          onTap: _enterFullDayInspection,
+          borderRadius: BorderRadius.circular(10),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Row(
+              children: <Widget>[
+                Icon(above ? Icons.expand_less : Icons.expand_more, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    above
+                        ? '$count $plural before $boundary'
+                        : '$count $plural after $boundary',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+                Text(
+                  'Show full day',
+                  style: Theme.of(context).textTheme.labelSmall,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -1612,8 +1911,8 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
   ) {
     final hourHeight =
         _liveTimelineHourHeight.value ?? settings.timelineHourHeight;
-    final timelineHeight =
-        (kPlannerCivilDayEndHour - kPlannerCivilDayStartHour) * hourHeight;
+    final timelineRange = _timelineRangeFor(settings);
+    final timelineHeight = timelineRange.spanHours * hourHeight;
     final today = ref.watch(plannerDateSourceProvider).today();
     _scheduleInitialScroll(
       selectedDate: state.selectedDate,
@@ -1642,6 +1941,7 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
                 hourHeight: hourHeight,
                 viewportHeight: _dayViewportHeight(),
                 currentTimeListenable: _activeCurrentTimeListenable,
+                visibleRange: timelineRange,
               ),
             ),
             const SizedBox(
@@ -1809,21 +2109,36 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
     _liveTimelineHourHeight.value = value;
   }
 
-  Future<void> _persistZoom(
-    WidgetRef ref,
-    PlannerSettings settings,
-    double hourHeight,
-  ) async {
-    await ref
+  Future<void> _persistZoom(WidgetRef ref, double hourHeight) async {
+    // P1 (2026-09-21): persist ONLY the zoom preference, against the
+    // controller's CURRENT settings, and keep the live override until THIS
+    // gesture's own save really lands.
+    //
+    // Pre-P1 this awaited a save built from a CAPTURED whole-settings snapshot
+    // and then unconditionally cleared the live override. Two defects followed
+    // from that: (a) a save that began during an earlier pinch could complete
+    // while a later pinch was already live, clearing the newer live height and
+    // visibly reverting the user's gesture; and (b) a FAILED save still cleared
+    // the override, snapping the timeline back to the previously stored zoom.
+    // The controller now generation-guards stale completions and reports what
+    // actually committed.
+    final committed = await ref
         .read(eventTypeControllerProvider.notifier)
-        .saveSettings(
-          settings.copyWith(
-            timelineHourHeight: PlannerZoomPolicy.clampAbsolute(hourHeight),
-          ),
-        );
-    if (mounted) {
-      _liveTimelineHourHeight.value = null;
+        .saveTimelineHourHeight(hourHeight);
+    if (!mounted) {
+      return;
     }
+    if (committed == null) {
+      // The save failed. Keep a coherent, usable view on the height the user
+      // actually pinched instead of stranding them on the older stored scale;
+      // the controller has already surfaced the honest error message. Fresh
+      // pinch and scroll interactions continue to work from this state.
+      _liveTimelineHourHeight.value = PlannerZoomPolicy.clampAbsolute(
+        hourHeight,
+      );
+      return;
+    }
+    _liveTimelineHourHeight.value = null;
   }
 
   Future<void> _removeSelected(
@@ -2051,14 +2366,21 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
           timelineBox.localToGlobal(Offset.zero).dy -
           scrollBox.localToGlobal(Offset.zero).dy +
           _dayScrollController.offset;
-      // The canvas starts at 00:00, so the target minute-of-day maps
-      // to pixels through the current pixels-per-minute and the
-      // configured start is placed near the top of the viewport.
+      // P1 (2026-09-21): the canvas origin is the configured start hour, so
+      // the target minute maps to pixels relative to the RANGE start. The
+      // target itself is already clamped inside the range by
+      // [plannerInitialScrollMinute], so the configured start is placed near
+      // the top of the viewport and nothing is ever scrolled past a canvas
+      // boundary that no longer exists.
       final pixelsPerMinute = PlannerTimelineGeometry.pixelsPerMinute(
         settings.timelineHourHeight,
       );
-      final desired = (timelineTop + targetMinute * pixelsPerMinute - 120)
-          .clamp(0.0, _dayScrollController.position.maxScrollExtent);
+      final range = _timelineRangeFor(settings);
+      final desired =
+          (timelineTop +
+                  (targetMinute - range.startMinute) * pixelsPerMinute -
+                  120)
+              .clamp(0.0, _dayScrollController.position.maxScrollExtent);
       // jumpTo() is a synchronous scroll hint that does not block
       // the gesture pipeline; call it directly. The earlier
       // unawaited() wrapper was rejected by the analyzer because
@@ -2270,7 +2592,13 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
     final pixelsPerMinute = PlannerTimelineGeometry.pixelsPerMinute(
       session.hourHeight,
     );
+    // P1 (2026-09-21): the grabbed offset and the pointer are both
+    // canvas-relative, and the canvas origin is the configured start hour, so
+    // the range origin is added back to reach the factual minute-of-day.
     final rawStartMinute =
+        _timelineRangeFor(
+          ref.read(eventTypeControllerProvider).settings,
+        ).startMinute +
         ((pointerLocal.dy - session.grabOffset.dy) / pixelsPerMinute).round();
     // R7-02 body-drag law: candidateEnd = candidateStart + originalDuration,
     // always. No independent end calculation.
@@ -3914,6 +4242,7 @@ final class _TimedEventTimeline extends StatefulWidget {
     required this.events,
     required this.selectedDate,
     required this.settings,
+    this.visibleRange,
     required this.eventColorsByTypeId,
     required this.scrollController,
     required this.onCreate,
@@ -3946,6 +4275,12 @@ final class _TimedEventTimeline extends StatefulWidget {
   final List<PlannerCalendarItem> events;
   final PlannerDate selectedDate;
   final PlannerSettings settings;
+
+  /// The ONE effective presentation range (P1, 2026-09-21). Null derives it
+  /// from [settings]; the parent passes an explicit value only while the
+  /// temporary full-day disclosure override is active.
+  final PlannerEffectiveRange? visibleRange;
+
   final Map<String, EventColorPreference> eventColorsByTypeId;
   // Parent-owned GlobalKey attached to the timeline surface so the
   // initial-scroll routine can measure the timeline's position inside
@@ -4327,14 +4662,14 @@ final class _TimedEventTimelineState extends State<_TimedEventTimeline> {
     widget.onMoveSessionCancel();
   }
 
-  // The timeline canvas always spans the full civil day so times
-  // outside the configured planning window remain reachable (PMG
-  // parity). The configured window remains the current-time
-  // visibility window and the default initial-scroll anchor.
-  int get _canvasFirstHour => kPlannerCivilDayStartHour;
-  int get _canvasLastHour => kPlannerCivilDayEndHour;
-  int get _planWindowFirstHour => widget.settings.visibleStartHour;
-  int get _planWindowLastHour => widget.settings.visibleEndHour;
+  // P1 (2026-09-21): the timeline canvas IS the configured visible window.
+  // The configured start hour is pixel 0 and the configured end hour is the
+  // inclusive final boundary, so a legitimate 6 AM-6 PM setting really does
+  // start at 6 AM and end at 6 PM. Everything below — ruler, scroll extent,
+  // current-time coordinates, pinch extents, drag ghost, resize hit testing —
+  // measures from this ONE range. Factual Event minutes are never rewritten.
+  PlannerEffectiveRange get _range =>
+      widget.visibleRange ?? PlannerEffectiveRange.of(widget.settings);
 
   /// True while the timeline must refuse to act on a one-finger
   /// gesture because a two-finger pinch is in progress (or the
@@ -4359,7 +4694,7 @@ final class _TimedEventTimelineState extends State<_TimedEventTimeline> {
     _zoomStartViewportHeight = widget.scrollController.hasClients
         ? widget.scrollController.position.viewportDimension
         : 0;
-    _zoomStartConfiguredHours = _planWindowLastHour - _planWindowFirstHour;
+    _zoomStartConfiguredHours = _range.spanHours;
     _zoomStartScrollOffset = widget.scrollController.hasClients
         ? widget.scrollController.offset
         : 0;
@@ -4445,8 +4780,13 @@ final class _TimedEventTimelineState extends State<_TimedEventTimeline> {
     final desiredOffset =
         (desiredFocalContentY - focalLocalY + (_zoomStartScrollOffset ?? 0))
             .toDouble();
+    // P1 (2026-09-21): the canvas now spans the effective range, so the
+    // predicted extent grows by the CONFIGURED span, not a hard-coded 24
+    // hours. A 6 AM-6 PM window therefore keeps its focal compensation
+    // correct instead of over/under-estimating the scrollable extent.
     final newMaxExtent =
-        _zoomStartMaxExtent + 24 * (newHourHeight - _zoomStartHourHeight);
+        _zoomStartMaxExtent +
+        _range.spanHours * (newHourHeight - _zoomStartHourHeight);
     final hasClients = controller.hasClients;
     final clampedOffset = desiredOffset
         .clamp(0.0, newMaxExtent.clamp(0, double.infinity))
@@ -4480,7 +4820,10 @@ final class _TimedEventTimelineState extends State<_TimedEventTimeline> {
 
   @override
   Widget build(BuildContext context) {
-    final slotCount = _canvasLastHour - _canvasFirstHour;
+    final range = _range;
+    final firstHour = range.startHour;
+    final lastHour = range.endHour;
+    final slotCount = lastHour - firstHour;
     final timelineHeight = slotCount * _hourHeight;
     // Delta 4.2A: one canonical minute grid owns both logical and painted
     // geometry. Zoom changes pixels-per-minute only; it never adds a visual
@@ -4491,7 +4834,9 @@ final class _TimedEventTimelineState extends State<_TimedEventTimeline> {
       events: <PlannerCalendarItem>[...widget.events, ...taskFootprints],
       hourHeight: _hourHeight,
       viewportHeight: viewportHeight,
-      configuredHours: _planWindowLastHour - _planWindowFirstHour,
+      configuredHours: range.spanHours,
+      rangeStartMinute: range.startMinute,
+      rangeEndMinute: range.endMinute,
       previewStartMinutes: _previewStartMinutes,
       previewEndMinutes: _previewEndMinutes,
     );
@@ -4590,8 +4935,7 @@ final class _TimedEventTimelineState extends State<_TimedEventTimeline> {
             _zoomStartViewportHeight = widget.scrollController.hasClients
                 ? widget.scrollController.position.viewportDimension
                 : 0;
-            _zoomStartConfiguredHours =
-                _planWindowLastHour - _planWindowFirstHour;
+            _zoomStartConfiguredHours = _range.spanHours;
             // Capture focal-time anchors: the local Y from this
             // GestureDetector's coordinate space and the scroll
             // offset of the parent SingleChildScrollView. The
@@ -4676,7 +5020,8 @@ final class _TimedEventTimelineState extends State<_TimedEventTimeline> {
           // behind the gesture) keeps the focal compensation intact
           // even when a pinch-out runs past the pre-pinch extent.
           final newMaxExtent =
-              _zoomStartMaxExtent + 24 * (newHourHeight - _zoomStartHourHeight);
+              _zoomStartMaxExtent +
+              _range.spanHours * (newHourHeight - _zoomStartHourHeight);
           final hasClients = controller.hasClients;
           final clampedOffset = desiredOffset
               .clamp(0.0, newMaxExtent.clamp(0, double.infinity))
@@ -4741,67 +5086,76 @@ final class _TimedEventTimelineState extends State<_TimedEventTimeline> {
                           // finger landing does not open the
                           // Event Type picker after the pinch
                           // ends.
-                          final minute =
-                              snapPlannerMinute(
+                          //
+                          // P1 (2026-09-21): the local Y is measured from
+                          // the CANVAS top, which is now the configured start
+                          // hour, so the range origin is added back to reach
+                          // the factual civil-day minute the finger is over.
+                          final minute = snapPlannerMinute(
+                            range.startMinute +
                                 (details.localPosition.dy / _hourHeight * 60)
                                     .round(),
-                                widget.settings.snapMinutes,
-                              ).clamp(
-                                kPlannerCivilDayStartMinute,
-                                kPlannerCivilDayEndMinute - 15,
-                              );
+                            widget.settings.snapMinutes,
+                          ).clamp(range.startMinute, range.endMinute - 15);
                           _handleEmptyTimeTap(minute);
                         },
                       ),
                     ),
-                    // PMG hidden-midnight model: the 12 AM top and bottom
-                    // boundaries are hidden (no label, no line). The first
-                    // visible hour line is 1 AM and the last visible hour
-                    // line is 11 PM; the 12 AM-1 AM and 11 PM-12 AM slots
-                    // remain fully usable because the canvas still spans the
-                    // full 0..1440 civil-day minutes and no fake 1 AM row
-                    // follows the final boundary.
-                    for (var index = 1; index < slotCount; index++) ...<Widget>[
-                      Positioned(
-                        // BetterCalendar / Delta 4.2A discipline: the boundary
-                        // line comes first and its label sits inside the hour
-                        // cell immediately below it at every zoom level.
-                        top: index * _hourHeight + 2,
-                        left: 0,
-                        width: _timeColumnWidth,
-                        child: GestureDetector(
-                          key: Key('planner-time-label-$index'),
-                          behavior: HitTestBehavior.opaque,
-                          onTap: () {
-                            _handleEmptyTimeTap(index * 60);
-                          },
-                          child: Text(
-                            _hourLabel(index),
-                            // Hour labels must never wrap (the test fallback
-                            // font renders every glyph at fontSize width, which
-                            // would wrap short labels and push them below the
-                            // final line).
-                            maxLines: 1,
-                            softWrap: false,
-                            textAlign: TextAlign.right,
-                            style: Theme.of(context).textTheme.labelSmall
-                                ?.copyWith(
-                                  color: AppTheme.onFillTextOf(context, 0.54),
-                                ),
+                    // P1 (2026-09-21): the ruler is drawn over the effective
+                    // range, so a 6 AM-6 PM window starts at 6 AM and its last
+                    // boundary is 6 PM. Midnight boundaries stay hidden (a
+                    // 00:00 canvas top and the 24:00 next-day midnight are
+                    // never dressed up as a synthetic row), which reproduces
+                    // the previous 0-24 behaviour exactly while making every
+                    // other configured boundary — including the final one —
+                    // labelled inclusively.
+                    for (var hour = firstHour; hour <= lastHour; hour++)
+                      if (hour != 0 && hour != 24) ...<Widget>[
+                        Positioned(
+                          // BetterCalendar / Delta 4.2A discipline: the boundary
+                          // line comes first and its label sits inside the hour
+                          // cell immediately below it at every zoom level.
+                          //
+                          // P1 owner correction (2026-09-21): the final
+                          // configured boundary used to be bottom-aligned INSIDE
+                          // the last hour cell (there is no cell below it), which
+                          // left the final two labels only
+                          // `hourHeight - labelHeight - 2` apart and visibly
+                          // crowded the bottom of a non-midnight range. The
+                          // final label now keeps the SAME one-hour rhythm as
+                          // every other boundary; it is drawn just below the
+                          // final line into the small bottom boundary allowance
+                          // that the pager clip is sized to include. A midnight
+                          // final boundary is hidden by the `hour != 24` guard,
+                          // so the accepted full-day behaviour is unchanged.
+                          top: (hour - firstHour) * _hourHeight + 2,
+                          left: 0,
+                          width: _timeColumnWidth,
+                          child: GestureDetector(
+                            key: Key('planner-time-label-$hour'),
+                            behavior: HitTestBehavior.opaque,
+                            onTap: () {
+                              _handleEmptyTimeTap(hour * 60);
+                            },
+                            child: _timelineHourLabelText(context, hour),
                           ),
                         ),
-                      ),
-                      Positioned(
-                        key: Key('planner-full-hour-line-$index'),
-                        top: index * _hourHeight,
-                        left: _timeColumnWidth,
-                        right: 0,
-                        child: Divider(
-                          height: 1,
-                          color: AppTheme.outlineOf(context),
+                        Positioned(
+                          key: Key('planner-full-hour-line-$hour'),
+                          // The final configured boundary IS the canvas bottom
+                          // edge, so its 1px line is drawn just inside the
+                          // canvas rather than past it.
+                          top: hour == lastHour
+                              ? (hour - firstHour) * _hourHeight - 1
+                              : (hour - firstHour) * _hourHeight,
+                          left: _timeColumnWidth,
+                          right: 0,
+                          child: Divider(
+                            height: 1,
+                            color: AppTheme.outlineOf(context),
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
                     if (widget.events.isEmpty &&
                         widget.tasks.isEmpty &&
                         widget.tapMarker == null)
@@ -4843,8 +5197,11 @@ final class _TimedEventTimelineState extends State<_TimedEventTimeline> {
                               PlannerTimelineGeometry.event(
                                 startMinute: displayStart,
                                 endMinute: displayEnd,
-                                visibleStartMinute: kPlannerCivilDayStartMinute,
-                                visibleEndMinute: kPlannerCivilDayEndMinute,
+                                // P1 (2026-09-21): the placeholder shares the
+                                // canvas origin, so its top is measured from
+                                // the configured start hour.
+                                visibleStartMinute: range.startMinute,
+                                visibleEndMinute: range.endMinute,
                                 hourHeight: _hourHeight,
                               );
                           return Positioned(
@@ -4898,28 +5255,27 @@ final class _TimedEventTimelineState extends State<_TimedEventTimeline> {
                                 PlannerTimelineGeometry.pixelsPerMinute(
                                   _hourHeight,
                                 );
+                            // P1 (2026-09-21): the canvas origin is the
+                            // configured start hour, so the indicator measures
+                            // from the window start, not from midnight.
                             final resolvedMinuteY =
-                                minuteOfDay * pixelsPerMinute;
+                                (minuteOfDay - range.startMinute) *
+                                pixelsPerMinute;
                             final resolvedIndicatorTop =
                                 resolvedMinuteY -
                                 _currentTimeIndicatorHeight / 2;
-                            // M6 closure: the visibility bound is the
-                            // CANVAS (the full 00:00-24:00 civil day this
-                            // timeline always spans), never the soft
-                            // planning window. `visibleStartHour` /
-                            // `visibleEndHour` only seed the initial scroll
-                            // position and the max-zoom-out fit target, so
-                            // gating visibility on them blanked the
-                            // indicator during the boundary hours of any
-                            // window narrower than the full day (e.g.
-                            // 23:00-00:59 for a 01:00-23:00 window, and
-                            // 22:00-05:59 for the 06:00-22:00 default).
+                            // P1 current-time range law: the visibility bound
+                            // IS the effective canvas. A current time outside
+                            // the configured window is genuinely absent (never
+                            // painted at a clamped false boundary); the
+                            // temporary full-day disclosure override reveals it
+                            // naturally because the range becomes the whole
+                            // civil day.
                             final indicatorVisible =
-                                widget.settings.showCurrentTime &&
+                                widget.settings.effectiveShowCurrentTime &&
                                 widget.selectedDate ==
                                     PlannerDate.fromDateTime(currentNow) &&
-                                currentNow.hour >= kPlannerCivilDayStartHour &&
-                                currentNow.hour < kPlannerCivilDayEndHour;
+                                range.containsMinute(minuteOfDay);
                             return Stack(
                               clipBehavior: Clip.none,
                               children: <Widget>[
@@ -5096,7 +5452,7 @@ final class _TimedEventTimelineState extends State<_TimedEventTimeline> {
                               _isDirectlySelected(placement.event) &&
                               widget.activeMoveEventId != placement.event.id &&
                               !widget.selectionMode &&
-                              widget.settings.quickEditEnabled &&
+                              widget.settings.effectiveQuickEditEnabled &&
                               !_persisting.contains(placement.event.id),
                         )
                         .expand(
@@ -5150,7 +5506,7 @@ final class _TimedEventTimelineState extends State<_TimedEventTimeline> {
         sourceDrag?.event.id == event.id;
     final interactive =
         !widget.selectionMode &&
-        widget.settings.quickEditEnabled &&
+        widget.settings.effectiveQuickEditEnabled &&
         !_persisting.contains(event.id);
     return Positioned(
       key: Key(
@@ -5342,7 +5698,7 @@ final class _TimedEventTimelineState extends State<_TimedEventTimeline> {
     final dragEnabled =
         task.recurrence == PlannerTaskRecurrence.none &&
         !widget.selectionMode &&
-        widget.settings.quickEditEnabled &&
+        widget.settings.effectiveQuickEditEnabled &&
         !_persisting.contains(footprint.id);
     return Positioned(
       key: Key('task-footprint:${task.id}'),
@@ -5622,16 +5978,34 @@ final class _TimedEventTimelineState extends State<_TimedEventTimeline> {
       _hourHeight,
     );
     final duration = originalEndMinute - originalStartMinute;
-    final rawStartMinute = ((pointerLocal.dy - grabOffset.dy) / pixelsPerMinute)
-        .round();
+    // P1 (2026-09-21): the pointer's local Y and the captured grab offset are
+    // both canvas-relative, and the canvas origin is now the configured start
+    // hour, so the range origin is added back to reach the factual civil-day
+    // minute under the finger. The snapped candidate and the accepted commit
+    // law are unchanged.
+    final rawStartMinute =
+        _range.startMinute +
+        ((pointerLocal.dy - grabOffset.dy) / pixelsPerMinute).round();
     final nextStart = snapPlannerMinute(
       rawStartMinute,
       widget.settings.snapMinutes,
     ).clamp(kPlannerCivilDayStartMinute, kPlannerCivilDayEndMinute - duration);
+    final nextEnd = nextStart + duration;
+    // Pointer bookkeeping only: this map is never read by a build, so it can be
+    // updated without a rebuild.
+    _movePointerGlobals[event.id] = globalPosition;
+    // P1-F: inside one snap bucket the candidate geometry is identical, so the
+    // preview would rebuild to exactly the same values and recompute lane and
+    // readability geometry along with them. Skip that redundant rebuild. The
+    // saved commit-on-release path is untouched — only the transient preview is
+    // affected, and the snapped candidate label/commit law is unchanged.
+    if (_previewStartMinutes[event.id] == nextStart &&
+        _previewEndMinutes[event.id] == nextEnd) {
+      return;
+    }
     setState(() {
-      _movePointerGlobals[event.id] = globalPosition;
       _previewStartMinutes[event.id] = nextStart;
-      _previewEndMinutes[event.id] = nextStart + duration;
+      _previewEndMinutes[event.id] = nextEnd;
     });
   }
 
@@ -5669,23 +6043,32 @@ final class _TimedEventTimelineState extends State<_TimedEventTimeline> {
     final deltaMinutes =
         (rawDelta / widget.settings.snapMinutes).round() *
         widget.settings.snapMinutes;
+    final nextStart = edge == _TimelineResizeEdge.top
+        ? (originalStartMinute + deltaMinutes).clamp(
+            kPlannerCivilDayStartMinute,
+            originalEndMinute - widget.settings.snapMinutes,
+          )
+        : originalStartMinute;
+    final nextEnd = edge == _TimelineResizeEdge.top
+        ? originalEndMinute
+        : (originalEndMinute + deltaMinutes).clamp(
+            originalStartMinute + widget.settings.snapMinutes,
+            kPlannerCivilDayEndMinute,
+          );
+    // Sub-pixel accumulator bookkeeping only (never read by a build): keep the
+    // exact running total so the next frame's delta math stays correct.
+    _resizeAccumulatedPixels[event.id] = accumulated;
+    // P1-F: no snapped-bucket change means the preview geometry would rebuild
+    // with identical values, recomputing lane/readability geometry for nothing.
+    // Skip the redundant rebuild; the persisted resize commit on release and
+    // its persisted Undo are untouched.
+    if (_previewStartMinutes[event.id] == nextStart &&
+        _previewEndMinutes[event.id] == nextEnd) {
+      return;
+    }
     setState(() {
-      _resizeAccumulatedPixels[event.id] = accumulated;
-      if (edge == _TimelineResizeEdge.top) {
-        final nextStart = (originalStartMinute + deltaMinutes).clamp(
-          kPlannerCivilDayStartMinute,
-          originalEndMinute - widget.settings.snapMinutes,
-        );
-        _previewStartMinutes[event.id] = nextStart;
-        _previewEndMinutes[event.id] = originalEndMinute;
-      } else {
-        final nextEnd = (originalEndMinute + deltaMinutes).clamp(
-          originalStartMinute + widget.settings.snapMinutes,
-          kPlannerCivilDayEndMinute,
-        );
-        _previewStartMinutes[event.id] = originalStartMinute;
-        _previewEndMinutes[event.id] = nextEnd;
-      }
+      _previewStartMinutes[event.id] = nextStart;
+      _previewEndMinutes[event.id] = nextEnd;
     });
   }
 
@@ -5901,6 +6284,23 @@ final class _TimedEventTimelineState extends State<_TimedEventTimeline> {
         ? normalized - 12
         : normalized;
     return '$hour ${normalized >= 12 ? 'PM' : 'AM'}';
+  }
+
+  /// The ruler label for one boundary hour, shared by every boundary so the
+  /// final configured boundary renders exactly like the interior ones.
+  Widget _timelineHourLabelText(BuildContext context, int hour) {
+    return Text(
+      _hourLabel(hour),
+      // Hour labels must never wrap (the test fallback font renders every
+      // glyph at fontSize width, which would wrap short labels and push them
+      // below the final line).
+      maxLines: 1,
+      softWrap: false,
+      textAlign: TextAlign.right,
+      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+        color: AppTheme.onFillTextOf(context, 0.54),
+      ),
+    );
   }
 }
 

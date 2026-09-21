@@ -260,11 +260,12 @@ void main() {
         final blockFinder = find.byKey(blockKey);
         expect(blockFinder, findsOneWidget);
         final blockBefore = tester.widget<Positioned>(blockFinder);
-        // Default hour height is 60 → a 60-min Event is 60 px tall. The
-        // 9:00 Event top derives from its minute-of-day on the full
-        // civil-day canvas: 9*60 = 540.
+        // Default hour height is 60 → a 60-min Event is 60 px tall. P1
+        // (2026-09-21): the canvas IS the configured 06:00-22:00 window, so
+        // the 9:00 Event top is its minute-of-day (540) measured from the
+        // 06:00 canvas origin: 540 - 360 = 180.
         expect(blockBefore.height, closeTo(60.0, 0.5));
-        expect(blockBefore.top, closeTo(540.0, 0.5));
+        expect(blockBefore.top, closeTo(180.0, 0.5));
 
         final gridCenter = visibleZoomCenter(tester);
         await drivePinchOut(

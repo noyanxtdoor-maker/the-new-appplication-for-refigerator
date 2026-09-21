@@ -2,14 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
-import 'package:rmplanner/app/router/route_names.dart';
 import 'package:rmplanner/app/theme/internal_screen.dart';
 import 'package:rmplanner/features/planner/application/event_type_creation_providers.dart';
 import 'package:rmplanner/features/planner/application/event_type_providers.dart';
 import 'package:rmplanner/features/planner/domain/event_type_creation_choice.dart';
 import 'package:rmplanner/features/planner/domain/planner_settings.dart';
-import 'package:rmplanner/features/planner/domain/planner_view.dart';
 
 final class PlannerSettingsScreen extends ConsumerWidget {
   const PlannerSettingsScreen({super.key});
@@ -33,10 +30,7 @@ final class PlannerSettingsScreen extends ConsumerWidget {
     );
     final visibleDefaultEventTypeId = choicesReady
         ? eligibleChoices
-              .where(
-                (choice) =>
-                    choice.type.id == settings.defaultEventTypeId,
-              )
+              .where((choice) => choice.type.id == settings.defaultEventTypeId)
               .firstOrNull
               ?.type
               .id
@@ -61,20 +55,16 @@ final class PlannerSettingsScreen extends ConsumerWidget {
                     ),
                     const SizedBox(height: 12),
                   ],
+                  // P1 owner correction (2026-09-21): the Event Types
+                  // MANAGEMENT row was removed from Planner settings so the
+                  // visible Event Type taxonomy behaves as a standard app
+                  // capability rather than an exposed settings surface. The
+                  // Event Types themselves, their persistence, the picker in
+                  // Event creation, system/Goal/contact mappings and the
+                  // Default Event Type control below are all unchanged.
                   _Section(
                     title: 'Event defaults',
                     children: <Widget>[
-                      ListTile(
-                        key: const Key('event-types-settings-link'),
-                        leading: const Icon(Icons.category_outlined),
-                        title: const Text('Event Types'),
-                        subtitle: const Text(
-                          'Colors, icons, defaults, and explicit indicator '
-                          'mappings',
-                        ),
-                        trailing: const Icon(Icons.chevron_right),
-                        onTap: () => context.push(RoutePaths.eventTypes),
-                      ),
                       DropdownButtonFormField<String?>(
                         key: const Key('default-event-type-setting'),
                         initialValue: visibleDefaultEventTypeId,
@@ -86,11 +76,12 @@ final class PlannerSettingsScreen extends ConsumerWidget {
                           const DropdownMenuItem<String?>(
                             child: Text('Other / ask each time'),
                           ),
-                          for (final choice in (choicesReady
-                              ? EventTypeCreationChoice.orderedForDropdown(
-                                  eligibleChoices,
-                                )
-                              : const <EventTypeCreationChoice>[]))
+                          for (final choice
+                              in (choicesReady
+                                  ? EventTypeCreationChoice.orderedForDropdown(
+                                      eligibleChoices,
+                                    )
+                                  : const <EventTypeCreationChoice>[]))
                             DropdownMenuItem<String?>(
                               value: choice.type.id,
                               child: Text(choice.displayLabel),
@@ -110,34 +101,6 @@ final class PlannerSettingsScreen extends ConsumerWidget {
                         defaultDurationMinutes: settings.defaultDurationMinutes,
                         onChanged: (value) => controller.saveSettings(
                           settings.copyWith(defaultDurationMinutes: value),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<PlannerZoomPreset>(
-                        key: const Key('planner-zoom-preset-setting'),
-                        initialValue: _presetFor(settings.timelineHourHeight),
-                        isExpanded: true,
-                        decoration: const InputDecoration(
-                          labelText: 'Timeline zoom',
-                        ),
-                        items: const <DropdownMenuItem<PlannerZoomPreset>>[
-                          DropdownMenuItem(
-                            value: PlannerZoomPreset.compact,
-                            child: Text('Compact'),
-                          ),
-                          DropdownMenuItem(
-                            value: PlannerZoomPreset.normal,
-                            child: Text('Normal'),
-                          ),
-                          DropdownMenuItem(
-                            value: PlannerZoomPreset.expanded,
-                            child: Text('Expanded'),
-                          ),
-                        ],
-                        onChanged: (value) => controller.saveSettings(
-                          settings.copyWith(
-                            timelineHourHeight: value?.hourHeight,
-                          ),
                         ),
                       ),
                     ],
@@ -224,15 +187,6 @@ final class PlannerSettingsScreen extends ConsumerWidget {
                           settings.copyWith(use24HourTime: value),
                         ),
                       ),
-                      SwitchListTile(
-                        key: const Key('current-time-line-setting'),
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('Show current-time line'),
-                        value: settings.showCurrentTime,
-                        onChanged: (value) => controller.saveSettings(
-                          settings.copyWith(showCurrentTime: value),
-                        ),
-                      ),
                       DropdownButtonFormField<PlannerInitialScrollBehavior>(
                         key: const Key('initial-scroll-setting'),
                         initialValue: settings.initialScrollBehavior,
@@ -267,18 +221,11 @@ final class PlannerSettingsScreen extends ConsumerWidget {
                   _Section(
                     title: 'Display',
                     children: <Widget>[
-                      SwitchListTile(
-                        key: const Key('quick-edit-setting'),
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('Quick edit on timeline'),
-                        subtitle: const Text(
-                          'Long-press to move; drag an Event edge to resize',
-                        ),
-                        value: settings.quickEditEnabled,
-                        onChanged: (value) => controller.saveSettings(
-                          settings.copyWith(quickEditEnabled: value),
-                        ),
-                      ),
+                      // P1 owner correction (2026-09-21): the "Quick edit on
+                      // timeline" toggle was removed. Long-press move, edge-drag
+                      // resize, commit-on-release and Undo are KEPT as STANDARD
+                      // behavior rather than a user-configurable preference, so
+                      // there is no control here to disable them.
                       SwitchListTile(
                         key: const Key('show-completed-setting'),
                         contentPadding: EdgeInsets.zero,
@@ -299,27 +246,10 @@ final class PlannerSettingsScreen extends ConsumerWidget {
                       ),
                     ],
                   ),
-                  const _DeferredNotificationNotice(),
                 ],
               ),
       ),
     );
-  }
-
-  static PlannerZoomPreset _presetFor(double hourHeight) {
-    if (hourHeight <
-        (PlannerZoomPolicy.compactHourHeight +
-                PlannerZoomPolicy.normalHourHeight) /
-            2) {
-      return PlannerZoomPreset.compact;
-    }
-    if (hourHeight >
-        (PlannerZoomPolicy.normalHourHeight +
-                PlannerZoomPolicy.expandedHourHeight) /
-            2) {
-      return PlannerZoomPreset.expanded;
-    }
-    return PlannerZoomPreset.normal;
   }
 }
 
@@ -351,16 +281,11 @@ final class _DefaultDurationSetting extends StatelessWidget {
       decoration: const InputDecoration(labelText: 'Default duration'),
       items: <DropdownMenuItem<int>>[
         for (final preset in _presets)
-          DropdownMenuItem(
-            value: preset,
-            child: Text(_labelFor(preset)),
-          ),
+          DropdownMenuItem(value: preset, child: Text(_labelFor(preset))),
         DropdownMenuItem(
           value: _customSentinel,
           child: Text(
-            isCustom
-                ? 'Custom ($defaultDurationMinutes min)'
-                : 'Custom…',
+            isCustom ? 'Custom ($defaultDurationMinutes min)' : 'Custom…',
           ),
         ),
       ],
@@ -484,24 +409,5 @@ final class _HourSetting extends StatelessWidget {
         ? hour - 12
         : hour;
     return '$display:00 ${hour >= 12 ? 'PM' : 'AM'}';
-  }
-}
-
-final class _DeferredNotificationNotice extends StatelessWidget {
-  const _DeferredNotificationNotice();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Card(
-      child: ListTile(
-        leading: Icon(Icons.notifications_none),
-        title: Text('Notification behavior'),
-        subtitle: Text(
-          'Notification permission, scheduling, quiet hours, and privacy '
-          'behavior remain deferred to their approved device-services slice. '
-          'Event creation stays local and never depends on notification access.',
-        ),
-      ),
-    );
   }
 }

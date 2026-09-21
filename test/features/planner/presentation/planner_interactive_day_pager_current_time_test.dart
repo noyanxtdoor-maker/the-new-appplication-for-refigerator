@@ -439,12 +439,13 @@ void main() {
       );
       final settings = container.read(eventTypeControllerProvider).settings;
       final hourHeight = settings.timelineHourHeight;
-      // Compute the expected Y from the production formula. The
-      // preview canvas now runs the full civil day (00:00 start),
-      // so the indicator Y is minute-of-day scaled by the live
-      // hour height.
+      // Compute the expected Y from the production formula. P1 (2026-09-21):
+      // the preview canvas IS the configured 06:00-22:00 window, so pixel 0
+      // is 06:00 and the indicator Y is its minute-of-day measured from the
+      // window origin, scaled by the live hour height.
+      const rangeStartMinute = 6 * 60;
       final minuteOfDay = hour * 60 + minute;
-      final expectedY = minuteOfDay * (hourHeight / 60.0);
+      final expectedY = (minuteOfDay - rangeStartMinute) * (hourHeight / 60.0);
       final observedY = _indicatorCenterY(tester);
       expect(
         (observedY - expectedY).abs() < 1.0,
@@ -553,19 +554,13 @@ void main() {
             0.5,
           ),
         );
-        expect(
-          sampleDotRect.left - sampleCapsuleRect.right,
-          closeTo(0, 0.5),
-        );
+        expect(sampleDotRect.left - sampleCapsuleRect.right, closeTo(0, 0.5));
         expect(
           dotCenterX,
           closeTo(PlannerCurrentTimeHorizontalGeometry.dotCenterX, 0.5),
         );
         expect(dotCenterX, closeTo(firstDotCenterX, 0.5));
-        expect(
-          sampleLineRect.left - sampleDotRect.right,
-          closeTo(0, 0.5),
-        );
+        expect(sampleLineRect.left - sampleDotRect.right, closeTo(0, 0.5));
         expect(sampleLineRect.right, closeTo(pageRect.right, 0.5));
         final sampleMinute = sample.$1.hour * 60 + sample.$1.minute;
         expect(
@@ -811,10 +806,10 @@ void main() {
       );
     });
 
-    testWidgets('TEST 8 — M6 closure: under the DEFAULT 06:00-22:00 '
-        'planning window the 2026-07-31 preview column still paints the '
-        'current-time indicator at 22:59, 23:00, 23:30 and 23:59, because '
-        'the pager canvas spans the full civil day', (tester) async {
+    testWidgets('TEST 8 — P1 range law: under the DEFAULT 06:00-22:00 '
+        'planning window the 2026-07-31 preview column does NOT paint the '
+        'current-time indicator at 22:59, 23:00, 23:30 or 23:59, because the '
+        'pager canvas IS the configured window', (tester) async {
       final (database, plannerRepo) = await _buildRepositories();
       // Selected is _tomorrow so the previous preview page is _today
       // (2026-07-31), which owns the indicator for a 2026-07-31 clock.
@@ -832,7 +827,8 @@ void main() {
       expect(
         settings.visibleStartHour,
         6,
-        reason: 'this regression must run against the DEFAULT planning '
+        reason:
+            'this regression must run against the DEFAULT planning '
             'window, not a widened one',
       );
       expect(settings.visibleEndHour, 22);
@@ -843,6 +839,45 @@ void main() {
         (23, 30, '11:30 PM'),
         (23, 59, '11:59 PM'),
       ];
+      for (final (hour, minute, _) in samples) {
+        currentTime.value = DateTime(2026, 7, 31, hour, minute);
+        await tester.pump();
+        final clock =
+            '${hour.toString().padLeft(2, '0')}:'
+            '${minute.toString().padLeft(2, '0')}';
+        final ownership = _indicatorOwnership(
+          tester,
+          previous: _today,
+          selected: _tomorrow,
+          next: PlannerDate(year: 2026, month: 8, day: 2),
+        );
+        expect(
+          ownership.total,
+          0,
+          reason:
+              'no page may paint a current-time indicator at $clock: the '
+              'configured 06:00-22:00 window is the pager canvas, so an '
+              'outside time is absent rather than clamped onto a false '
+              '22:00 boundary',
+        );
+        // The label must genuinely not exist at all — the pre-P1 law this
+        // supersedes expected '$label' here.
+        expect(
+          find.byKey(const Key('planner-current-time-label')),
+          findsNothing,
+          reason: 'no current-time label may be painted at $clock',
+        );
+      }
+
+      // Retained coverage: widening the window to the whole civil day brings
+      // the late-night preview indicators back exactly as before, still owned
+      // by the 2026-07-31 page and still labelled correctly.
+      await container
+          .read(eventTypeControllerProvider.notifier)
+          .saveSettings(
+            settings.copyWith(visibleStartHour: 0, visibleEndHour: 24),
+          );
+      await tester.pumpAndSettle();
       for (final (hour, minute, label) in samples) {
         currentTime.value = DateTime(2026, 7, 31, hour, minute);
         await tester.pump();
@@ -859,9 +894,8 @@ void main() {
           ownership.total,
           1,
           reason:
-              'the preview page that owns 2026-07-31 must paint exactly one '
-              'indicator at $clock even though the soft planning window '
-              'ends at 22:00',
+              'under an explicit 0-24 window the 2026-07-31 preview must '
+              'paint exactly one indicator at $clock',
         );
         expect(
           ownership.ownerPage,
@@ -870,9 +904,7 @@ void main() {
         );
         expect(
           tester
-              .widget<Text>(
-                find.byKey(const Key('planner-current-time-label')),
-              )
+              .widget<Text>(find.byKey(const Key('planner-current-time-label')))
               .data,
           label,
           reason: 'the 12-hour label at $clock must be $label',

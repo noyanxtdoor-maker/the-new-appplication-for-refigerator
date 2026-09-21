@@ -1147,9 +1147,10 @@ void main() {
       );
       final before = tester.widget<Positioned>(blockKey);
       // Original 9:00–10:00 with visibleStart=6:00 and
-      // hourHeight=60 ⇒ the 9:00 Event top = minute-of-day 540 on the
-      // full civil-day canvas (PMG parity), height 60.
-      expect(before.top, 540);
+      // hourHeight=60 ⇒ the 9:00 Event sits minute-of-day 540 measured from
+      // the configured 06:00 canvas origin, i.e. 180 px, height 60.
+      // P1 (2026-09-21): the canvas IS the configured window.
+      expect(before.top, 180);
       expect(before.height, 60);
 
       // Drag the hit area straight down by 60 px (1 hour).

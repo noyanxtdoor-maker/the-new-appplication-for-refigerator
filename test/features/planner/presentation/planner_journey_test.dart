@@ -144,9 +144,10 @@ void main() {
       final timedEvent = tester.widget<Positioned>(
         find.byKey(const Key('planner-timed-event-event-timed')),
       );
-      // Full civil-day canvas: 14:00 is minute-of-day 840, so
-      // the block top is 840 at the default hour height of 60.
-      expect(timedEvent.top, 840);
+      // P1 (2026-09-21): the canvas IS the default 06:00-22:00 window, so a
+      // 14:00 Event sits (840 - 360) minutes below the canvas origin at the
+      // default hour height of 60. Its factual times are unchanged.
+      expect(timedEvent.top, 480);
       expect(timedEvent.height, 60);
 
       await tester.tap(find.byKey(const Key('planner-create-button')));

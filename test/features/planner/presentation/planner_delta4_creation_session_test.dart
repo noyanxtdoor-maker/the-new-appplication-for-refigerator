@@ -87,6 +87,8 @@ void main() {
       );
 
       final surface = find.byKey(const Key('planner-timeline-create-surface'));
+      // P1 (2026-09-21): the canvas origin is the configured start hour, so
+      // 210 px below the canvas top is 09:30 (360 + 210), not 03:30.
       await tester.tapAt(tester.getTopLeft(surface) + const Offset(20, 210));
       // The placeholder must appear immediately, before the picker settles.
       await tester.pump();
@@ -125,8 +127,8 @@ void main() {
       final placeholderState = placeholderContainer.read(
         plannerTapMarkerProvider,
       )!;
-      expect(placeholderState.startMinute, 210);
-      expect(placeholderState.endMinute, 240);
+      expect(placeholderState.startMinute, 570);
+      expect(placeholderState.endMinute, 600);
       await tester.pumpAndSettle();
       expect(find.text('Select Event Type'), findsOneWidget);
       expect(
@@ -183,6 +185,8 @@ void main() {
     (tester) async {
       await pumpPlanner(tester);
       final surface = find.byKey(const Key('planner-timeline-create-surface'));
+      // P1 (2026-09-21): the canvas origin is the configured start hour, so
+      // 210 px below the canvas top is 09:30 (360 + 210), not 03:30.
       await tester.tapAt(tester.getTopLeft(surface) + const Offset(20, 210));
       await tester.pump();
       expect(find.byKey(const Key('planner-tap-placeholder')), findsOneWidget);
@@ -245,9 +249,10 @@ void main() {
       'outline is painted', (tester) async {
     final database = await pumpPlanner(tester);
     final surface = find.byKey(const Key('planner-timeline-create-surface'));
-    // 3:30 AM -> minute 210 at the default 60 px/hour density.  Early in
-    // the day keeps the draft block above the initial 40% editor sheet so
-    // its endpoint handles stay reachable.
+    // 9:30 AM -> minute 570 at the default 60 px/hour density and the
+    // default 06:00-22:00 canvas. Early in the window keeps the draft block
+    // above the initial 40% editor sheet so its endpoint handles stay
+    // reachable.
     await tester.tapAt(tester.getTopLeft(surface) + const Offset(20, 210));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 600));
@@ -258,11 +263,11 @@ void main() {
       tester.element(find.byKey(const Key('calendar-event-detail-sheet'))),
     );
     var draft = container.read(plannerEventCreationDraftProvider)!;
-    expect(draft.startMinute, 3 * 60 + 30);
+    expect(draft.startMinute, 9 * 60 + 30);
     // Delta 4.2R R9: the provisional draft uses the configured Planner
-    // default (30 minutes) for timeline creation, so 3:30 AM spans to 4:00
+    // default (30 minutes) for timeline creation, so 9:30 AM spans to 10:00
     // AM instead of the Event Type's own default.
-    expect(draft.endMinute, 4 * 60);
+    expect(draft.endMinute, 10 * 60);
 
     // Bottom-left END handle: ordinary touch slop, then +30 minutes.
     final endHandle = find.byKey(const Key('planner-provisional-resize-hit'));
@@ -275,10 +280,10 @@ void main() {
     draft = container.read(plannerEventCreationDraftProvider)!;
     expect(
       draft.startMinute,
-      3 * 60 + 30,
+      9 * 60 + 30,
       reason: 'the END handle must not move the start',
     );
-    expect(draft.endMinute, 4 * 60 + 30);
+    expect(draft.endMinute, 10 * 60 + 30);
 
     // MP-06B theme-family draft surface: the provisional block fill is the
     // active appearance's primaryContainer token (Blue -> blue family,
@@ -296,10 +301,10 @@ void main() {
     await bodyGesture.up();
     await tester.pump(const Duration(milliseconds: 400));
     draft = container.read(plannerEventCreationDraftProvider)!;
-    // The body drag moves both times together: start 3:30 -> 4:00 and
-    // end 4:30 -> 5:00 under the 30-minute default (Delta 4.2R R9).
-    expect(draft.startMinute, 4 * 60);
-    expect(draft.endMinute, 5 * 60);
+    // The body drag moves both times together: start 9:30 -> 10:00 and
+    // end 10:30 -> 11:00 under the 30-minute default (Delta 4.2R R9).
+    expect(draft.startMinute, 10 * 60);
+    expect(draft.endMinute, 11 * 60);
     expect(await database.select(database.calendarEvents).get(), isEmpty);
 
     expect(visibleBlock, findsOneWidget);
@@ -330,7 +335,7 @@ void main() {
     expect(endRect.top, greaterThanOrEqualTo(visibleRect.top - 0.01));
     final timeText = tester.widget<Text>(
       find
-          .descendant(of: visibleBlock, matching: find.textContaining('4:00'))
+          .descendant(of: visibleBlock, matching: find.textContaining('10:00'))
           .first,
     );
     final style = timeText.style;

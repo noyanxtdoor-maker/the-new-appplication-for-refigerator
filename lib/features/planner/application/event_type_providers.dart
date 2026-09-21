@@ -6,6 +6,7 @@ import 'package:rmplanner/features/planner/application/event_type_repository.dar
 import 'package:rmplanner/features/planner/domain/event_color_preferences.dart';
 import 'package:rmplanner/features/planner/domain/event_type.dart';
 import 'package:rmplanner/features/planner/domain/planner_settings.dart';
+import 'package:rmplanner/features/planner/domain/planner_view.dart';
 import 'package:rmplanner/features/startup/application/startup_providers.dart';
 import 'package:rmplanner/features/startup/domain/startup_state.dart';
 
@@ -13,31 +14,31 @@ import 'package:rmplanner/features/startup/domain/startup_state.dart';
 /// colors, group colors, Goal name overrides). Emits after every committed
 /// full-document write. This is a DATA stream over Planner Preferences
 /// writes only — it introduces no notification refresh side effects.
-final presentationDocumentChangesProvider = StreamProvider.family<
-  void,
-  String
->((ref, profileId) {
-  return ref
-      .watch(eventTypeRepositoryProvider)
-      .watchPresentationDocument(profileId);
-});
+final presentationDocumentChangesProvider = StreamProvider.family<void, String>(
+  (ref, profileId) {
+    return ref
+        .watch(eventTypeRepositoryProvider)
+        .watchPresentationDocument(profileId);
+  },
+);
 
 /// Profile-scoped Goal Event Type presentation-name overrides, keyed by the
 /// real Goal UUID (schema 46 Planner Preferences JSON metadata). Reactively
 /// refreshed by the dedicated presentation-document change stream; errors
 /// surface truthfully as AsyncError (callers fail closed, never fall back to
 /// a raw canonical label for a valid live Goal).
-final goalEventTypeNameOverridesProvider = FutureProvider.family<
-  Map<String, GoalEventTypeNameOverride>,
-  String
->((ref, profileId) {
-  // Watching the change stream keeps this provider reactive: it re-reads
-  // after every committed presentation write (color, group, or override).
-  ref.watch(presentationDocumentChangesProvider(profileId));
-  return ref
-      .watch(eventTypeRepositoryProvider)
-      .readGoalEventTypeNameOverrides(profileId);
-});
+final goalEventTypeNameOverridesProvider =
+    FutureProvider.family<Map<String, GoalEventTypeNameOverride>, String>((
+      ref,
+      profileId,
+    ) {
+      // Watching the change stream keeps this provider reactive: it re-reads
+      // after every committed presentation write (color, group, or override).
+      ref.watch(presentationDocumentChangesProvider(profileId));
+      return ref
+          .watch(eventTypeRepositoryProvider)
+          .readGoalEventTypeNameOverrides(profileId);
+    });
 
 final eventTypeRepositoryProvider = Provider<EventTypeRepository>((ref) {
   throw StateError('EventTypeRepository must be overridden at the app root');
@@ -167,8 +168,7 @@ final class EventTypeController extends Notifier<EventTypeState> {
     // A warm, trustworthy, same-profile state satisfies the caller.  An
     // archived-inclusive request is only satisfied by an archived-inclusive
     // load, since the narrow list may legitimately omit retired types.
-    if (isReadyFor(profileId) &&
-        (!requireArchived || _loadedIncludeArchived)) {
+    if (isReadyFor(profileId) && (!requireArchived || _loadedIncludeArchived)) {
       return;
     }
     final inflight = _inflight;
@@ -371,10 +371,13 @@ final class EventTypeController extends Notifier<EventTypeState> {
         profileId: _profileId,
         settings: settings,
       );
-      final reminderChanged = state.settings.defaultReminderMinutes != saved.defaultReminderMinutes;
+      final reminderChanged =
+          state.settings.defaultReminderMinutes != saved.defaultReminderMinutes;
       state = state.copyWith(settings: saved, clearMessage: true);
       if (reminderChanged) {
-        try { await ref.read(reconcileRemindersProvider)(); } on Object {
+        try {
+          await ref.read(reconcileRemindersProvider)();
+        } on Object {
           // Saved settings remain canonical; recovery retries independently.
         }
       }
@@ -385,6 +388,57 @@ final class EventTypeController extends Notifier<EventTypeState> {
       );
       return false;
     }
+  }
+
+  /// Monotonic token for the latest requested timeline-zoom commit.
+  ///
+  /// P1 (2026-09-21): a pinch completion must never write back a whole CAPTURED
+  /// settings snapshot, because that snapshot can predate an unrelated setting
+  /// changed during the gesture, and a slow earlier save must never be allowed
+  /// to overwrite a later one.
+  int _zoomCommitGeneration = 0;
+
+  /// Serialises zoom commits so the LAST gesture is also the LAST database
+  /// write, even while an earlier save is still in flight.
+  Future<void> _zoomCommitQueue = Future<void>.value();
+
+  /// Persist ONLY the timeline zoom preference and report what actually landed.
+  ///
+  /// Returns the committed hour height on success, or `null` when the save
+  /// failed. A null result must make the caller keep its own live override so
+  /// the user is left on a coherent, usable view rather than being snapped back
+  /// to the previously stored scale. This is the deliberate pre-P1 defect the
+  /// audit called out: `_persistZoom` unconditionally cleared the live override
+  /// after an awaited whole-settings save, with no gesture-generation check.
+  ///
+  /// The zoom preference is applied to the controller's CURRENT settings (re-read
+  /// when this commit actually runs) rather than to a captured snapshot, so an
+  /// unrelated setting changed mid-gesture is not reverted.
+  Future<double?> saveTimelineHourHeight(double hourHeight) {
+    final generation = ++_zoomCommitGeneration;
+    final normalized = PlannerZoomPolicy.clampAbsolute(hourHeight);
+    final queued = _zoomCommitQueue.then((_) async {
+      final next = state.settings.copyWith(timelineHourHeight: normalized);
+      try {
+        final saved = await _repository.savePlannerSettings(
+          profileId: _profileId,
+          settings: next,
+        );
+        if (generation == _zoomCommitGeneration) {
+          state = state.copyWith(settings: saved, clearMessage: true);
+        }
+        return saved.timelineHourHeight;
+      } on Object {
+        if (generation == _zoomCommitGeneration) {
+          state = state.copyWith(
+            message: 'Timeline zoom was not saved. You can safely pinch again.',
+          );
+        }
+        return null;
+      }
+    });
+    _zoomCommitQueue = queued.then((_) {}, onError: (Object _) {});
+    return queued;
   }
 
   Future<bool> saveEventColor(

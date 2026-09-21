@@ -18,10 +18,10 @@
 //     scroll offset);
 //   - the existing Planner hour-height policy
 //     (`PlannerZoomPolicy`);
-//   - the civil-day canvas bounds
-//     (`kPlannerCivilDayStartMinute` / `kPlannerCivilDayEndMinute`
-//     from `planner_timeline_layout.dart`), which replace the
-//     configured window as the visible-range clamp.
+//   - the effective presentation range (`PlannerEffectiveRange`
+//     from `planner_timeline_layout.dart`), which is derived from the
+//     configured visible hours and replaces the whole civil day as the
+//     visible-range clamp (P1, 2026-09-21).
 // This model only reads from them.
 
 import 'package:flutter/widgets.dart';
@@ -103,28 +103,29 @@ final class PlannerSharedViewport {
   /// `scrollController` may be unattached (no clients yet) in
   /// narrow test paths; in that case the offset defaults to 0
   /// so the model still describes a valid (zeroed) viewport.
-  /// `settings` is retained for call-site compatibility; the visible
-  /// range bounds are the civil-day canvas, independent of the
-  /// configured planning window.
+  /// `settings` supplies the effective presentation range via
+  /// [PlannerEffectiveRange], which is the visible-range clamp.
   static PlannerSharedViewport from({
     required double hourHeight,
     required ScrollController scrollController,
     required PlannerSettings settings,
     required double viewportHeight,
+    PlannerEffectiveRange? visibleRange,
   }) {
     final clampedHeight = PlannerZoomPolicy.clampAbsolute(hourHeight);
     final pixelsPerMinute = clampedHeight / 60.0;
     final offset = scrollController.hasClients ? scrollController.offset : 0.0;
-    // The timeline canvas spans the full civil day; the configured
-    // planning window is a soft window, not a hard content bound
-    // (PMG parity). Times before the configured start and after the
-    // configured end therefore remain visible and editable.
-    final visibleStartBase = kPlannerCivilDayStartMinute;
-    final visibleEndCap = kPlannerCivilDayEndMinute;
+    // P1 (2026-09-21): the timeline canvas IS the configured effective
+    // window, so the visible-minute clamp is the configured range rather
+    // than the whole civil day. A 6 AM-6 PM window therefore reports visible
+    // minutes inside 06:00-18:00, and pixel 0 is the configured start hour.
+    final range = visibleRange ?? PlannerEffectiveRange.of(settings);
+    final visibleStartBase = range.startMinute;
+    final visibleEndCap = range.endMinute;
     final unclampedStart =
         visibleStartBase + (pixelsPerMinute > 0 ? offset / pixelsPerMinute : 0);
     final visibleStartMinute = unclampedStart.round().clamp(
-      0,
+      visibleStartBase,
       visibleEndCap - 1,
     );
     final visibleSpanMinutes = pixelsPerMinute > 0

@@ -934,10 +934,17 @@ void main() {
         const Key('task-footprint:day-incomplete-task'),
       );
       expect(incompleteFootprint, findsOneWidget);
+      // P1 (2026-09-21): the canvas origin is the configured start hour, so a
+      // Task whose persisted dueMinute is 09:00 sits (540 - 360) minutes below
+      // the canvas top at the default 06:00-22:00 window and 60dp/hour scale.
+      // The persisted dueMinute itself is untouched — only the presentation
+      // origin moved.
       expect(
         tester.widget<Positioned>(incompleteFootprint).top,
-        540,
-        reason: 'a timed Task is anchored to its persisted dueMinute',
+        180,
+        reason:
+            'a timed Task is anchored to its persisted dueMinute measured '
+            'from the configured 06:00 canvas origin',
       );
       expect(
         tester.widget<Positioned>(incompleteFootprint).height,

@@ -660,8 +660,15 @@ void main() {
           PlannerZoomPolicy.normalHourHeight,
           PlannerZoomPolicy.expandedHourHeight,
         ]) {
+          // This regression exercises the MIDNIGHT boundary and the
+          // hidden-midnight ruler, so it deliberately configures the whole
+          // civil day. P1 (2026-09-21) made the configured visible window the
+          // actual canvas, so the start hour must be stated explicitly here;
+          // relying on the default 6 AM start would (correctly) begin the
+          // canvas at 6 AM and there would be no midnight boundary to reach.
           await controller.saveSettings(
             baseline.copyWith(
+              visibleStartHour: 0,
               visibleEndHour: 24,
               timelineHourHeight: hourHeight,
             ),
@@ -672,13 +679,31 @@ void main() {
             find.byKey(const Key('planner-timeline-bottom-boundary')),
             findsOneWidget,
           );
+          // P1 owner correction (2026-09-21): the bottom boundary allowance
+          // moved INSIDE the clipped pager box so the final boundary label can
+          // sit below its line without crowding. The keyed spacer is kept as
+          // the content reachability probe but no longer contributes height,
+          // and the allowance itself is now the gap between the canvas and the
+          // bottom of the clipped pager box.
           expect(
             tester
                 .getSize(
                   find.byKey(const Key('planner-timeline-bottom-boundary')),
                 )
                 .height,
+            closeTo(0, 0.01),
+          );
+          final gridRect = tester.getRect(
+            find.byKey(const Key('planner-time-grid')),
+          );
+          final pagerRect = tester.getRect(
+            find.byKey(const Key('planner-day-pager-viewport')),
+          );
+          expect(
+            pagerRect.bottom - gridRect.bottom,
             closeTo(kPlannerTimelineBottomBoundaryExtent, 0.01),
+            reason:
+                'the bottom allowance must still exist, now inside the clip',
           );
           // PMG hidden-midnight model: the 12 AM top and bottom boundaries
           // are hidden — the first visible hour line is 1 AM and the last

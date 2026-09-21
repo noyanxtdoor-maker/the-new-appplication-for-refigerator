@@ -30,7 +30,6 @@ import 'package:rmplanner/features/planner/data/drift_outcome_reporting_reposito
 import 'package:rmplanner/features/planner/data/drift_planner_repository.dart';
 import 'package:rmplanner/features/planner/data/drift_task_event_link_repository.dart';
 import 'package:rmplanner/features/planner/domain/planner_date.dart';
-import 'package:rmplanner/features/planner/domain/planner_timeline_layout.dart';
 import 'package:rmplanner/features/planner/domain/planner_view.dart'
     show PlannerZoomPolicy;
 import 'package:rmplanner/features/planner/presentation/widgets/planner_shared_viewport.dart';
@@ -304,27 +303,30 @@ void main() {
             '(was ${viewport.pixelsPerMinute}, expected '
             '$expectedPpm)',
       );
-      // visibleStartMinute is derived from the live scroll
-      // offset and the civil-day canvas (00:00-24:00). Verify
-      // the relationship by recomputing from the same sources
-      // the model uses.
+      // P1 (2026-09-21): visibleStartMinute is derived from the live scroll
+      // offset and the EFFECTIVE presentation range, which is the configured
+      // visible window rather than the whole civil day. This regression runs
+      // against the live default settings, so the range origin is the
+      // configured start hour.
+      final rangeSettings = ProviderScope.containerOf(
+        tester.element(find.byType(MaterialApp).first),
+      ).read(eventTypeControllerProvider).settings;
+      final rangeStartMinute = rangeSettings.visibleStartHour * 60;
+      final rangeEndMinute = rangeSettings.visibleEndHour * 60;
       final expectedStartMinute =
-          (kPlannerCivilDayStartMinute +
+          (rangeStartMinute +
                   (viewport.pixelsPerMinute > 0
                       ? viewport.verticalOffset / viewport.pixelsPerMinute
                       : 0))
               .round()
-              .clamp(
-                kPlannerCivilDayStartMinute,
-                kPlannerCivilDayEndMinute - 1,
-              );
+              .clamp(rangeStartMinute, rangeEndMinute - 1);
       expect(
         (viewport.visibleStartMinute - expectedStartMinute).abs() <= 1,
         isTrue,
         reason:
             'visibleStartMinute must equal '
-            '(0 + offset/pixelsPerMinute) clamped to the civil '
-            'day (was ${viewport.visibleStartMinute}, '
+            '(rangeStart + offset/pixelsPerMinute) clamped to the '
+            'effective range (was ${viewport.visibleStartMinute}, '
             'expected $expectedStartMinute)',
       );
       // Verify the visibleEndMinute = visibleStartMinute +
@@ -335,14 +337,14 @@ void main() {
                       ? (viewport.viewportHeight / viewport.pixelsPerMinute)
                             .round()
                       : 0))
-              .clamp(viewport.visibleStartMinute, kPlannerCivilDayEndMinute);
+              .clamp(viewport.visibleStartMinute, rangeEndMinute);
       expect(
         (viewport.visibleEndMinute - expectedEndMinute).abs() <= 1,
         isTrue,
         reason:
             'visibleEndMinute must equal '
             '(visibleStartMinute + viewportHeight/pixelsPerMinute) '
-            'clamped to the civil day (was '
+            'clamped to the effective range (was '
             '${viewport.visibleEndMinute}, expected '
             '$expectedEndMinute)',
       );

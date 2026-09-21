@@ -58,10 +58,11 @@ void main() {
       final surface = find.byKey(const Key('planner-timeline-create-surface'));
       final surfaceTopLeft = tester.getTopLeft(surface);
       final surfaceSize = tester.getSize(surface);
-      // The canvas starts at 00:00 (full civil day), so the tap
-      // Y is minute-of-day 570 (9:30 AM) at the default hour
-      // height of 60 (pixelsPerMinute = 1).
-      await tester.tapAt(surfaceTopLeft + Offset(surfaceSize.width / 2, 570));
+      // P1 (2026-09-21): the canvas origin is the configured start hour
+      // (default 06:00 = minute 360), so 9:30 AM (minute 570) sits
+      // 570 - 360 = 210 px below the canvas top at the default hour height
+      // of 60 (pixelsPerMinute = 1).
+      await tester.tapAt(surfaceTopLeft + Offset(surfaceSize.width / 2, 210));
       await tester.pumpAndSettle();
 
       expect(find.text('Select Event Type'), findsOneWidget);

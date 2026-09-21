@@ -274,10 +274,7 @@ Future<_PumpedPlanner> _pumpPlanner({
         selected: selected,
         startupRepository: startup,
       ),
-      child: MaterialApp(
-        theme: theme,
-        home: const _StartupPrewarm(),
-      ),
+      child: MaterialApp(theme: theme, home: const _StartupPrewarm()),
     ),
   );
   // Pre-warm: explicitly call `initialize()` on the startup
@@ -529,7 +526,8 @@ void main() {
         expect(
           capsuleRect.right,
           closeTo(dotRect.left, 0.5),
-          reason: 'the capsule must end tangent to the anchor, never '
+          reason:
+              'the capsule must end tangent to the anchor, never '
               'overlapping it',
         );
         expect(
@@ -616,19 +614,13 @@ void main() {
               0.5,
             ),
           );
-          expect(
-            dotRect.left - capsuleRect.right,
-            closeTo(0, 0.5),
-          );
+          expect(dotRect.left - capsuleRect.right, closeTo(0, 0.5));
           expect(
             dotCenterX,
             closeTo(PlannerCurrentTimeHorizontalGeometry.dotCenterX, 0.5),
           );
           expect(dotCenterX, closeTo(firstDotCenterX, 0.5));
-          expect(
-            lineRect.left - dotRect.right,
-            closeTo(0, 0.5),
-          );
+          expect(lineRect.left - dotRect.right, closeTo(0, 0.5));
           expect(lineRect.right, closeTo(gridRect.right, 0.5));
           expect(lineRect.width, greaterThan(100));
           expect(tester.takeException(), isNull);
@@ -651,16 +643,20 @@ void main() {
           current: _fourOhThree,
         );
 
-        // Production formula. Defaults: hourHeight = 60. The
-        // canvas spans the full civil day, so the minute-of-day
-        // anchors the indicator (visibleStartHour only gates the
-        // visibility rule, not the geometry).
+        // Production formula. Defaults: hourHeight = 60, and the default
+        // 06:00-22:00 configured window which IS the canvas under the P1
+        // (2026-09-21) visible-hours law. Pixel 0 is the configured start
+        // hour, so the indicator measures from the window origin — the
+        // configured window is no longer a soft window over a full-day
+        // canvas.
         const hourHeight = PlannerZoomPolicy.normalHourHeight;
         const hour = 16;
         const minute = 3;
         const minuteOfDay = hour * 60 + minute;
+        const rangeStartMinute = 6 * 60; // default visibleStartHour
         const pixelsPerMinute = hourHeight / 60;
-        const resolvedMinuteY = minuteOfDay * pixelsPerMinute;
+        const resolvedMinuteY =
+            (minuteOfDay - rangeStartMinute) * pixelsPerMinute;
 
         // Small logical-pixel tolerance for layout rounding. The
         // production Row centers its children with
@@ -818,6 +814,13 @@ void main() {
           findsOneWidget,
           reason: 'indicator must start visible on today',
         );
+        // P1 (2026-09-21): the canvas IS the configured 06:00-22:00 window, so
+        // the grid height is 16 slots at the active hour height. Capture it
+        // before the swipe cycle so the density check below compares like with
+        // like instead of hard-coding a full-day slot count.
+        final gridHeightBefore = tester
+            .getSize(find.byKey(const Key('planner-time-grid')))
+            .height;
 
         // Drive a left swipe to advance one day (yesterday relative
         // to the clock stays today-1 = 2026-07-30). The
@@ -873,18 +876,24 @@ void main() {
               'off-today, on the relevant preview)',
         );
 
-        // Zoom density: capture the timeline-grid height before and
-        // after the swipe cycle. The grid height is the active
-        // hour-height × visible slot count and must be unchanged.
+        // Zoom density: the grid height is the active hour-height × the
+        // configured visible span and must be unchanged across a swipe cycle.
         final gridHeightAfter = tester
             .getSize(find.byKey(const Key('planner-time-grid')))
             .height;
-        // The canvas spans the full civil day: 24 slots at the
-        // default 60-px hour height → 1440 px.
         expect(
           gridHeightAfter,
-          24 * PlannerZoomPolicy.normalHourHeight,
+          gridHeightBefore,
           reason: 'zoom density must be unchanged across swipes',
+        );
+        // P1 (2026-09-21): the canvas is the configured window, so the default
+        // 06:00-22:00 window is exactly 16 slots at the default hour height.
+        expect(
+          gridHeightAfter,
+          16 * PlannerZoomPolicy.normalHourHeight,
+          reason:
+              'the canvas must be the configured 06:00-22:00 window '
+              '(16 slots at the default hour height)',
         );
         expect(tester.takeException(), isNull);
       },
@@ -902,13 +911,17 @@ void main() {
         current: _fourOhThree,
       );
 
-      // Default 60-px hour height: dot/line center Y at minute
-      // 4:03 PM = 16*60+3 = 963 (minute-of-day on the full civil-
-      // day canvas).
+      // Default 60-px hour height and the default 06:00-22:00 configured
+      // window (16 slots), which IS the canvas under the P1 (2026-09-21)
+      // visible-hours law. The indicator measures from the window origin, not
+      // from midnight.
       const defaultHourHeight = PlannerZoomPolicy.normalHourHeight;
+      const configuredSpanHours = 16; // default 06:00-22:00 window
+      const rangeStartMinute = 6 * 60; // default visibleStartHour
       const baseMinuteOfDay = 16 * 60 + 3;
       const basePixelsPerMinute = defaultHourHeight / 60;
-      const baseResolvedY = baseMinuteOfDay * basePixelsPerMinute;
+      const baseResolvedY =
+          (baseMinuteOfDay - rangeStartMinute) * basePixelsPerMinute;
 
       final dot = find.byKey(const Key('planner-current-time-dot'));
       final line = find.byKey(const Key('planner-current-time-line'));
@@ -929,6 +942,7 @@ void main() {
       final gridRect = tester.getRect(
         find.byKey(const Key('planner-time-grid')),
       );
+      final baseGridHeight = gridRect.height;
       final gridCenter = gridRect.center;
       final upperFinger = gridCenter + const Offset(0, -40);
       final lowerFinger = gridCenter + const Offset(0, 40);
@@ -955,12 +969,13 @@ void main() {
           .height;
       expect(
         newGridHeight,
-        greaterThan(24 * PlannerZoomPolicy.normalHourHeight),
+        greaterThan(baseGridHeight),
         reason: 'pinch-out must increase the effective hour height',
       );
-      final newHourHeight = newGridHeight / 24;
+      final newHourHeight = newGridHeight / configuredSpanHours;
       final newPixelsPerMinute = newHourHeight / 60;
-      final newResolvedY = baseMinuteOfDay * newPixelsPerMinute;
+      final newResolvedY =
+          (baseMinuteOfDay - rangeStartMinute) * newPixelsPerMinute;
 
       // Indicator Y must scale proportionally. Use a 1.5-px
       // tolerance to absorb layout rounding from the
@@ -1082,12 +1097,17 @@ void main() {
           current: _fourOhThree,
         );
 
+        // The default 06:00-22:00 window is the canvas, so both the baseline
+        // and the advanced minute measure from the window origin.
         const hourHeight = PlannerZoomPolicy.normalHourHeight;
+        const rangeStartMinute = 6 * 60;
         const baseMinuteOfDay = 16 * 60 + 3;
         const basePixelsPerMinute = hourHeight / 60;
-        const baseResolvedY = baseMinuteOfDay * basePixelsPerMinute;
+        const baseResolvedY =
+            (baseMinuteOfDay - rangeStartMinute) * basePixelsPerMinute;
         const nextMinuteOfDay = 16 * 60 + 4;
-        const nextResolvedY = nextMinuteOfDay * basePixelsPerMinute;
+        const nextResolvedY =
+            (nextMinuteOfDay - rangeStartMinute) * basePixelsPerMinute;
         const expectedDelta = nextResolvedY - baseResolvedY; // exactly 1 px
 
         final dot = find.byKey(const Key('planner-current-time-dot'));
@@ -1410,9 +1430,10 @@ void main() {
     });
 
     testWidgets(
-      'TEST 11 — M6 closure: the indicator stays visible across every hour '
-      'of the selected current day under the DEFAULT 06:00-22:00 planning '
-      'window, including 23:00-23:59 and the noon boundary',
+      'TEST 11 — P1 range law: under the DEFAULT 06:00-22:00 window the '
+      'indicator is visible for every in-window hour (including the noon '
+      'boundary) and genuinely ABSENT outside it; with an explicit 0-24 '
+      'window it stays continuous across the whole civil day',
       (tester) async {
         final (database, plannerRepo, _) = await _buildRepositories();
         final pumped = await _pumpPlanner(
@@ -1429,21 +1450,25 @@ void main() {
         expect(
           settings.visibleStartHour,
           6,
-          reason: 'this regression must run against the DEFAULT planning '
+          reason:
+              'this regression must run against the DEFAULT planning '
               'window, not a widened one',
         );
         expect(settings.visibleEndHour, 22);
 
+        // P1 (2026-09-21) range law: the configured visible window IS the
+        // canvas, so an in-window current time is visible and an out-of-window
+        // current time is genuinely absent (never painted at a clamped false
+        // boundary). The pre-P1 expectation that 22:00-05:59 stayed visible
+        // under the default window is the law this supersedes.
         const samples = <(int, int, String)>[
+          (6, 0, '6:00 AM'),
           (11, 59, '11:59 AM'),
           (12, 0, '12:00 PM'),
           (12, 59, '12:59 PM'),
           (13, 0, '1:00 PM'),
-          (22, 0, '10:00 PM'),
-          (22, 59, '10:59 PM'),
-          (23, 0, '11:00 PM'),
-          (23, 30, '11:30 PM'),
-          (23, 59, '11:59 PM'),
+          (21, 0, '9:00 PM'),
+          (21, 59, '9:59 PM'),
         ];
         final gridHeight = tester
             .getRect(find.byKey(const Key('planner-time-grid')))
@@ -1460,9 +1485,8 @@ void main() {
             findsOneWidget,
             reason:
                 'the current-time indicator must be visible at $clock on '
-                'the selected current day: the timeline canvas spans the '
-                'full 00:00-24:00 civil day, so the soft planning window '
-                'must never clip the indicator',
+                'the selected current day: $clock is inside the configured '
+                '06:00-22:00 window, which is the canvas',
           );
           expect(
             tester
@@ -1501,14 +1525,87 @@ void main() {
           }
           previousY = centerY;
         }
+
+        // Outside the configured default window: genuinely absent. The
+        // indicator must not be clamped to a false 06:00 or 22:00 boundary.
+        for (final (hour, minute) in const <(int, int)>[
+          (0, 0),
+          (5, 59),
+          (22, 0),
+          (22, 59),
+          (23, 0),
+          (23, 59),
+        ]) {
+          pumped.currentTime.value = DateTime(2026, 7, 31, hour, minute);
+          await tester.pump();
+          expect(
+            find.byKey(const Key('planner-current-time-indicator')),
+            findsNothing,
+            reason:
+                'the indicator must be absent at $hour:$minute because the '
+                'configured 06:00-22:00 window is the canvas and an outside '
+                'time is never painted at a false boundary',
+          );
+        }
+
+        // Retained full-day coverage: with an explicit 0-24 window the
+        // indicator is continuous across the whole civil day, including the
+        // late-night hours the pre-P1 law asserted under the default window.
+        await container
+            .read(eventTypeControllerProvider.notifier)
+            .saveSettings(
+              settings.copyWith(visibleStartHour: 0, visibleEndHour: 24),
+            );
+        await tester.pumpAndSettle();
+        final fullDayHeight = tester
+            .getRect(find.byKey(const Key('planner-time-grid')))
+            .height;
+        double? fullDayPreviousY;
+        for (final (hour, minute) in const <(int, int)>[
+          (0, 0),
+          (11, 59),
+          (12, 0),
+          (22, 0),
+          (23, 0),
+          (23, 59),
+        ]) {
+          pumped.currentTime.value = DateTime(2026, 7, 31, hour, minute);
+          await tester.pump();
+          expect(
+            find.byKey(const Key('planner-current-time-indicator')),
+            findsOneWidget,
+            reason:
+                'under an explicit 0-24 window the indicator must stay '
+                'visible at $hour:$minute',
+          );
+          final fullDayY = _centerYInGrid(
+            tester,
+            find.byKey(const Key('planner-current-time-dot')),
+          );
+          expect(
+            fullDayY,
+            inInclusiveRange(0, fullDayHeight),
+            reason:
+                'the $hour:$minute dot must stay inside the full-day canvas '
+                '(got $fullDayY of $fullDayHeight)',
+          );
+          if (fullDayPreviousY != null) {
+            expect(
+              fullDayY,
+              greaterThan(fullDayPreviousY),
+              reason: 'the full-day indicator must advance monotonically',
+            );
+          }
+          fullDayPreviousY = fullDayY;
+        }
         expect(tester.takeException(), isNull);
       },
     );
 
     testWidgets(
-      'TEST 12 — M6 closure: after the local date rollover the indicator '
-      'reappears at 00:00 and remains continuous through 01:00 on the NEW '
-      'current day under the DEFAULT planning window',
+      'TEST 12 — P1 range law: after the local date rollover the indicator '
+      'reappears at 00:00 under an explicit 0-24 window, and is correctly '
+      'absent under the DEFAULT 06:00-22:00 window',
       (tester) async {
         final (database, plannerRepo, _) = await _buildRepositories();
         const august1 = PlannerDate(year: 2026, month: 8, day: 1);
@@ -1539,6 +1636,38 @@ void main() {
               'date',
         );
 
+        // P1 (2026-09-21) range law: 00:00-05:59 lies outside the DEFAULT
+        // 06:00-22:00 window and that window is now the canvas, so the
+        // indicator is genuinely absent there rather than clamped to a false
+        // 06:00 boundary.
+        for (final (hour, minute) in const <(int, int)>[
+          (0, 0),
+          (0, 1),
+          (0, 30),
+          (0, 59),
+          (1, 0),
+        ]) {
+          pumped.currentTime.value = DateTime(2026, 8, 1, hour, minute);
+          await tester.pump();
+          expect(
+            find.byKey(const Key('planner-current-time-indicator')),
+            findsNothing,
+            reason:
+                'the indicator must be absent at $hour:$minute: the default '
+                '06:00-22:00 window is the canvas and 00:00-05:59 is '
+                'outside it',
+          );
+        }
+
+        // Retained coverage: with an explicit 0-24 window the original
+        // midnight-rollover continuity law is exercised exactly as before.
+        await container
+            .read(eventTypeControllerProvider.notifier)
+            .saveSettings(
+              settings.copyWith(visibleStartHour: 0, visibleEndHour: 24),
+            );
+        await tester.pumpAndSettle();
+
         const samples = <(int, int, String)>[
           (0, 0, '12:00 AM'),
           (0, 1, '12:01 AM'),
@@ -1558,8 +1687,7 @@ void main() {
             findsOneWidget,
             reason:
                 'the current-time indicator must be visible at $clock on '
-                'the new current local day (the canvas starts at 00:00, so '
-                'the soft planning window must not clip the indicator)',
+                'the new current local day under the explicit 0-24 window',
           );
           expect(
             tester
@@ -1598,12 +1726,13 @@ void main() {
       },
     );
 
-    // M6 closure regression: the boundary hours of the soft planning
-    // window are exactly where the indicator used to vanish. `TEST 11`
-    // and `TEST 12` drive the DEFAULT 06:00-22:00 window above so a
-    // future change that re-couples visibility to
-    // `visibleStartHour` / `visibleEndHour` fails loudly instead of
-    // silently blanking 22:00-05:59 again.
+    // P1 (2026-09-21) range-law regression: the configured visible window is
+    // the canvas, so `TEST 11` and `TEST 12` drive the DEFAULT 06:00-22:00
+    // window and assert BOTH that in-window times are visible and that
+    // out-of-window times are genuinely absent; each then re-runs the original
+    // whole-civil-day continuity coverage under an explicit 0-24 window. A
+    // future change that re-couples visibility to a full-day canvas, or that
+    // clamps an outside time onto a false boundary, fails loudly.
   });
 
   // ------------------------------------------------------------- CT-02
@@ -1715,10 +1844,7 @@ void main() {
       // The circular anchor is primary and attached/tangent to the label
       // area; the thin line begins at the anchor right edge.
       final dotDecoration = tester.widget<DecoratedBox>(
-        find.descendant(
-          of: dot,
-          matching: find.byType(DecoratedBox),
-        ),
+        find.descendant(of: dot, matching: find.byType(DecoratedBox)),
       );
       expect(
         (dotDecoration.decoration as BoxDecoration).color,
@@ -1729,13 +1855,11 @@ void main() {
       expect(
         dotRect.left - capsuleRect.right,
         closeTo(0, 0.5),
-        reason: 'the circular anchor must be attached/tangent to the label area',
+        reason:
+            'the circular anchor must be attached/tangent to the label area',
       );
       final lineDecoration = tester.widget<DecoratedBox>(
-        find.descendant(
-          of: line,
-          matching: find.byType(DecoratedBox),
-        ),
+        find.descendant(of: line, matching: find.byType(DecoratedBox)),
       );
       expect(
         (lineDecoration.decoration as BoxDecoration).color,
@@ -1752,52 +1876,61 @@ void main() {
       // No wedge/triangle/play-head primitive inside the indicator.
       final indicator = find.byKey(const Key('planner-current-time-indicator'));
       expect(
-        find.descendant(of: indicator, matching: find.byType(CustomPaint))
+        find
+            .descendant(of: indicator, matching: find.byType(CustomPaint))
             .evaluate(),
         isEmpty,
         reason: 'no wedge/triangle/play-head may exist in the indicator',
       );
     }
 
-    testWidgets('Rose Light: transparent label + primary text + primary dot/line',
-        (tester) async {
-      await pumpAndProbe(
-        tester,
-        theme: AppTheme.light(ThemeColorMode.rose),
-        expectedPrimary: AppTheme.roseLightPrimary,
-        expectedOnPrimary: AppTheme.roseLightOnPrimary,
-      );
-    });
+    testWidgets(
+      'Rose Light: transparent label + primary text + primary dot/line',
+      (tester) async {
+        await pumpAndProbe(
+          tester,
+          theme: AppTheme.light(ThemeColorMode.rose),
+          expectedPrimary: AppTheme.roseLightPrimary,
+          expectedOnPrimary: AppTheme.roseLightOnPrimary,
+        );
+      },
+    );
 
-    testWidgets('Blue Light: transparent label + primary text + primary dot/line',
-        (tester) async {
-      await pumpAndProbe(
-        tester,
-        theme: AppTheme.light(ThemeColorMode.blue),
-        expectedPrimary: AppTheme.blueLightPrimary,
-        expectedOnPrimary: AppTheme.blueLightOnPrimary,
-      );
-    });
+    testWidgets(
+      'Blue Light: transparent label + primary text + primary dot/line',
+      (tester) async {
+        await pumpAndProbe(
+          tester,
+          theme: AppTheme.light(ThemeColorMode.blue),
+          expectedPrimary: AppTheme.blueLightPrimary,
+          expectedOnPrimary: AppTheme.blueLightOnPrimary,
+        );
+      },
+    );
 
-    testWidgets('Rose Dark: transparent label + primary text + primary dot/line',
-        (tester) async {
-      await pumpAndProbe(
-        tester,
-        theme: AppTheme.dark(ThemeColorMode.rose),
-        expectedPrimary: AppTheme.roseDarkPrimary,
-        expectedOnPrimary: AppTheme.darkOnPrimary,
-      );
-    });
+    testWidgets(
+      'Rose Dark: transparent label + primary text + primary dot/line',
+      (tester) async {
+        await pumpAndProbe(
+          tester,
+          theme: AppTheme.dark(ThemeColorMode.rose),
+          expectedPrimary: AppTheme.roseDarkPrimary,
+          expectedOnPrimary: AppTheme.darkOnPrimary,
+        );
+      },
+    );
 
-    testWidgets('Blue Dark: transparent label + primary text + primary dot/line',
-        (tester) async {
-      await pumpAndProbe(
-        tester,
-        theme: AppTheme.dark(ThemeColorMode.blue),
-        expectedPrimary: AppTheme.blueDarkPrimary,
-        expectedOnPrimary: AppTheme.darkOnPrimary,
-      );
-    });
+    testWidgets(
+      'Blue Dark: transparent label + primary text + primary dot/line',
+      (tester) async {
+        await pumpAndProbe(
+          tester,
+          theme: AppTheme.dark(ThemeColorMode.blue),
+          expectedPrimary: AppTheme.blueDarkPrimary,
+          expectedOnPrimary: AppTheme.darkOnPrimary,
+        );
+      },
+    );
   });
 }
 

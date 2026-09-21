@@ -886,18 +886,20 @@ void main() {
           .get();
       expect(operations, isEmpty);
       // Confirm the Event block is still present and the
-      // domain minutes are intact. The block's canvas top must
-      // equal the exact scaled geometry: minute-of-day (9 AM =
-      // 540) times the new pixels-per-minute, where the new hour
-      // height is read back from the live grid (24 civil-day
-      // slots per the PMG parity canvas).
+      // domain minutes are intact. P1 (2026-09-21): the canvas IS the
+      // configured 06:00-22:00 window, so the new hour height is read back
+      // from the live grid by dividing by the configured span (16 slots), and
+      // the block's top is its minute-of-day measured FROM the canvas origin
+      // (9 AM = 540, origin = 06:00 = 360).
       expect(blockFinder, findsOneWidget);
       final topAfter = tester.widget<Positioned>(blockFinder).top!;
       final gridHeight = tester
           .getSize(find.byKey(const Key('planner-time-grid')))
           .height;
-      final hourHeightAfter = gridHeight / 24;
-      final expectedTop = 540 * (hourHeightAfter / 60);
+      const configuredSpanHours = 16; // default 06:00-22:00 window
+      const rangeStartMinute = 6 * 60;
+      final hourHeightAfter = gridHeight / configuredSpanHours;
+      final expectedTop = (540 - rangeStartMinute) * (hourHeightAfter / 60);
       expect(
         (topAfter - expectedTop).abs(),
         lessThanOrEqualTo(1.5),

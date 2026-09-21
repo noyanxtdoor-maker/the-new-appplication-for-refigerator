@@ -337,14 +337,25 @@ final class DriftEventTypeRepository implements EventTypeRepository {
       visibleEndHour: row.visibleEndHour,
       use24HourTime: row.use24HourTime,
       snapMinutes: row.snapMinutes,
-      showCurrentTime: row.showCurrentTime,
+      // P1 (2026-09-21): the "Show current-time line" control was removed but
+      // the feature was KEPT, so the effective value is always true. An old
+      // stored `false` must not strand the indicator hidden now that no control
+      // can turn it back on. The column itself is retained untouched — no
+      // migration and no profile-wide rewrite.
+      showCurrentTime: true,
       initialScrollBehavior: PlannerInitialScrollBehavior.values.byName(
         row.initialScrollBehavior,
       ),
       creationPresentation: EventCreationPresentation.values.byName(
         row.creationPresentation,
       ),
-      quickEditEnabled: row.quickEditEnabled,
+      // P1 owner correction (2026-09-21): the "Quick edit on timeline" control
+      // was removed but direct manipulation was KEPT as standard behavior, so
+      // the effective value is always true. An old stored `false` must not
+      // strand quick edit disabled now that no control can turn it back on.
+      // The column itself is retained untouched — no migration and no
+      // profile-wide rewrite.
+      quickEditEnabled: true,
       showCompletedItems: row.showCompletedItems,
       showCancelledItems: row.showCancelledItems,
       weekStartDay: row.weekStartDay,
@@ -359,7 +370,14 @@ final class DriftEventTypeRepository implements EventTypeRepository {
         tasks: row.showTasks,
         completedTasks: row.showCompletedTasks,
       ),
-      timelineHourHeight: row.timelineHourHeight.toDouble(),
+      // Safe zoom read normalization: a legitimate saved scale (a preset, or any
+      // value the pinch gesture could reach) passes through unchanged. Only a
+      // corrupt out-of-range value falls back into the absolute safety range
+      // instead of propagating into layout. The stored zoom is never reset to a
+      // default merely because the settings dropdown was removed.
+      timelineHourHeight: PlannerZoomPolicy.clampAbsolute(
+        row.timelineHourHeight.toDouble(),
+      ),
     );
   }
 
@@ -436,14 +454,18 @@ final class DriftEventTypeRepository implements EventTypeRepository {
             visibleEndHour: Value<int>(settings.visibleEndHour),
             use24HourTime: Value<bool>(settings.use24HourTime),
             snapMinutes: Value<int>(settings.snapMinutes),
-            showCurrentTime: Value<bool>(settings.showCurrentTime),
+            // Written as the EFFECTIVE value, so a legacy stored `false`
+            // converges on the next ordinary settings save without a migration.
+            showCurrentTime: Value<bool>(settings.effectiveShowCurrentTime),
             initialScrollBehavior: Value<String>(
               settings.initialScrollBehavior.name,
             ),
             creationPresentation: Value<String>(
               settings.creationPresentation.name,
             ),
-            quickEditEnabled: Value<bool>(settings.quickEditEnabled),
+            // Written as the EFFECTIVE value, so a legacy stored `false`
+            // converges on the next ordinary settings save without a migration.
+            quickEditEnabled: Value<bool>(settings.effectiveQuickEditEnabled),
             showCompletedItems: Value<bool>(settings.showCompletedItems),
             showCancelledItems: Value<bool>(settings.showCancelledItems),
             weekStartDay: Value<int>(settings.weekStartDay),

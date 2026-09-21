@@ -101,11 +101,23 @@ abstract final class PlannerDisplayGeometry {
   /// [previewStartMinutes] and [previewEndMinutes] alter only the exact
   /// minute endpoints used to paint a live gesture preview; Delta 4.2B owns
   /// recomputing logical lanes while those endpoints move.
+  ///
+  /// [rangeStartMinute] / [rangeEndMinute] are the effective presentation
+  /// window from [PlannerEffectiveRange] (P1, 2026-09-21). They shift the
+  /// rendered top so pixel 0 IS the configured start hour, and they clip the
+  /// painted rectangle to the window. Clipping is PRESENTATION ONLY: the
+  /// factual Event minutes, lanes and the calendar item itself are never
+  /// rewritten, so an Event that partially overlaps the window still keeps its
+  /// true start/end and remains tappable through its visible sliver. Passing
+  /// the whole civil day (the defaults) reproduces the previous behaviour
+  /// exactly.
   static List<PlannerDisplayPlacement> resolve({
     required List<PlannerCalendarItem> events,
     required double hourHeight,
     required double viewportHeight,
     required int configuredHours,
+    int rangeStartMinute = kPlannerCivilDayStartMinute,
+    int rangeEndMinute = kPlannerCivilDayEndMinute,
     Map<String, int>? previewStartMinutes,
     Map<String, int>? previewEndMinutes,
   }) {
@@ -165,7 +177,12 @@ abstract final class PlannerDisplayGeometry {
     );
     final geometry = <String, ({double top, double height})>{
       for (final entry in displayById.entries)
-        entry.key: _displayGeometry(entry.value, hourHeight: hourHeight),
+        entry.key: _displayGeometry(
+          entry.value,
+          hourHeight: hourHeight,
+          rangeStartMinute: rangeStartMinute,
+          rangeEndMinute: rangeEndMinute,
+        ),
     };
 
     // Delta 4.2R R12: detect truly contiguous rendered boundaries
@@ -280,7 +297,7 @@ abstract final class PlannerDisplayGeometry {
   /// drag/resize math, tap ownership, recurrence, and persistence keep the
   /// logical intervals (placement.event stays the original domain item).
   static Map<String, ({double offsetFactor, double widthFactor})>
-      _resolveDisplayLanePacking({
+  _resolveDisplayLanePacking({
     required List<PlannerTimelinePlacement> canonical,
     required Map<String, _PlannerDisplayInterval> displayById,
   }) {
@@ -388,7 +405,8 @@ abstract final class PlannerDisplayGeometry {
     }
     for (final placement in component) {
       final subColumn = columnOf[placement.event.id]!;
-      final offsetFactor = (canonicalColumn * subCount + subColumn) /
+      final offsetFactor =
+          (canonicalColumn * subCount + subColumn) /
           (canonicalCount * subCount);
       final widthFactor = 1 / (canonicalCount * subCount);
       packed[placement.event.id] = (
@@ -409,10 +427,11 @@ abstract final class PlannerDisplayGeometry {
       if (hourHeight <= PlannerZoomPolicy.compactHourHeight) {
         displayDuration = 60;
       } else if (hourHeight < PlannerZoomPolicy.normalHourHeight) {
-        final transition = ((hourHeight - PlannerZoomPolicy.compactHourHeight) /
-                (PlannerZoomPolicy.normalHourHeight -
-                    PlannerZoomPolicy.compactHourHeight))
-            .clamp(0.0, 1.0);
+        final transition =
+            ((hourHeight - PlannerZoomPolicy.compactHourHeight) /
+                    (PlannerZoomPolicy.normalHourHeight -
+                        PlannerZoomPolicy.compactHourHeight))
+                .clamp(0.0, 1.0);
         displayDuration = 60 + (factualDuration - 60) * transition;
       }
     }
@@ -430,19 +449,25 @@ abstract final class PlannerDisplayGeometry {
   static ({double top, double height}) _displayGeometry(
     _PlannerDisplayInterval interval, {
     required double hourHeight,
+    int rangeStartMinute = kPlannerCivilDayStartMinute,
+    int rangeEndMinute = kPlannerCivilDayEndMinute,
   }) {
+    // P1 (2026-09-21): the painted rectangle is clipped to the effective
+    // presentation window. Clipping the START as well as the end keeps `top`
+    // non-negative (the canvas origin is the configured start hour) so a block
+    // before the window can never paint above the timeline or into the header,
+    // and clipping the END keeps a block after the window from overflowing the
+    // canvas. The readability floor and the factual lane assignment are
+    // untouched, and the stored Event minutes are never modified.
+    final lower = math.min(rangeStartMinute, rangeEndMinute);
+    final upper = math.max(rangeStartMinute, rangeEndMinute);
     final start = interval.startMinute
-        .clamp(
-          kPlannerCivilDayStartMinute.toDouble(),
-          kPlannerCivilDayEndMinute.toDouble(),
-        )
+        .clamp(lower.toDouble(), upper.toDouble())
         .toDouble();
-    final end = interval.endMinute
-        .clamp(start, kPlannerCivilDayEndMinute.toDouble())
-        .toDouble();
+    final end = interval.endMinute.clamp(start, upper.toDouble()).toDouble();
     final pixelsPerMinute = hourHeight / 60;
     return (
-      top: (start - kPlannerCivilDayStartMinute) * pixelsPerMinute,
+      top: (start - rangeStartMinute) * pixelsPerMinute,
       height: (end - start) * pixelsPerMinute,
     );
   }

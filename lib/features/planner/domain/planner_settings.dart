@@ -64,6 +64,50 @@ final class PlannerSettings {
   final PlannerContentFilters contentFilters;
   final double timelineHourHeight;
 
+  /// The configured visible window's start, as civil-day minutes.
+  ///
+  /// P1 (2026-09-21): this is the ONE effective range origin. The Planner
+  /// renderer, pager previews, scroll extent, initial focus, current-time
+  /// coordinates, pinch extent, drag ghost and resize hit testing all measure
+  /// from it. It is a PRESENTATION range only — factual Event minutes remain
+  /// civil-day based and are never rewritten to fit this window.
+  int get visibleStartMinute => visibleStartHour * 60;
+
+  /// The configured visible window's end, as civil-day minutes.
+  ///
+  /// 24 means next-day midnight, so a 0–24 window spans the whole civil day
+  /// and a 6–18 window ends at 6:00 PM. The final boundary label is inclusive.
+  int get visibleEndMinute => visibleEndHour * 60;
+
+  /// Span of the configured visible window in minutes. Always positive for a
+  /// validated instance ([validate] rejects end <= start).
+  int get visibleSpanMinutes => visibleEndMinute - visibleStartMinute;
+
+  /// Span of the configured visible window in whole hours.
+  int get visibleSpanHours => visibleSpanMinutes ~/ 60;
+
+  /// Whether the Planner should paint the current-time indicator.
+  ///
+  /// P1 removed the "Show current-time line" control but KEPT the feature. The
+  /// persisted `showCurrentTime` column is retained at its old value, and an old
+  /// stored `false` must not strand the indicator hidden now that no control can
+  /// turn it back on. The effective value is therefore always true; the raw
+  /// column is untouched (no migration, no profile-wide rewrite).
+  bool get effectiveShowCurrentTime => true;
+
+  /// Whether long-press move / edge-drag resize direct manipulation is
+  /// enabled.
+  ///
+  /// P1 owner correction (2026-09-21) removed the "Quick edit on timeline"
+  /// SETTING surface but KEPT the capability: direct manipulation is standard
+  /// Planner behavior, not a user preference. The persisted
+  /// `quick_edit_enabled` column is retained at its old value, and an old
+  /// stored `false` must not strand quick edit disabled now that no control
+  /// can turn it back on. The effective value is therefore always true; the
+  /// raw column is untouched here (no migration, no profile-wide rewrite) and
+  /// converges on the next ordinary settings save.
+  bool get effectiveQuickEditEnabled => true;
+
   PlannerSettings copyWith({
     String? defaultEventTypeId,
     bool clearDefaultEventType = false,
