@@ -151,7 +151,12 @@ slice.
 ## Locked toolchain
 
 - Flutter 3.44.7 / Dart 3.12.2
-- JDK 17
+- Java, stated as two separate facts (M-1c, 2026-09-21): bytecode target 17
+  (`sourceCompatibility` / `targetCompatibility` / Kotlin `jvmTarget`), built
+  with JDK 21 — the pinned `maplibre_gl 0.26.2` compiles its own Android
+  sources with Java 21, so a JDK 17 build fails in
+  `:maplibre_gl:compileDebugJavaWithJavac`. Both values are enforced against
+  `tool/toolchain.json` by `tool/verify_authority.dart`.
 - Android compile/target SDK 36; minimum SDK 24
 
 Exact Dart packages are recorded in `pubspec.lock`. See
