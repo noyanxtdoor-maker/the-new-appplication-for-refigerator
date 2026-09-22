@@ -723,7 +723,7 @@ void main() {
     // provisional-draft creation flow already owns new-Event scheduling, and
     // offering a second one was exactly the duplicate-block regression.
     testWidgets(
-      'Reschedule from Planner opens the session, and Confirm returns a '
+      'Schedule from Planner opens the session, and Confirm returns a '
       'draft-only schedule while Cancel leaves the draft alone',
       (tester) async {
         tester.view.physicalSize = const Size(862, 1900);
@@ -743,11 +743,13 @@ void main() {
         );
         await _openEditForm(tester, repos);
 
-        expect(find.text('Reschedule from Planner'), findsOneWidget);
+        // The owner renamed the edit action to `Schedule from Planner`, so the
+        // form carries exactly ONE scheduling action link.
+        expect(find.text('Schedule from Planner'), findsOneWidget);
         expect(
-          find.text('Schedule from Planner'),
-          findsNothing,
-          reason: 'an existing Event is rescheduled, never newly scheduled',
+          find.byKey(const Key('event-schedule-from-planner')),
+          findsOneWidget,
+          reason: 'an existing Event has ONE scheduling action, never two',
         );
 
         await tester.ensureVisible(

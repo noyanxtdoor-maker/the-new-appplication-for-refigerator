@@ -4,7 +4,7 @@ import 'package:rmplanner/features/planner/domain/planner_day.dart';
 /// P3 (2026-09-22) — the Event form's temporary scheduling session.
 ///
 /// The form remains the owner of the draft.  Tapping `Schedule from Planner`
-/// (a new Event) or `Reschedule from Planner` (an existing timed Event) opens
+/// (a new Event) or `Schedule from Planner` (an existing timed Event) opens
 /// the ordinary Planner timeline in a session that carries ONLY this schedule;
 /// dragging or resizing the provisional block writes here, and `Confirm`
 /// returns a [PlannerScheduleResult] to the still-open form.

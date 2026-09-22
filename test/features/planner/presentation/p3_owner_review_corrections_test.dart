@@ -4,7 +4,8 @@
 // regressions. These laws fail against that build and pass against the
 // correction:
 //
-//   1. `Schedule from Planner` / `Reschedule from Planner` could show the Event
+//   1. `Schedule from Planner` (the owner's final wording for the edit action)
+//      could show the Event
 //      TWICE — a saved (or creation-draft) block AND a session block.
 //      => exactly ONE target draft block, ever.
 //   2. The "+" FAB floated above the scheduling session, and empty timeline
@@ -17,7 +18,7 @@
 //   4. The two direct schedule actions sat in a filled button row at the wrong
 //      place.
 //      => `Set Time to Now` between Date and Time, left-aligned, small plain
-//      action links; `Reschedule from Planner` below the Time row, right-aligned.
+//      action links; `Schedule from Planner` below the Time row, right-aligned.
 //   5. A CONTACT Event's successful outcome read `Completed`.
 //      => it reads `Contacted`; an ordinary Event still reads `Completed`; the
 //      canonical stored status is unchanged.
@@ -367,18 +368,26 @@ Future<int> _dragDraftBlock(WidgetTester tester, Offset delta) async {
 
 void main() {
   group('owner correction — the scheduling action belongs to an existing Event', () {
-    testWidgets('an existing Event offers Reschedule and never Schedule', (
+    testWidgets('an existing Event offers the scheduling action exactly once', (
       tester,
     ) async {
       final repos = await _buildRepositories();
       await _saveMeeting(repos);
       await _openEditForm(tester, repos);
 
-      expect(find.text('Reschedule from Planner'), findsOneWidget);
+      // The owner's final wording for the edit action is `Schedule from
+      // Planner`; the old `Reschedule from Planner` label is gone, and there is
+      // exactly ONE action link (no duplicate scheduling entry point).
+      expect(find.text('Schedule from Planner'), findsOneWidget);
       expect(
-        find.text('Schedule from Planner'),
+        find.text('Reschedule from Planner'),
         findsNothing,
-        reason: 'only an existing Event can be rescheduled',
+        reason: 'the owner renamed the action to Schedule from Planner',
+      );
+      expect(
+        _actionFinder(),
+        findsOneWidget,
+        reason: 'an existing Event has ONE scheduling action, never two',
       );
     });
 
@@ -662,7 +671,7 @@ void main() {
         expect(
           rescheduleRect.top,
           greaterThan(timeRect.bottom),
-          reason: 'Reschedule from Planner sits below the Time row',
+          reason: 'Schedule from Planner sits below the Time row',
         );
         expect(
           tester.getCenter(_actionFinder().first).dx,

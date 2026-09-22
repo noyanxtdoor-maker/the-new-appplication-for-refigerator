@@ -1525,7 +1525,7 @@ final class _CalendarEventFormScreenState
                           onPressed: () {
                             unawaited(_openScheduleSession());
                           },
-                          child: const Text('Reschedule from Planner'),
+                          child: const Text('Schedule from Planner'),
                         ),
                       ),
                     const SizedBox(height: 16),
