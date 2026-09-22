@@ -1,0 +1,40 @@
+# Next Transfer — gitleaks configuration (M-7, 2026-09-22).
+#
+# `useDefault = true` KEEPS every built-in gitleaks rule active. No rule is
+# redefined, no path is exempted, and the rule set is not narrowed in any way.
+#
+# The single allowlist below retires ONE proven false positive. Its exact
+# commit is recorded in the `commits` list further down and is deliberately not
+# repeated here, so the exception is declared in exactly one place.
+#
+# That commit is NOT an ancestor of `main`. It is reachable only from stale
+# side branches, and the matched value is a 64-character all-hex fixture digest
+# constant in a test file — it carries no credential prefix and is not a
+# credential. The M-7 forensic audit re-validated the finding without ever
+# reproducing its value.
+#
+# `condition = "AND"` requires BOTH the exact commit AND the exact path, and the
+# nesting under `[[rules]] id = "generic-api-key"` restricts the exception to
+# that one rule. Consequently ANY other commit, path or rule still fails the
+# scan — including a fresh synthetic marker committed on a new branch, which is
+# exactly what the M-7 N-33 remote probe demonstrates.
+#
+# The matched value is intentionally absent from this file.
+
+title = "Next Transfer gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "generic-api-key"
+
+  [[rules.allowlists]]
+  description = "Known historical SHA-256 fixture false positive"
+  condition = "AND"
+  commits = [
+    "25663c219e911608add8d05c2bcf024ef98c2b8c"
+  ]
+  paths = [
+    '''^test/features/goals/domain/goal_icon_registry_test\.dart$'''
+  ]
