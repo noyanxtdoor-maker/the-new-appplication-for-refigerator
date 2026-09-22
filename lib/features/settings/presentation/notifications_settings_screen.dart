@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:rmplanner/app/theme/app_theme.dart';
 import 'package:rmplanner/app/theme/internal_screen.dart';
+import 'package:rmplanner/core/notifications/notification_preview_policy.dart';
 import 'package:rmplanner/features/notifications/application/detailed_content_providers.dart';
 import 'package:rmplanner/features/notifications/application/notification_providers.dart';
 import 'package:rmplanner/features/notifications/data/detailed_content_preferences_store.dart';
@@ -280,9 +281,13 @@ final class _NotificationsSettingsScreenState
                   const _SectionLabel('DETAILED CONTENT'),
                   _DetailedContentCard(
                     systemEnabled: systemEnabled,
-                    privacyPreviewEnabled:
-                        privacy.settings.notificationPreviewMode ==
-                        NotificationPreviewMode.showContent,
+                    // The canonical resolution, not a hand-rolled copy of the
+                    // privacy condition: the card and the delivery path now
+                    // read the same function, so the preview cannot drift from
+                    // the shade by re-implementing the gate.
+                    previewMode: resolveNotificationPreviewMode(
+                      settings: privacy.settings,
+                    ),
                   ),
                   const SizedBox(height: 18),
                   const _SectionLabel('QUIET HOURS'),
@@ -441,7 +446,7 @@ final class _NotificationsSettingsScreenState
 final class _DetailedContentCard extends ConsumerWidget {
   const _DetailedContentCard({
     required this.systemEnabled,
-    required this.privacyPreviewEnabled,
+    required this.previewMode,
   });
 
   /// The EFFECTIVE master state: the stored master AND the Android permission.
@@ -453,7 +458,7 @@ final class _DetailedContentCard extends ConsumerWidget {
   /// row: it READS off and is disabled, and the stored values are preserved.
   final bool systemEnabled;
 
-  /// The PRIVACY gate, which sits ABOVE this card.
+  /// The PRIVACY gate, which sits ABOVE this card, already resolved.
   ///
   /// OWNER HIERARCHY LAW (2026-09-19): a private preview makes every Detailed
   /// field ineffective no matter what it is set to, so the card must not present
@@ -461,16 +466,33 @@ final class _DetailedContentCard extends ConsumerWidget {
   /// [systemEnabled], this is REVERSIBLE gating: the stored values are left
   /// untouched and reading/editing them returns the moment privacy permits
   /// detail again.
-  final bool privacyPreviewEnabled;
+  ///
+  /// Post-P2 (2026-09-22): this is the SAME value the delivery path resolves
+  /// ([resolveNotificationPreviewMode]), passed in rather than re-derived here.
+  final EffectiveNotificationPreviewMode previewMode;
 
   /// Whether the DETAILED layer is actually in charge of the delivered copy.
-  /// The privacy layer is the outer gate, so both must permit it.
-  bool get _detailsEffective => systemEnabled && privacyPreviewEnabled;
+  ///
+  /// Post-P2 owner decision (2026-09-22): the "Detailed content" master toggle
+  /// was REMOVED, leaving the privacy "Notification preview" gate as the single
+  /// master. The delivered-content rule is unchanged and still comes from
+  /// [resolveNotificationPreviewMode] at render time; this getter only decides
+  /// whether the card's rows are interactive.
+  bool get _privacyPermitsDetail =>
+      previewMode == EffectiveNotificationPreviewMode.detailed;
 
-  /// Whether a field switch may be changed: the outer gates must permit detail
-  /// AND the owner's own master must be on.
-  bool _fieldsSelectable(DetailedContentPreferences stored) =>
-      _detailsEffective && stored.enabled;
+  /// Whether a field switch may be changed: the system master and the privacy
+  /// preview must both permit detail. The owner's stored master is no longer an
+  /// input — it reads as effective TRUE (see
+  /// `DetailedContentPreferencesStore`), so the outer gates are the whole rule.
+  bool _fieldsSelectable() => systemEnabled && _privacyPermitsDetail;
+
+  /// The mode the card renders. Equal to the canonical resolution whenever
+  /// notifications can be delivered at all; with the system master OFF nothing
+  /// is delivered, and the neutral copy is the honest thing to show rather than
+  /// sample text for a notification that cannot arrive.
+  EffectiveNotificationPreviewMode get _previewMode =>
+      systemEnabled ? previewMode : EffectiveNotificationPreviewMode.generic;
 
   /// Representative sample used by the live preview.
   ///
@@ -501,24 +523,16 @@ final class _DetailedContentCard extends ConsumerWidget {
             child: Center(child: CircularProgressIndicator()),
           )
         else ...<Widget>[
-          // The MASTER.  Above the five fields because it decides whether any
-          // of them is previewed at all, and separate from them because turning
-          // it off must not erase what they say.
-          SwitchListTile(
-            key: const Key('notifications-detailed-master'),
-            title: const Text('Detailed content'),
-            value: _detailsEffective && stored.enabled,
-            onChanged: _detailsEffective
-                ? (enabled) => ref
-                      .read(detailedContentControllerProvider)
-                      .setEnabledAndRefresh(current: stored, enabled: enabled)
-                : null,
-          ),
-          const Divider(height: 1),
+          // Post-P2 owner decision (2026-09-22): the "Detailed content" master
+          // switch that used to sit here was REMOVED. "Notification preview"
+          // above is now the one master for generic-vs-detailed, so this card
+          // holds only the five granular choices it actually describes. No
+          // persisted choice is lost: the master column reads as effective TRUE
+          // and an owner who had it off keeps all five field values.
           _DetailedToggle(
             key: const Key('notifications-detailed-title'),
             title: 'Show title',
-            enabled: _fieldsSelectable(stored),
+            enabled: _fieldsSelectable(),
             value: stored.showTitle,
             onChanged: (value) => ref
                 .read(detailedContentControllerProvider)
@@ -528,7 +542,7 @@ final class _DetailedContentCard extends ConsumerWidget {
           _DetailedToggle(
             key: const Key('notifications-detailed-description'),
             title: 'Show description',
-            enabled: _fieldsSelectable(stored),
+            enabled: _fieldsSelectable(),
             value: stored.showDescription,
             onChanged: (value) => ref
                 .read(detailedContentControllerProvider)
@@ -538,7 +552,7 @@ final class _DetailedContentCard extends ConsumerWidget {
           _DetailedToggle(
             key: const Key('notifications-detailed-time'),
             title: 'Show time',
-            enabled: _fieldsSelectable(stored),
+            enabled: _fieldsSelectable(),
             value: stored.showTime,
             onChanged: (value) => ref
                 .read(detailedContentControllerProvider)
@@ -548,7 +562,7 @@ final class _DetailedContentCard extends ConsumerWidget {
           _DetailedToggle(
             key: const Key('notifications-detailed-contacts'),
             title: 'Show contacts',
-            enabled: _fieldsSelectable(stored),
+            enabled: _fieldsSelectable(),
             value: stored.showContacts,
             onChanged: (value) => ref
                 .read(detailedContentControllerProvider)
@@ -558,7 +572,7 @@ final class _DetailedContentCard extends ConsumerWidget {
           _DetailedToggle(
             key: const Key('notifications-detailed-location'),
             title: 'Show location',
-            enabled: _fieldsSelectable(stored),
+            enabled: _fieldsSelectable(),
             value: stored.showLocation,
             onChanged: (value) => ref
                 .read(detailedContentControllerProvider)
@@ -584,15 +598,21 @@ final class _DetailedContentCard extends ConsumerWidget {
                 // delivered: the preview must not present content as actively
                 // deliverable, but the owner's law is that the Preview stays.
                 Opacity(
-                  opacity: _fieldsSelectable(stored) ? 1 : 0.45,
+                  opacity: _fieldsSelectable() ? 1 : 0.45,
                   child: _DetailedPreview(
                     key: const Key('notifications-detailed-preview'),
+                    mode: _previewMode,
                     options: options,
                   ),
                 ),
                 const SizedBox(height: 10),
                 Text(
-                  'This is the exact text a notification will show.',
+                  // Post-P2 owner decision (2026-09-22): this sentence is
+                  // only true because the preview above now follows the
+                  // "Notification preview" gate. While that gate is off the card
+                  // renders the same Generic text the shade would show.
+                  "This is the text a notification will show with your current "
+                  'settings.',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: AppTheme.secondaryTextOf(context),
                   ),
@@ -643,13 +663,23 @@ final class _DetailedToggle extends StatelessWidget {
 
 /// Renders the live preview through the canonical renderer.
 final class _DetailedPreview extends StatelessWidget {
-  const _DetailedPreview({super.key, required this.options});
+  const _DetailedPreview({
+    super.key,
+    required this.mode,
+    required this.options,
+  });
+
+  /// The mode the canonical delivery path would use right now. When it is
+  /// [EffectiveNotificationPreviewMode.generic] the card renders the renderer's
+  /// own generic copy, so the preview can never contradict the shade.
+  final EffectiveNotificationPreviewMode mode;
 
   final DetailedContentPreferences options;
 
   @override
   Widget build(BuildContext context) {
-    final reminder = buildDetailedPreview(
+    final reminder = buildNotificationPreview(
+      mode: mode,
       isEvent: true,
       options: options,
       sourceTitle: _DetailedContentCard._sampleEventTitle,
@@ -807,7 +837,7 @@ final class _Card extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Card(
     margin: EdgeInsets.zero,
-    color: Colors.transparent,
+    color: AppTheme.settingsCardOf(context),
     shape: RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(10),
       side: BorderSide(color: AppTheme.outlineOf(context)),

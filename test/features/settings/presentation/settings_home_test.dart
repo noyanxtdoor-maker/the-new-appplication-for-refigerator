@@ -164,9 +164,14 @@ void main() {
     }
   });
 
-  testWidgets('VS16 Permissions retains labels, status, and action only', (
-    tester,
-  ) async {
+  // Post-P2 owner decision (2026-09-22): the permission rows now carry their
+  // own purpose text and the Device calendar row is an explicit, non-actionable
+  // "Not available in this build" placeholder. This supersedes the earlier
+  // "labels, status and action only" presentation: the domain purpose copy was
+  // always lawful data (permission_summary.dart) that the screen simply never
+  // rendered, which is a large part of why the page read as cryptic.
+  testWidgets('Post-P2 Permissions renders purpose copy and honest calendar '
+      'state', (tester) async {
     await pumpApp(tester);
     await openSettings(tester);
     await tester.tap(find.byKey(const Key('settings-permissions')));
@@ -180,19 +185,31 @@ void main() {
     ]) {
       expect(find.text(label), findsOneWidget, reason: label);
     }
-    expect(find.text('Not requested'), findsNWidgets(4));
-    expect(
-      find.byKey(const Key('open-system-settings-button')),
-      findsOneWidget,
-    );
+    // The three requestable permissions read "Not requested"; the calendar row
+    // reports the truth for this build instead of a fabricated OS state.
+    expect(find.text('Not requested'), findsNWidgets(3));
+    expect(find.text('Unavailable'), findsOneWidget);
+    // The reason subtitles added by owner decision made this page taller than
+    // the old label/status/action-only list, so the footer button now sits
+    // below the fold at this viewport: scroll it into view and then assert,
+    // rather than assuming the whole page is one screenful.
     for (final helper in <String>[
       'Used only when you choose a contact-related feature. Core planning works without contact access.',
       'Used only when you enable reminders. Private content stays hidden unless you explicitly allow notification previews.',
       'Used only for a location feature you start while the app is open. Next Transfer does not request background location.',
-      'Used only when you choose an external-calendar feature. Your local planner works without device-calendar access.',
     ]) {
-      expect(find.text(helper), findsNothing, reason: helper);
+      expect(find.text(helper), findsOneWidget, reason: helper);
     }
+    expect(find.text('Not available in this build.'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('open-system-settings-button')),
+      200,
+    );
+    expect(
+      find.byKey(const Key('open-system-settings-button')),
+      findsOneWidget,
+      reason: 'the Android app-settings escape hatch must survive the rewrite',
+    );
   });
 
   testWidgets('VS16 Privacy removes ordinary copy but retains disclaimer', (

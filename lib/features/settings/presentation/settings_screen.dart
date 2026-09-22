@@ -53,7 +53,7 @@ final class SettingsScreen extends ConsumerWidget {
               const _SettingsSectionLabel('PRIVACY AND DEVICE'),
               Card(
                 margin: EdgeInsets.zero,
-                color: Colors.transparent,
+                color: AppTheme.settingsCardOf(context),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10),
                   side: BorderSide(color: AppTheme.outlineOf(context)),
@@ -99,7 +99,7 @@ final class SettingsScreen extends ConsumerWidget {
               const _SettingsSectionLabel('MAPS'),
               Card(
                 margin: EdgeInsets.zero,
-                color: Colors.transparent,
+                color: AppTheme.settingsCardOf(context),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10),
                   side: BorderSide(color: AppTheme.outlineOf(context)),
@@ -120,7 +120,7 @@ final class SettingsScreen extends ConsumerWidget {
               const _SettingsSectionLabel('PLANNER AND CALENDAR'),
               Card(
                 margin: EdgeInsets.zero,
-                color: Colors.transparent,
+                color: AppTheme.settingsCardOf(context),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10),
                   side: BorderSide(color: AppTheme.outlineOf(context)),
@@ -149,7 +149,7 @@ final class SettingsScreen extends ConsumerWidget {
               const _SettingsSectionLabel('PLANNING'),
               Card(
                 margin: EdgeInsets.zero,
-                color: Colors.transparent,
+                color: AppTheme.settingsCardOf(context),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10),
                   side: BorderSide(color: AppTheme.outlineOf(context)),

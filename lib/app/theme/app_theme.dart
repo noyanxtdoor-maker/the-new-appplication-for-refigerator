@@ -254,6 +254,31 @@ abstract final class AppTheme {
       ? const Color(0xFF2A2A2B)
       : Theme.of(context).colorScheme.surface;
 
+  /// Settings-surface card fill (owner decision 2026-09-22).
+  ///
+  /// The audited Settings screens (Settings home, Notifications, Maps) drew a
+  /// card that showed the scaffold canvas through it, while the accepted Planner
+  /// & Calendar and Privacy and Data screens drew the themed near-white card.
+  /// Transparent-over-canvas is what made those pages read as heavier and grayer
+  /// than the rest of Settings.
+  ///
+  /// LIGHT: the same semantic card surface those accepted screens already use
+  /// (`cardTheme.color` == `colorScheme.surface`), so the whole Settings tree
+  /// resolves one surface.
+  ///
+  /// DARK: deliberately still transparent. The dark canvas (#0D0E10) and the
+  /// dark card fill (#181A1E) are NOT the same colour, so making this opaque
+  /// would relight every dark settings surface and move the existing dark
+  /// goldens. Owner chose the lower-risk route: fix the reported light-mode
+  /// surface, leave dark pixels byte-identical.
+  ///
+  /// This is a brightness decision only — never a `Colors.white` literal and
+  /// never a palette change.
+  static Color settingsCardOf(BuildContext context) =>
+      Theme.of(context).brightness == Brightness.dark
+      ? Colors.transparent
+      : Theme.of(context).colorScheme.surface;
+
   /// Raised control fill (dark #343638, light container/well tone so
   /// controls like progress tracks stay visible on cards).
   static Color raisedOf(BuildContext context) =>

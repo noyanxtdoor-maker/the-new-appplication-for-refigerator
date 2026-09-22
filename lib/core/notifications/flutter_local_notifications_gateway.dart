@@ -1,3 +1,5 @@
+import 'dart:ui' show Color;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:rmplanner/core/notifications/canonical_reminder_delivery_gateway.dart';
@@ -23,6 +25,25 @@ import 'package:workmanager/workmanager.dart';
 /// every notification path on the resolved-drawable branch, so a missing default can
 /// never take the process down again. `res/raw/keep.xml` keeps the drawable itself.
 const String ntNotificationIconResource = 'ic_nt_notification';
+
+/// The ONE derivation of the notification tint (post-P2 owner decision,
+/// 2026-09-22).
+///
+/// The audit proved the reported green notification glyph was a COLOUR
+/// problem, not a debug artefact: nothing supplied a notification colour and no
+/// `colorAccent`/`colorPrimary` is declared in any Android theme, so Android
+/// tinted the monochrome small icon with the platform/AppCompat fallback —
+/// `@color/material_deep_teal_500` (#ff008577) in light mode, which the shipped
+/// profile APK still resolves. That is the green the owner saw.
+///
+/// The approved brand field is the same #FF002161 the launch window and the
+/// adaptive launcher icon background already use (`nt_brand_blue`). Setting it
+/// explicitly means the tint no longer depends on which theme the process
+/// happens to resolve, or on the OEM presenter's defaults.
+///
+/// `colorized: false` keeps the icon itself untinted artwork and lets Android
+/// apply the colour the canonical way for the small icon.
+const Color ntNotificationTint = Color(0xFF002161);
 
 final class FlutterLocalNotificationsGateway
     implements
@@ -185,6 +206,10 @@ final class FlutterLocalNotificationsGateway
           // HOTFIX: never depend on the startup-registered default icon (see
           // [ntNotificationIconResource]).
           icon: ntNotificationIconResource,
+          // Owner decision (2026-09-22): an explicit brand tint instead of the
+          // platform accent fallback that produced the green glyph.
+          color: ntNotificationTint,
+          colorized: false,
           styleInformation: BigTextStyleInformation(
             request.body,
             contentTitle: request.title,
@@ -217,6 +242,10 @@ final class FlutterLocalNotificationsGateway
           // HOTFIX: never depend on the startup-registered default icon (see
           // [ntNotificationIconResource]).
           icon: ntNotificationIconResource,
+          // Same explicit brand tint as the reminder path (owner decision
+          // 2026-09-22): one notification identity across the whole app.
+          color: ntNotificationTint,
+          colorized: false,
           importance: Importance.low,
           priority: Priority.low,
           // One card per operation: updating it must not re-alert, and a

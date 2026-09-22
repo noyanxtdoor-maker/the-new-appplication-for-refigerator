@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:rmplanner/core/notifications/notification_preview_policy.dart';
 import 'package:rmplanner/features/notifications/application/notification_privacy_refresh_provider.dart';
 import 'package:rmplanner/features/notifications/application/notification_providers.dart';
 import 'package:rmplanner/features/notifications/application/reminder_notification_renderer.dart';
@@ -185,5 +186,51 @@ RenderedReminder buildDetailedPreview({
     notes: notes,
     followUpName: followUpName,
     options: resolved,
+  );
+}
+
+/// The ONE entry point the Settings preview is allowed to use.
+///
+/// Post-P2 owner decision (2026-09-22). The audit proved a real defect in
+/// [buildDetailedPreview]: it takes no privacy input at all — its signature is
+/// incapable of expressing the generic state — so with the "Notification
+/// preview" gate OFF the DELIVERED notification was the neutral Generic copy
+/// while the Settings card still printed full detailed sample text underneath
+/// the sentence "This is the exact text a notification will show."
+///
+/// This wrapper consults the SAME canonical resolution the delivery path uses
+/// ([resolveNotificationPreviewMode]) and returns the renderer's own generic
+/// constant when the gate is closed, so the card cannot contradict the shade.
+///
+/// It is presentation only: nothing here schedules, cancels or re-renders a
+/// delivered reminder, and the underlying [buildDetailedPreview] is unchanged
+/// for every existing caller and test.
+RenderedReminder buildNotificationPreview({
+  required EffectiveNotificationPreviewMode mode,
+  required bool isEvent,
+  required DetailedContentPreferences options,
+  String? sourceTitle,
+  DateTime? startDisplay,
+  DateTime? endDisplay,
+  int? dueMinute,
+  String? notes,
+  String? followUpName,
+  String? locationText,
+}) {
+  if (mode == EffectiveNotificationPreviewMode.generic) {
+    // Structurally impossible for a private preview to leak a field: the
+    // generic constant is returned without ever consulting `options`.
+    return ReminderNotificationRenderer.generic;
+  }
+  return buildDetailedPreview(
+    isEvent: isEvent,
+    options: options,
+    sourceTitle: sourceTitle,
+    startDisplay: startDisplay,
+    endDisplay: endDisplay,
+    dueMinute: dueMinute,
+    notes: notes,
+    followUpName: followUpName,
+    locationText: locationText,
   );
 }

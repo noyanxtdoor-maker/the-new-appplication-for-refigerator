@@ -98,7 +98,7 @@ final class MapsSettingsScreen extends ConsumerWidget {
             const SizedBox(height: 4),
             Card(
               margin: EdgeInsets.zero,
-              color: Colors.transparent,
+              color: AppTheme.settingsCardOf(context),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(10),
                 side: BorderSide(color: AppTheme.outlineOf(context)),
@@ -117,7 +117,7 @@ final class MapsSettingsScreen extends ConsumerWidget {
             const SizedBox(height: 4),
             Card(
               margin: EdgeInsets.zero,
-              color: Colors.transparent,
+              color: AppTheme.settingsCardOf(context),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(10),
                 side: BorderSide(color: AppTheme.outlineOf(context)),

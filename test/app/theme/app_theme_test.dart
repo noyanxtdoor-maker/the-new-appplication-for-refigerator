@@ -284,6 +284,64 @@ void main() {
       expect(AppTheme.navBarOf(probeContext), const Color(0xFF101113));
       expect(AppTheme.surfaceOf(probeContext), const Color(0xFF181A1E));
       expect(AppTheme.secondaryTextOf(probeContext), const Color(0xFF9CA0A6));
+      // Post-P2 owner decision (2026-09-22): the settings-surface helper keeps
+      // DARK byte-identical (transparent over the dark canvas) so no dark
+      // settings surface is relit and no dark golden moves.
+      expect(AppTheme.settingsCardOf(probeContext), Colors.transparent);
+    });
+  });
+  group('post-P2 settings card surface (owner decision 2026-09-22)', () {
+    testWidgets('LIGHT resolves the semantic card surface, never transparent', (
+      tester,
+    ) async {
+      late BuildContext lightContext;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light(ThemeColorMode.rose),
+          home: Builder(
+            builder: (context) {
+              lightContext = context;
+              return const SizedBox();
+            },
+          ),
+        ),
+      );
+      // The audited Settings screens drew a transparent card, which showed the
+      // scaffold canvas (#F1EFEA) through it while Planner & Calendar and
+      // Privacy and Data drew the themed near-white card (#FAF8F5). That is the
+      // whole reported "gray settings" difference.
+      expect(
+        AppTheme.settingsCardOf(lightContext),
+        Theme.of(lightContext).colorScheme.surface,
+      );
+      expect(AppTheme.settingsCardOf(lightContext), AppTheme.roseLightCard);
+      expect(AppTheme.settingsCardOf(lightContext), isNot(Colors.transparent));
+      expect(
+        AppTheme.settingsCardOf(lightContext),
+        isNot(AppTheme.roseLightCanvas),
+        reason: 'the gray canvas must never be the card fill',
+      );
+    });
+
+    testWidgets('DARK stays transparent so dark pixels are untouched', (
+      tester,
+    ) async {
+      late BuildContext darkContext;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.dark(ThemeColorMode.rose),
+          home: Builder(
+            builder: (context) {
+              darkContext = context;
+              return const SizedBox();
+            },
+          ),
+        ),
+      );
+      // The dark canvas (#0D0E10) and the dark card fill (#181A1E) differ, so
+      // an opaque card here would relight every dark settings surface.
+      expect(AppTheme.settingsCardOf(darkContext), Colors.transparent);
+      expect(AppTheme.background, const Color(0xFF0D0E10));
     });
   });
 }

@@ -159,6 +159,17 @@ final class DetailedContentPreferencesStore {
 
   /// Read-only. A missing row or missing value reads as the all-TRUE default,
   /// and this never writes.
+  ///
+  /// Post-P2 owner decision (2026-09-22): the separate "Detailed content"
+  /// master control was removed from the UI because TWO masters for the same
+  /// question produced a confusing ladder — and because the privacy
+  /// "Notification preview" gate is the real outer master for delivered
+  /// content. Following the established P1 pattern (showCurrentTime /
+  /// quickEditEnabled), the persisted `detailed_content_enabled` flag is no
+  /// longer a user choice: it reads as the EFFECTIVE value TRUE. The column is
+  /// kept, no migration and no backfill happens, and the five granular choices
+  /// are untouched — an owner who had detail switched off keeps every field
+  /// exactly as they left it.
   Future<DetailedContentPreferences> read(String profileId) async {
     final row = await _readRow(profileId);
     return _decode(row);
@@ -179,7 +190,9 @@ final class DetailedContentPreferencesStore {
             .insert(
               NotificationPreferencesCompanion.insert(
                 profileId: profileId,
-                detailedContentEnabled: Value(next.enabled),
+                // Written as the EFFECTIVE value, so a legacy stored `false`
+                // converges on the next ordinary write without a migration.
+                detailedContentEnabled: const Value<bool>(true),
                 detailedShowTitle: Value(next.showTitle),
                 detailedShowDescription: Value(next.showDescription),
                 detailedShowTime: Value(next.showTime),
@@ -193,7 +206,9 @@ final class DetailedContentPreferencesStore {
           database.notificationPreferences,
         )..where((table) => table.profileId.equals(profileId))).write(
           NotificationPreferencesCompanion(
-            detailedContentEnabled: Value(next.enabled),
+            // See the read normalization: the stored master is always the
+            // EFFECTIVE value, so an ordinary write converges a legacy `false`.
+            detailedContentEnabled: const Value<bool>(true),
             detailedShowTitle: Value(next.showTitle),
             detailedShowDescription: Value(next.showDescription),
             detailedShowTime: Value(next.showTime),
@@ -219,7 +234,12 @@ final class DetailedContentPreferencesStore {
   static DetailedContentPreferences _decode(NotificationPreferenceRow? row) {
     if (row == null) return DetailedContentPreferences.defaults;
     return DetailedContentPreferences(
-      enabled: row.detailedContentEnabled,
+      // Effective TRUE (see `read`): the master is no longer user-configurable,
+      // and a legacy stored `false` must not silently suppress detail now that
+      // no control can turn it back on. Delivery still resolves generic
+      // whenever the privacy Notification preview gate is OFF, and whenever no
+      // granular field is enabled (`ReminderDetailOptions.isEmpty`).
+      enabled: true,
       showTitle: row.detailedShowTitle,
       showDescription: row.detailedShowDescription,
       showTime: row.detailedShowTime,

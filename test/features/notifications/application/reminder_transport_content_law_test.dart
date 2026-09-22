@@ -323,23 +323,32 @@ void main() {
       expect(body, contains('2:10 PM'));
     });
 
+    // POST-P2 OWNER DECISION (2026-09-22): this case pinned the retired
+    // "Detailed Content" master as the source of the neutral copy. That master
+    // is gone — "Notification preview" is the one generic-vs-detailed authority
+    // — and its column reads as the EFFECTIVE value TRUE, so a legacy stored
+    // `false` must NOT strand a reminder on the neutral copy. The Generic copy
+    // itself is still delivered from the privacy gate, covered by
+    // 'a privacy-private preview produces the Generic copy whatever the field
+    // toggles say' below.
     test(
-      'the Detailed Content master OFF is the neutral Generic copy',
+      'a legacy Detailed Content master OFF still delivers its own copy',
       () async {
         await seedEvent();
+        // The exact legacy row the owner is worried about.
         await setDetailed(const DetailedContentPreferences(enabled: false));
         final container = await buildContainer();
         await container
             .read(calendarEventControllerProvider.notifier)
             .reconcileEventHorizon();
 
+        expect(gateway.scheduled, hasLength(1));
         expect(
           await lastNativeTitle(),
-          ReminderNotificationRenderer.genericTitle,
-        );
-        expect(
-          await lastNativeBody(),
-          ReminderNotificationRenderer.genericBody,
+          'District Meeting',
+          reason:
+              'the retired master can no longer suppress the saved content; '
+              'only the privacy gate can',
         );
       },
     );
@@ -502,26 +511,19 @@ void main() {
       },
     );
 
-    test(
-      'a Master-OFF Task still schedules the neutral Generic copy',
-      () async {
-        await seedTask();
-        await setDetailed(const DetailedContentPreferences(enabled: false));
-        final container = await buildContainer();
-        await container
-            .read(plannerControllerProvider.notifier)
-            .reconcileTaskReminderHorizon();
+    // POST-P2 OWNER DECISION (2026-09-22): see the N1 note above — the retired
+    // master is no longer an authority, so a legacy `false` must not strand a
+    // Task on the neutral copy either.
+    test('a legacy Master-OFF Task still schedules its own copy', () async {
+      await seedTask();
+      await setDetailed(const DetailedContentPreferences(enabled: false));
+      final container = await buildContainer();
+      await container
+          .read(plannerControllerProvider.notifier)
+          .reconcileTaskReminderHorizon();
 
-        expect(
-          await lastNativeTitle(),
-          ReminderNotificationRenderer.genericTitle,
-        );
-        expect(
-          await lastNativeBody(),
-          ReminderNotificationRenderer.genericBody,
-        );
-      },
-    );
+      expect(await lastNativeTitle(), 'Call the supplier');
+    });
   });
 
   group('the revision token is run-stable', () {

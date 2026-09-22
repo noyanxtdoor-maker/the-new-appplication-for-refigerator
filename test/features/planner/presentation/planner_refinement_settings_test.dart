@@ -149,7 +149,6 @@ void main() {
         'use-24-hour-setting',
         'initial-scroll-setting',
         'show-completed-setting',
-        'show-cancelled-setting',
       ]) {
         expect(find.byKey(Key(key)), findsOneWidget, reason: key);
       }
@@ -174,7 +173,6 @@ void main() {
       final snap = find.byKey(const Key('time-snap-setting'));
       final initialScroll = find.byKey(const Key('initial-scroll-setting'));
       final completed = find.byKey(const Key('show-completed-setting'));
-      final cancelled = find.byKey(const Key('show-cancelled-setting'));
 
       // Section membership proved by layout order, not by string presence: the
       // tile now sits BELOW the Timeline section's own controls...
@@ -184,10 +182,16 @@ void main() {
       expect(top(timelineHeader), lessThan(top(displayHeader)));
       expect(top(displayHeader), lessThan(top(tile)));
 
-      // Owner-mandated Display order:
-      // 1. 24-hour time  2. Show completed items  3. Show cancelled items
+      // Owner-mandated Display order after the post-P2 decision (2026-09-22):
+      // 1. 24-hour time  2. Show completed events.  The "Show cancelled items"
+      // control was removed, so there is no third row to order.
       expect(top(tile), lessThan(top(completed)));
-      expect(top(completed), lessThan(top(cancelled)));
+      expect(find.text('Show completed events'), findsOneWidget);
+      expect(
+        find.byKey(const Key('show-cancelled-setting')),
+        findsNothing,
+        reason: 'removed by owner decision; the column itself is untouched',
+      );
     });
   });
 

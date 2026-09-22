@@ -391,7 +391,7 @@ void main() {
             matching: find.byKey(const Key('use-24-hour-setting')),
           ),
           findsOneWidget,
-          reason: 'Display order is 24-hour time, then the two Show toggles',
+          reason: 'Display order is 24-hour time, then Show completed events',
         );
         // ...and no longer to the Timeline card.
         final timelineCard = find
@@ -414,13 +414,21 @@ void main() {
         final completed = tester.getRect(
           find.byKey(const Key('show-completed-setting')),
         );
-        final cancelled = tester.getRect(
+        // Post-P2 owner decision (2026-09-22): the "Show cancelled items"
+        // control was REMOVED, so the Display section is exactly two rows and
+        // the ordering law is now 24-hour time -> Show completed events.
+        expect(
           find.byKey(const Key('show-cancelled-setting')),
+          findsNothing,
+          reason: 'the cancelled control was removed by owner decision',
+        );
+        expect(
+          find.text('Show completed events'),
+          findsOneWidget,
+          reason: 'the completed setting was renamed for truthfulness',
         );
         expect(t24.top, lessThan(completed.top));
-        expect(completed.top, lessThan(cancelled.top));
         expect(completed.top, greaterThanOrEqualTo(t24.bottom));
-        expect(cancelled.top, greaterThanOrEqualTo(completed.bottom));
 
         // "Open timeline at" is a separate setting and must still be present.
         expect(find.byKey(const Key('initial-scroll-setting')), findsOneWidget);

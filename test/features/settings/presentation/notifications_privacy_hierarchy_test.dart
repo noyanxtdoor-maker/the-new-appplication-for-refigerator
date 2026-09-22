@@ -2,11 +2,16 @@
 //
 //   SYSTEM NOTIFICATIONS
 //          |
-//   PRIVACY NOTIFICATION PREVIEW      <- the privacy gate
-//          |
-//   DETAILED CONTENT                  <- the master for the five fields
+//   PRIVACY NOTIFICATION PREVIEW      <- the ONE master (post-P2, 2026-09-22)
 //          |
 //   Show title / description / time / contacts / location
+//
+// The intermediate "Detailed content" master was REMOVED by owner decision on
+// 2026-09-22: two masters for one question (generic vs detailed) produced a
+// confusing ladder, and the privacy gate is the real outer master.  Its stored
+// column is kept and read as the EFFECTIVE value TRUE, following the same
+// normalization P1 used for showCurrentTime / quickEditEnabled, so an owner who
+// had detail switched off does not silently lose every field choice.
 //
 // Two defects are pinned here:
 //
@@ -33,9 +38,11 @@ import 'package:rmplanner/core/background/background_work_gateway.dart';
 import 'package:rmplanner/core/diagnostics/sanitized_diagnostics.dart';
 import 'package:rmplanner/core/notifications/notification_gateway.dart';
 import 'package:rmplanner/core/notifications/notification_payload.dart';
+import 'package:rmplanner/core/notifications/notification_preview_policy.dart';
 import 'package:rmplanner/features/notifications/application/detailed_content_providers.dart';
 import 'package:rmplanner/features/notifications/application/notification_foundation_repository.dart';
 import 'package:rmplanner/features/notifications/application/notification_providers.dart';
+import 'package:rmplanner/features/notifications/application/reminder_notification_renderer.dart';
 import 'package:rmplanner/features/notifications/data/detailed_content_preferences_store.dart';
 import 'package:rmplanner/features/notifications/data/drift_notification_foundation_repository.dart';
 import 'package:rmplanner/features/planner/application/event_type_providers.dart';
@@ -245,69 +252,72 @@ void main() {
   );
 
   testWidgets(
-    'S4 — the master OFF makes every field row read off and non-interactive',
+    'S4 — the retired Detailed master is gone and cannot strand a legacy OFF',
     (tester) async {
       await buildContainer(privacyPreview: true);
+      // A profile that had the retired master switched OFF.
       await repository.saveDetailedContent(
         profileId: profileId,
         preferences: const DetailedContentPreferences(enabled: false),
       );
       await pumpScreen(tester);
       await enableSystemMaster(tester);
-      await scrollTo(tester, const Key('notifications-detailed-master'));
+      await scrollTo(tester, _detailedKeys.first);
 
+      // Post-P2 owner decision (2026-09-22): Notification preview is the single
+      // master, so the second one must not be rendered at all.
       expect(
-        tester
-            .widget<SwitchListTile>(
-              find.byKey(const Key('notifications-detailed-master')),
-            )
-            .value,
-        isFalse,
+        find.byKey(const Key('notifications-detailed-master')),
+        findsNothing,
+        reason: 'there is exactly one generic-vs-detailed master',
       );
+      // The owner's field choices are the live ones again: a legacy stored OFF
+      // must not keep the card inert now that no control can turn it back on.
       for (final key in _detailedKeys) {
-        expect(detailed(tester, key).value, isFalse);
-        expect(detailed(tester, key).onChanged, isNull);
+        expect(detailed(tester, key).value, isTrue);
+        expect(detailed(tester, key).onChanged, isNotNull);
       }
     },
   );
 
   testWidgets(
-    'S7 — the master off/on round trip restores the field rows untouched',
+    'S7 — a legacy stored master OFF converges to effective ON without erasing '
+    'the field choices',
     (tester) async {
       await buildContainer(privacyPreview: true);
       await repository.saveDetailedContent(
         profileId: profileId,
-        preferences: const DetailedContentPreferences(showLocation: false),
+        preferences: const DetailedContentPreferences(
+          enabled: false,
+          showLocation: false,
+        ),
       );
+
+      final reread = await repository.readDetailedContent(profileId: profileId);
+      expect(
+        reread.enabled,
+        isTrue,
+        reason: 'the retired master reads as the effective value TRUE',
+      );
+      expect(
+        reread.showLocation,
+        isFalse,
+        reason: "the owner's own field choices are preserved untouched",
+      );
+
       await pumpScreen(tester);
       await enableSystemMaster(tester);
-
-      // The master is above the five fields; turning it off must disable them
-      // without erasing the saved location choice.
-      await scrollTo(tester, const Key('notifications-detailed-master'));
-      await tester.tap(find.byKey(const Key('notifications-detailed-master')));
-      await tester.pumpAndSettle();
-      expect(detailed(tester, _detailedKeys.first).onChanged, isNull);
-      expect(
-        await repository.readDetailedContent(profileId: profileId),
-        const DetailedContentPreferences(showLocation: false, enabled: false),
-        reason: 'turning the master off must not rewrite any field',
-      );
-
-      await tester.tap(find.byKey(const Key('notifications-detailed-master')));
-      await tester.pumpAndSettle();
       await scrollTo(tester, _detailedKeys.last);
       expect(
         detailed(tester, _detailedKeys.last).value,
         isFalse,
-        reason: "the owner's own location choice returns",
+        reason: 'the saved location choice still governs the row',
       );
       expect(
-        detailed(tester, _detailedKeys.first).value,
-        isTrue,
-        reason: 'a field that was never touched stays on',
+        detailed(tester, _detailedKeys.last).onChanged,
+        isNotNull,
+        reason: 'the retired master can no longer disable the field rows',
       );
-      expect(detailed(tester, _detailedKeys.first).onChanged, isNotNull);
     },
   );
 
@@ -362,6 +372,161 @@ void main() {
       expect(detailed(tester, _detailedKeys.first).onChanged, isNotNull);
     },
   );
+
+  // POST-P2 OWNER FINDING (2026-09-22) — the defect this group pins:
+  //
+  //   The Settings preview was built by `buildDetailedPreview`, whose signature
+  //   takes NO privacy input at all. With "Notification preview" OFF the
+  //   DELIVERED notification was the neutral generic copy while the card still
+  //   printed the full detailed sample underneath the sentence "This is the
+  //   exact text a notification will show."
+  //
+  //   The existing 45 notification/privacy tests stayed green through this,
+  //   because they assert the SWITCHES' effective state and never assert the
+  //   PREVIEW TEXT against the canonical renderer. That is the gap closed here.
+  group('POST-P2 — the preview card cannot contradict the shade', () {
+    testWidgets(
+      'a private Notification preview renders the EXACT generic copy the shade '
+      'would deliver',
+      (tester) async {
+        await buildContainer(privacyPreview: false);
+        await pumpScreen(tester);
+        await enableSystemMaster(tester);
+        await scrollTo(tester, _detailedKeys.first);
+
+        expect(
+          find.text(ReminderNotificationRenderer.genericTitle),
+          findsOneWidget,
+          reason: 'a closed gate must show the canonical generic title',
+        );
+        expect(
+          find.text(ReminderNotificationRenderer.genericBody),
+          findsOneWidget,
+          reason: 'a closed gate must show the canonical generic body',
+        );
+
+        // Not one field of the sample may survive: the card sits directly under
+        // "This is the exact text a notification will show."
+        expect(
+          find.textContaining('Dentist'),
+          findsNothing,
+          reason: 'the sample title is private content',
+        );
+        expect(
+          find.textContaining('Riverside Clinic'),
+          findsNothing,
+          reason: 'the sample location is private content',
+        );
+        expect(
+          find.textContaining('insurance card'),
+          findsNothing,
+          reason: 'the sample description is private content',
+        );
+        expect(
+          find.textContaining('Follow up with'),
+          findsNothing,
+          reason: 'the sample contact line is private content',
+        );
+      },
+    );
+
+    testWidgets(
+      'a permitted Notification preview renders the detailed sample',
+      (tester) async {
+        await buildContainer(privacyPreview: true);
+        await pumpScreen(tester);
+        await enableSystemMaster(tester);
+        await scrollTo(tester, _detailedKeys.first);
+
+        expect(
+          find.text(ReminderNotificationRenderer.genericTitle),
+          findsNothing,
+          reason: 'the open gate must not be forced back to the generic copy',
+        );
+        expect(find.textContaining('Dentist'), findsOneWidget);
+      },
+    );
+
+    test(
+      'the preview entry point is a pure pass-through when the gate is open and '
+      'cannot leak a field when it is closed',
+      () {
+        // Every granular field ON, and a sample that exercises all of them: this
+        // is the worst case for a leak.
+        const options = DetailedContentPreferences.defaults;
+        const sampleTitle = '🦷 Dentist appointment';
+        const sampleNotes = 'Bring the insurance card.';
+        const sampleFollowUp = 'Bea';
+        const sampleLocation = 'Riverside Clinic';
+
+        final generic = buildNotificationPreview(
+          mode: EffectiveNotificationPreviewMode.generic,
+          isEvent: true,
+          options: options,
+          sourceTitle: sampleTitle,
+          startDisplay: DateTime(2026, 1, 1, 9, 30),
+          endDisplay: DateTime(2026, 1, 1, 10, 30),
+          notes: sampleNotes,
+          followUpName: sampleFollowUp,
+          locationText: sampleLocation,
+        );
+        expect(
+          generic,
+          ReminderNotificationRenderer.generic,
+          reason:
+              'the canonical generic constant is the only thing a closed gate '
+              'may render',
+        );
+
+        final detailed = buildNotificationPreview(
+          mode: EffectiveNotificationPreviewMode.detailed,
+          isEvent: true,
+          options: options,
+          sourceTitle: sampleTitle,
+          startDisplay: DateTime(2026, 1, 1, 9, 30),
+          endDisplay: DateTime(2026, 1, 1, 10, 30),
+          notes: sampleNotes,
+          followUpName: sampleFollowUp,
+          locationText: sampleLocation,
+        );
+        expect(
+          detailed,
+          buildDetailedPreview(
+            isEvent: true,
+            options: options,
+            sourceTitle: sampleTitle,
+            startDisplay: DateTime(2026, 1, 1, 9, 30),
+            endDisplay: DateTime(2026, 1, 1, 10, 30),
+            notes: sampleNotes,
+            followUpName: sampleFollowUp,
+            locationText: sampleLocation,
+          ),
+          reason:
+              'an open gate must resolve through the existing detailed builder '
+              'byte for byte — the wrapper adds no second rendering law',
+        );
+        expect(detailed.title, contains('Dentist'));
+      },
+    );
+
+    test("the card's mode is the canonical resolver's own answer", () {
+      // The card no longer re-derives the privacy condition: it is handed
+      // `resolveNotificationPreviewMode`, so this equality is what keeps the
+      // card and the delivery path on one law.
+      for (final mode in NotificationPreviewMode.values) {
+        final settings = PrivacySettings(
+          lockEnabled: false,
+          notificationPreviewMode: mode,
+        );
+        expect(
+          resolveNotificationPreviewMode(settings: settings),
+          mode == NotificationPreviewMode.showContent
+              ? EffectiveNotificationPreviewMode.detailed
+              : EffectiveNotificationPreviewMode.generic,
+        );
+      }
+    });
+  });
 }
 
 final class _FakeNotificationGateway implements NotificationGateway {

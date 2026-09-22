@@ -43,7 +43,8 @@ import 'package:rmplanner/features/planner/presentation/widgets/planner_interact
         PlannerCurrentTimeHorizontalGeometry,
         PlannerInteractiveDayPager,
         PlannerInteractiveDayPagerController,
-        PlannerLoadingDayTimeline;
+        PlannerLoadingDayTimeline,
+        plannerItemIsCompletedOccurrence;
 import 'package:rmplanner/features/planner/presentation/widgets/planner_shared_viewport.dart'
     show kPlannerTimelineBottomBoundaryExtent;
 import 'package:rmplanner/features/planner/presentation/widgets/planner_slide_down_date_picker.dart';
@@ -2006,6 +2007,15 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
     );
   }
 
+  /// The Day timeline's Event projection: the content filters (Events /
+  /// Backup Events) plus the owner's completed-occurrence display law.
+  ///
+  /// Post-P2 owner decision (2026-09-22): "Show completed events" now actually
+  /// filters. It is a PRESENTATION filter only — it never queries, never
+  /// deletes, never changes a report outcome and never touches recurrence
+  /// identity. `didNotHappen` is deliberately NOT treated as completed: the
+  /// setting is about completed occurrences, and "Did not happen" is a
+  /// distinct accepted outcome that keeps rendering.
   List<PlannerCalendarItem> _visibleEvents(
     List<PlannerCalendarItem> events,
     PlannerSettings settings,
@@ -2015,6 +2025,11 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
         .where(
           (event) =>
               event.isBackupAppointment ? filters.backupEvents : filters.events,
+        )
+        .where(
+          (event) =>
+              settings.showCompletedItems ||
+              !plannerItemIsCompletedOccurrence(event),
         )
         .toList(growable: false);
   }

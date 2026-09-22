@@ -427,97 +427,136 @@ void main() {
     );
   });
 
-  group(
-    'the Detailed Content master suppresses detail, never configuration',
-    () {
-      test(
-        'Case B / P2 — master OFF delivers the neutral Generic copy',
-        () async {
-          await seedContact(id: 'contact-juan', name: 'Juan Dela Cruz');
-          await attachEventContact('contact-juan');
-          await foundation.saveDetailedContent(
-            profileId: profileId,
-            preferences: const DetailedContentPreferences(enabled: false),
-          );
+  // POST-P2 OWNER DECISION (2026-09-22) — THIS GROUP WAS REWRITTEN.
+  //
+  // It used to pin the "Detailed Content" master as the thing that suppressed
+  // detail while never destroying configuration.  The owner retired that master:
+  // two controls for one question (generic vs detailed) made the ladder
+  // confusing, so "Notification preview" is now the ONE master and the retired
+  // column reads as the EFFECTIVE value TRUE.
+  //
+  // The INTENT of each case is preserved — something suppresses detail, and
+  // configuration is never lost — but the suppressing authority is now the
+  // privacy gate, which is exactly the input `NotificationDeliveryPrivacy`
+  // already models here.  Nothing about delivery itself changed: a non-detailed
+  // snapshot is still the neutral Generic copy before any field is considered.
+  group('the privacy gate suppresses detail, never configuration', () {
+    test(
+      'P2 — a legacy stored master OFF can no longer suppress detail',
+      () async {
+        await seedContact(id: 'contact-juan', name: 'Juan Dela Cruz');
+        await attachEventContact('contact-juan');
+        // The exact legacy row the owner is worried about: detail switched off
+        // while the control still existed.
+        await foundation.saveDetailedContent(
+          profileId: profileId,
+          preferences: const DetailedContentPreferences(enabled: false),
+        );
 
-          final snapshot = await readEvent();
-          expect(
-            snapshot.showDetails,
-            isTrue,
-            reason:
-                'privacy still permits detail; the master is what forbids it',
-          );
-          expect(snapshot.detailOptions.isEmpty, isTrue);
-          expect(render(snapshot), ReminderNotificationRenderer.generic);
-          expect(render(snapshot).body, isNot(contains('Juan Dela Cruz')));
-        },
+        final snapshot = await readEvent();
+        expect(
+          snapshot.showDetails,
+          isTrue,
+          reason:
+              'privacy permits detail and no user-facing control can forbid '
+              'it any more, so a legacy false must not strand detail off',
+        );
+        expect(
+          snapshot.detailOptions.isEmpty,
+          isFalse,
+          reason: 'the retired master must not blank every field choice',
+        );
+        expect(
+          render(snapshot).body,
+          contains('Juan Dela Cruz'),
+          reason: 'the retired master is no longer an authority over delivery',
+        );
+      },
+    );
+
+    test(
+      'P2 — the privacy gate is what delivers the neutral Generic copy',
+      () async {
+        await seedContact(id: 'contact-juan', name: 'Juan Dela Cruz');
+        await attachEventContact('contact-juan');
+
+        final snapshot = await readerWith(NotificationDeliveryPrivacy.generic)
+            .read(
+              profileId: profileId,
+              sourceKind: ReminderSourceKind.calendarEvent,
+              sourceId: eventId,
+              occurrenceId: occurrenceId,
+            );
+        expect(snapshot!.showDetails, isFalse);
+        expect(render(snapshot), ReminderNotificationRenderer.generic);
+        expect(render(snapshot).body, isNot(contains('Juan Dela Cruz')));
+      },
+    );
+
+    test('C4 — a closed privacy gate conceals contacts even with Show contacts '
+        'ON', () async {
+      await seedContact(id: 'contact-juan', name: 'Juan Dela Cruz');
+      await attachEventContact('contact-juan');
+      await foundation.saveDetailedContent(
+        profileId: profileId,
+        preferences: const DetailedContentPreferences(),
       );
 
-      test(
-        'C4 — master OFF conceals contacts even with Show contacts ON',
-        () async {
-          await seedContact(id: 'contact-juan', name: 'Juan Dela Cruz');
-          await attachEventContact('contact-juan');
-          await foundation.saveDetailedContent(
+      final stored = await foundation.readDetailedContent(profileId: profileId);
+      expect(
+        stored.showContacts,
+        isTrue,
+        reason: 'the owner never turned Show contacts off',
+      );
+      final private = await readerWith(NotificationDeliveryPrivacy.generic)
+          .read(
             profileId: profileId,
-            preferences: const DetailedContentPreferences(enabled: false),
+            sourceKind: ReminderSourceKind.calendarEvent,
+            sourceId: eventId,
+            occurrenceId: occurrenceId,
           );
+      expect(render(private!).body, isNot(contains('Juan Dela Cruz')));
+    });
 
-          final stored = await foundation.readDetailedContent(
-            profileId: profileId,
-          );
-          expect(
-            stored.showContacts,
-            isTrue,
-            reason: 'the owner never turned Show contacts off',
-          );
-          expect(
-            render(await readEvent()).body,
-            isNot(contains('Juan Dela Cruz')),
-          );
-        },
+    test('P8 — a legacy master OFF converges to effective ON without erasing '
+        'the field choices', () async {
+      await foundation.saveDetailedContent(
+        profileId: profileId,
+        preferences: const DetailedContentPreferences(showLocation: false),
+      );
+      final before = await foundation.readDetailedContent(profileId: profileId);
+
+      await foundation.saveDetailedContent(
+        profileId: profileId,
+        preferences: before.copyWith(enabled: false),
+      );
+      final off = await foundation.readDetailedContent(profileId: profileId);
+      expect(
+        off.enabled,
+        isTrue,
+        reason:
+            'the retired master reads as the EFFECTIVE value TRUE, so no '
+            'legacy false can strand detail off',
+      );
+      expect(
+        off.showLocation,
+        isFalse,
+        reason: 'normalization must not rewrite the field switches',
       );
 
-      test(
-        'P8 — a master off/on round trip returns the field choices',
-        () async {
-          await foundation.saveDetailedContent(
-            profileId: profileId,
-            preferences: const DetailedContentPreferences(showLocation: false),
-          );
-          final before = await foundation.readDetailedContent(
-            profileId: profileId,
-          );
-
-          await foundation.saveDetailedContent(
-            profileId: profileId,
-            preferences: before.copyWith(enabled: false),
-          );
-          final off = await foundation.readDetailedContent(
-            profileId: profileId,
-          );
-          expect(off.enabled, isFalse);
-          expect(
-            off.showLocation,
-            isFalse,
-            reason: 'the master must not rewrite the field switches',
-          );
-
-          final back = await foundation.saveDetailedContent(
-            profileId: profileId,
-            preferences: off.copyWith(enabled: true),
-          );
-          expect(back.enabled, isTrue);
-          expect(
-            back.showLocation,
-            isFalse,
-            reason: "the owner's own choice returns; it is not reset to true",
-          );
-          expect(back.showTitle, isTrue);
-        },
+      final back = await foundation.saveDetailedContent(
+        profileId: profileId,
+        preferences: off.copyWith(enabled: true),
       );
-    },
-  );
+      expect(back.enabled, isTrue);
+      expect(
+        back.showLocation,
+        isFalse,
+        reason: "the owner's own choice survives; it is not reset to true",
+      );
+      expect(back.showTitle, isTrue);
+    });
+  });
 
   group('the canonical renderer still gates each field independently', () {
     RenderedReminder preview(ReminderDetailOptions options) =>

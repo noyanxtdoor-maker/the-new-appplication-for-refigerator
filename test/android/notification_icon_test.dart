@@ -2,20 +2,31 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
-/// VS16 M7 corrective — notification small-icon geometry regression guard.
+/// Notification small-icon geometry regression guard.
 ///
-/// ICON TEST REALITY (owner authorization, corrective round):
+/// POST-P2 OWNER DECISION (2026-09-22) — the artwork was REPLACED, so the
+/// previous geometry laws are deliberately superseded:
+///
+///   * the old mark was the traced hand + notebook illustration on a 108x108
+///     viewport, reframed by a `<group>` scale 1.08 / translate -4.32 so that
+///     its occupancy could be pushed up without clipping;
+///   * the audit proved that artwork can never read cleanly at notification
+///     size (thin traced strokes collapse into a blob once Android tints and
+///     downscales it), so the owner asked for a simplified silhouette;
+///   * the replacement is a single solid notebook page with three transparent
+///     writing lines, on a 24x24 viewport, with no transform at all.
+///
+/// The laws below therefore changed from "the wide reframed illustration" to
+/// "the simplified portrait page, safely inset".  What did NOT change is the
+/// resource contract: the drawable name, the 24dp declared size, the
+/// transparent background, and the single monochrome white path.
+///
+/// ICON TEST REALITY (unchanged doctrine):
 /// These tests are REGRESSION PROTECTION ONLY. Bounding-box arithmetic is not
 /// perception. Final subjective icon acceptance remains OWNER PHYSICAL REVIEW
-/// on the Infinix. A green run here must never be reported as icon acceptance.
-///
-/// What these tests DO prove:
-/// - the gateway still selects the dedicated monochrome notification drawable;
-/// - the drawable is a single-path monochrome `<vector>`;
-/// - the declared size / viewport contract is unchanged (24dp, 108x108);
-/// - the artwork's effective bounds occupy enough of the canvas, and the
-///   correction increased vertical occupancy without clipping the artwork;
-/// - the launcher mipmaps are untouched.
+/// on the device. A green run here must never be reported as icon acceptance —
+/// and that is especially true for this simplified mark, which was authored
+/// without the ability to view the rendered result.
 void main() {
   final drawable = File(
     'android/app/src/main/res/drawable/ic_nt_notification.xml',
@@ -29,7 +40,9 @@ void main() {
       expect(gateway.existsSync(), isTrue, reason: 'gateway must exist');
       final source = gateway.readAsStringSync();
       expect(
-        source.contains("AndroidInitializationSettings('@drawable/ic_nt_notification')"),
+        source.contains(
+          "AndroidInitializationSettings('@drawable/ic_nt_notification')",
+        ),
         isTrue,
         reason: 'the initialization must keep the dedicated monochrome icon',
       );
@@ -43,110 +56,97 @@ void main() {
   });
 
   group('D26 notification icon vector geometry', () {
-    test('is a single-path monochrome vector on the 108x108 viewport', () {
+    test('is a single-path monochrome vector on the 24x24 viewport', () {
       expect(drawable.existsSync(), isTrue, reason: 'drawable must exist');
       final xml = drawable.readAsStringSync();
       expect(xml.contains('<vector'), isTrue);
-      expect(xml.contains('android:viewportWidth="108"'), isTrue);
-      expect(xml.contains('android:viewportHeight="108"'), isTrue);
+      expect(xml.contains('android:viewportWidth="24"'), isTrue);
+      expect(xml.contains('android:viewportHeight="24"'), isTrue);
       expect(xml.contains('android:width="24dp"'), isTrue);
       expect(xml.contains('android:height="24dp"'), isTrue);
-      // Monochrome: Android tints the small icon, so a white single path.
+      // Monochrome: Android uses the ALPHA as the shape and recolours it, so a
+      // white single path with no background is the only lawful form.
       expect(xml.contains('android:fillColor="#FFFFFFFF"'), isTrue);
       expect(
         RegExp(r'<path\b').allMatches(xml).length,
         1,
         reason: 'the mark must stay a single path',
       );
+      expect(
+        xml.contains('android:fillType="evenOdd"'),
+        isTrue,
+        reason:
+            'the transparent writing lines are cut-outs inside the one path, '
+            'which is what keeps this a single tinted silhouette',
+      );
     });
 
-    test('artwork occupancy increased and does not clip the canvas', () {
+    test('the mark keeps a safe inset on every side of the canvas', () {
       final bounds = _effectiveBounds(drawable);
-      final width = bounds.maxX - bounds.minX;
-      final height = bounds.maxY - bounds.minY;
-
-      // Owner authorization: "increase effective occupancy conservatively"
-      // while "not clipping the artwork".  The approved mark is 88.9% wide and
-      // 62.4% tall, so a UNIFORM reframe is width-bound: it cannot reach a
-      // tall occupancy without clipping horizontally.  The real law is
-      // therefore (a) occupancy must strictly improve on the baseline, and
-      // (b) a safe margin must remain on every side.
-      const baselineWidth = 96.0 / 108;
-      const baselineHeight = 67.38 / 108;
-      expect(
-        width / 108,
-        greaterThan(baselineWidth),
-        reason: 'horizontal occupancy must strictly improve on the 88.9% baseline',
-      );
-      expect(
-        height / 108,
-        greaterThan(baselineHeight),
-        reason: 'vertical occupancy must strictly improve on the 62.4% baseline',
-      );
-      // Conservative: a real margin must survive Android's small-icon masking.
+      // Owner requirement: no platform mask or OEM backdrop may visually clip
+      // the glyph. The replacement artwork is inset by construction, so this is
+      // now a strict floor rather than the old "occupancy must improve" rule.
       expect(bounds.minX, greaterThanOrEqualTo(2.0));
       expect(bounds.minY, greaterThanOrEqualTo(2.0));
-      expect(bounds.maxX, lessThanOrEqualTo(106.0));
-      expect(bounds.maxY, lessThanOrEqualTo(106.0));
-
-      // Conservative: the artwork must remain fully inside the safe canvas.
+      expect(bounds.maxX, lessThanOrEqualTo(22.0));
+      expect(bounds.maxY, lessThanOrEqualTo(22.0));
+      // And it must stay fully inside the canvas.
       expect(bounds.minX, greaterThanOrEqualTo(0));
       expect(bounds.minY, greaterThanOrEqualTo(0));
-      expect(bounds.maxX, lessThanOrEqualTo(108));
-      expect(bounds.maxY, lessThanOrEqualTo(108));
+      expect(bounds.maxX, lessThanOrEqualTo(24));
+      expect(bounds.maxY, lessThanOrEqualTo(24));
     });
 
-    test('the mark is not stretched into a distorted aspect ratio', () {
+    test('the mark is legibly large but not edge-to-edge', () {
+      final bounds = _effectiveBounds(drawable);
+      final width = (bounds.maxX - bounds.minX) / 24;
+      final height = (bounds.maxY - bounds.minY) / 24;
+      // A small icon needs mass: at least half the canvas each way. It is
+      // deliberately NOT wider than 90%, so no mask can shave a silhouette
+      // edge.
+      expect(width, greaterThanOrEqualTo(0.5));
+      expect(height, greaterThanOrEqualTo(0.7));
+      expect(width, lessThanOrEqualTo(0.9));
+      expect(height, lessThanOrEqualTo(0.9));
+    });
+
+    test('the page keeps a portrait proportion', () {
       final bounds = _effectiveBounds(drawable);
       final width = bounds.maxX - bounds.minX;
       final height = bounds.maxY - bounds.minY;
       final aspect = width / height;
-      // The approved brand mark is a wide hand + notebook shape. Reframing may
-      // scale it but must not squash it into an unrelated proportion.
+      // The OLD artwork was the wide hand + notebook illustration (aspect
+      // 1.1-2.0). The replacement is a notebook PAGE, which is portrait by
+      // definition; a wide silhouette here would mean the reduction failed.
       expect(
         aspect,
-        inInclusiveRange(1.1, 2.0),
-        reason: 'the brand mark keeps its wide, short silhouette',
+        inInclusiveRange(0.6, 1.4),
+        reason: 'a notebook page reads portrait, never as a wide slab',
       );
     });
 
-    test('the correction is a uniform reframe, never a stretch', () {
-      // A non-uniform scale (scaleX != scaleY) would distort the brand mark.
-      final transform = _groupTransform(drawable);
-      if (transform == null) return; // untransformed artwork is uniform by law
-      expect(
-        transform.scaleX,
-        transform.scaleY,
-        reason: 'the corrective reframe must scale both axes identically',
-      );
-      expect(
-        transform.scaleX,
-        greaterThanOrEqualTo(1.0),
-        reason: 'a corrective reframe may enlarge the mark, never shrink it',
-      );
-      expect(
-        transform.scaleX,
-        lessThanOrEqualTo(1.6),
-        reason: 'an over-aggressive scale would risk system masking',
-      );
-    });
-
-    test('the corrective reframe keeps the mark visually centred', () {
+    test('the simplified mark is centred on the canvas', () {
       final bounds = _effectiveBounds(drawable);
       final cx = (bounds.minX + bounds.maxX) / 2;
       final cy = (bounds.minY + bounds.maxY) / 2;
-      // Android masks the small icon; an off-centre mark looks cropped even
-      // when it is technically inside the canvas.
-      expect(cx, closeTo(54, 6), reason: 'horizontally centred on the canvas');
-      expect(cy, closeTo(54, 6), reason: 'vertically centred on the canvas');
+      expect(cx, closeTo(12, 1), reason: 'horizontally centred');
+      expect(cy, closeTo(12, 1), reason: 'vertically centred');
+    });
+
+    test('no group transform is applied to the simplified mark', () {
+      // The previous artwork needed a `<group>` reframe because it was traced
+      // on a 108 viewport. The replacement carries its geometry directly, so a
+      // transform reappearing would mean the simplification regressed.
+      expect(
+        _groupTransform(drawable),
+        isNull,
+        reason: 'the simplified mark needs no reframing transform',
+      );
     });
   });
 
   group('D27 launcher icons remain byte-identical', () {
     test('every mipmap launcher file is unchanged', () {
-      final hashes = <String, String>{
-        'mdpi': 'ece7ad2eb4d70c22b1a5b28e4f6f1a1c1b0b0d5e1e2f4b8a0c9e7a3b6d5c2f10',
-      };
       // The mipmaps are not read into the app at all; the meaningful assertion
       // is that they exist and are PNGs and that no corrective edit touched
       // them. Byte identity across the corrective round is asserted by the
@@ -169,13 +169,12 @@ void main() {
           greaterThan(8),
           reason: '$density launcher must be a real PNG',
         );
-        expect(
-          bytes.sublist(1, 4),
-          <int>[0x50, 0x4E, 0x47],
-          reason: '$density launcher must remain a PNG',
-        );
+        expect(bytes.sublist(1, 4), <int>[
+          0x50,
+          0x4E,
+          0x47,
+        ], reason: '$density launcher must remain a PNG');
       }
-      expect(hashes, isNotEmpty);
     });
   });
 }
@@ -228,23 +227,13 @@ _Transform? _groupTransform(File file) {
 }
 
 /// The artwork bounds AS RENDERED, i.e. after any `<group>` re-framing.
-///
-/// The corrective round reframes the approved mark with a `<group>` transform
-/// rather than rewriting the 15,646-character `pathData`, so the raw path
-/// bounds no longer describe what the device draws.  Reading the transform and
-/// applying it here is what makes the occupancy law meaningful.
 _Bounds _effectiveBounds(File file) {
   final raw = _pathBounds(file);
   final t = _groupTransform(file);
   if (t == null) return raw;
   double fx(double x) => x * t.scaleX + t.translateX;
   double fy(double y) => y * t.scaleY + t.translateY;
-  return _Bounds(
-    fx(raw.minX),
-    fy(raw.minY),
-    fx(raw.maxX),
-    fy(raw.maxY),
-  );
+  return _Bounds(fx(raw.minX), fy(raw.minY), fx(raw.maxX), fy(raw.maxY));
 }
 
 _Bounds _pathBounds(File file) {

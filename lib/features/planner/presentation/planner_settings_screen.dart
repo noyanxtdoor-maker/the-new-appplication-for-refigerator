@@ -228,8 +228,8 @@ final class PlannerSettingsScreen extends ConsumerWidget {
                       // section. It is the SAME preference with the same
                       // persistence, formatter and default, and it is the only
                       // time-format control — ON is 24-hour, OFF is 12-hour
-                      // AM/PM. Display order is deliberately: 24-hour time,
-                      // Show completed items, Show cancelled items.
+                      // AM/PM. Display order is: 24-hour time, Show completed
+                      // events.
                       SwitchListTile(
                         key: const Key('use-24-hour-setting'),
                         contentPadding: EdgeInsets.zero,
@@ -244,24 +244,31 @@ final class PlannerSettingsScreen extends ConsumerWidget {
                       // resize, commit-on-release and Undo are KEPT as STANDARD
                       // behavior rather than a user-configurable preference, so
                       // there is no control here to disable them.
+                      //
+                      // Post-P2 owner decision (2026-09-22): this setting is
+                      // renamed to "Show completed events" because it now
+                      // genuinely filters completed EVENT occurrences on the Day
+                      // timeline — and because completed TASKS have their own
+                      // separate, working filter in the Planner "Show in
+                      // Planner" popup. "items" would have claimed both.
                       SwitchListTile(
                         key: const Key('show-completed-setting'),
                         contentPadding: EdgeInsets.zero,
-                        title: const Text('Show completed items'),
+                        title: const Text('Show completed events'),
                         value: settings.showCompletedItems,
                         onChanged: (value) => controller.saveSettings(
                           settings.copyWith(showCompletedItems: value),
                         ),
                       ),
-                      SwitchListTile(
-                        key: const Key('show-cancelled-setting'),
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('Show cancelled items'),
-                        value: settings.showCancelledItems,
-                        onChanged: (value) => controller.saveSettings(
-                          settings.copyWith(showCancelledItems: value),
-                        ),
-                      ),
+                      // Post-P2 owner decision (2026-09-22): the "Show cancelled
+                      // items" control was REMOVED. The persisted
+                      // `show_cancelled_items` column and the schema are
+                      // untouched, but exposing cancelled occurrences on the
+                      // timeline is not acceptable while the user-facing
+                      // "Delete" action is implemented as cancellation: deleted
+                      // Events would reappear as ordinary blocks. Cancelled and
+                      // rescheduled occurrences stay off the timeline, exactly as
+                      // the repository's visibility law already guarantees.
                     ],
                   ),
                 ],

@@ -63,6 +63,11 @@ final class FlutterLocalNotificationsLauncherBadgeGateway
           channelDescription: 'Actionable Next Transfer item count.',
           // HOTFIX: never depend on the startup-registered default icon.
           icon: ntNotificationIconResource,
+          // Owner decision (2026-09-22): the same explicit brand tint as the
+          // reminder and transient paths, so no notification surface falls back
+          // to the platform accent (the green-glyph defect).
+          color: ntNotificationTint,
+          colorized: false,
           importance: Importance.low,
           priority: Priority.low,
           playSound: false,

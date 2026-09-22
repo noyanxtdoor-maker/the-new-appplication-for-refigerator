@@ -77,6 +77,24 @@ import 'package:rmplanner/features/planner/presentation/widgets/planner_event_bl
 import 'package:rmplanner/features/planner/presentation/widgets/planner_event_color_resolver.dart';
 import 'package:rmplanner/features/planner/presentation/widgets/planner_shared_viewport.dart';
 
+/// Whether a Planner Event occurrence counts as COMPLETED for the owner's
+/// "Show completed events" display law (post-P2 owner decision, 2026-09-22).
+///
+/// Completed and partially-completed occurrences are completed outcomes.
+/// `didNotHappen` is deliberately NOT included: it is a distinct accepted
+/// outcome, not a completion, and it must keep rendering when the setting is
+/// off. `scheduled` is never completed here — elapsed time alone never invents
+/// an outcome.
+///
+/// This is a PRESENTATION predicate only: it decides what the Day timeline and
+/// its neighbouring-day previews paint. It never queries, never mutates a
+/// record and never changes report, recurrence or history truth. It lives here
+/// because both the pager's preview/geometry paths and the Planner screen's
+/// `_visibleEvents` projection must apply ONE identical rule.
+bool plannerItemIsCompletedOccurrence(PlannerCalendarItem item) =>
+    item.state == PlannerEventState.completedHappened ||
+    item.state == PlannerEventState.partiallyCompleted;
+
 /// Minimum logical-pixel travel before a horizontal gesture
 /// can be considered for page navigation. Phase 8 minimum.
 const double kPlannerPagerMinDistance = 64;
@@ -1064,7 +1082,12 @@ class _PlannerInteractiveDayPagerState extends State<PlannerInteractiveDayPager>
               event.startLocal != null &&
               event.endLocal != null &&
               (settings.showCancelledItems ||
-                  event.state != PlannerEventState.cancelled),
+                  event.state != PlannerEventState.cancelled) &&
+              // Post-P2 owner decision (2026-09-22): the neighbouring-day
+              // preview must obey the same completed-occurrence display law as
+              // the visible day, or the preview would contradict the timeline.
+              (settings.showCompletedItems ||
+                  !plannerItemIsCompletedOccurrence(event)),
         )
         .toList(growable: false);
     if (events.isEmpty) {
@@ -1434,7 +1457,13 @@ class _PagerPreviewColumnState extends State<_PagerPreviewColumn> {
                   event.startLocal != null &&
                   event.endLocal != null &&
                   (widget.settings.showCancelledItems ||
-                      event.state != PlannerEventState.cancelled),
+                      event.state != PlannerEventState.cancelled) &&
+                  // Post-P2 owner decision (2026-09-22): geometry, drag and hit
+                  // testing resolve from the same filtered set the page paints,
+                  // so a hidden completed occurrence can never become an
+                  // invisible manipulation target.
+                  (widget.settings.showCompletedItems ||
+                      !plannerItemIsCompletedOccurrence(event)),
             )
             .toList(growable: false);
     final range = _range;

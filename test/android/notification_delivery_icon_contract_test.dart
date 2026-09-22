@@ -108,6 +108,93 @@ void main() {
       expect(source.contains('mipmap'), isFalse);
     });
   });
+
+  // POST-P2 OWNER DECISION (2026-09-22) — R1, the COLOUR half of the icon fix.
+  //
+  // The audit proved the reported green notification glyph was a colour
+  // problem, not a debug artefact: no notification colour was supplied and no
+  // `colorAccent`/`colorPrimary` is declared in any Android theme, so Android
+  // tinted the monochrome small icon with the AppCompat fallback
+  // (`@color/material_deep_teal_500` = #ff008577 — the green the owner saw).
+  // The same artwork ships in debug, profile, release and the AAB, so the tint
+  // had to be named explicitly rather than inherited. These guards keep it
+  // named, on every path, and keep its value identical to the one approved
+  // brand field the launch surfaces already use.
+  group('D30 the notification tint is the approved brand blue, named explicitly', () {
+    /// Every AndroidNotificationDetails construction in [source] must carry an
+    /// explicit `color:` — the fallback is what produced the green.
+    void expectTinted(String source, String label) {
+      final details = _count(source, 'AndroidNotificationDetails(');
+      expect(details, greaterThan(0), reason: '$label must post notifications');
+      // Matched WITH the trailing comma: the doc comments above these fields
+      // discuss them in prose, and a bare substring count would silently accept
+      // a comment in place of the real argument.
+      expect(
+        _count(source, 'color: ntNotificationTint,'),
+        details,
+        reason:
+            'every AndroidNotificationDetails in $label must name the brand '
+            'colour: relying on the theme accent is exactly the defect',
+      );
+      expect(
+        _count(source, 'colorized: false,'),
+        details,
+        reason:
+            'the artwork stays untinted so Android applies the colour the '
+            'canonical way for a small icon',
+      );
+    }
+
+    test('the canonical reminder/transient gateway tints every path', () {
+      expectTinted(
+        gateway.readAsStringSync().replaceAll('\r\n', '\n'),
+        'the reminder gateway',
+      );
+    });
+
+    test('the launcher-badge gateway tints its path too', () {
+      expectTinted(
+        badgeGateway.readAsStringSync().replaceAll('\r\n', '\n'),
+        'the launcher-badge gateway',
+      );
+    });
+
+    test('the tint value is the single approved brand field', () {
+      // #FF002161 is the one brand field the Android launch window, the Android
+      // 12+ platform splash, the app-owned splash and the adaptive launcher
+      // background already resolve (`@color/nt_brand_blue`). A second,
+      // drifting value would put the notification glyph out of family with
+      // everything around it, so the two must be parsed and compared rather
+      // than trusted to stay in step by comment.
+      final android = File(
+        'android/app/src/main/res/values/colors.xml',
+      ).readAsStringSync().replaceAll('\r\n', '\n');
+      final match = RegExp(
+        r'<color name="nt_brand_blue">(#[0-9A-Fa-f]{8})</color>',
+      ).firstMatch(android);
+      expect(
+        match,
+        isNotNull,
+        reason: 'the approved brand colour resource must still exist',
+      );
+      final brandArgb = match!.group(1)!.toUpperCase();
+      expect(brandArgb, '#FF002161');
+
+      final source = gateway.readAsStringSync().replaceAll('\r\n', '\n');
+      final tint = RegExp(
+        r'const Color ntNotificationTint = Color\((0x[0-9A-Fa-f]{8})\)',
+      ).firstMatch(source);
+      expect(tint, isNotNull, reason: 'the tint must be one named constant');
+      expect(
+        '#${tint!.group(1)!.substring(2).toUpperCase()}',
+        brandArgb,
+        reason:
+            'ntNotificationTint must resolve to the same value as '
+            '@color/nt_brand_blue, so the notification glyph cannot drift out of '
+            'the brand family',
+      );
+    });
+  });
 }
 
 int _count(String haystack, String needle) {
