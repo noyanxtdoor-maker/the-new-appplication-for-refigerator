@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:rmplanner/features/planner/domain/event_contact_channel.dart';
 import 'package:rmplanner/features/planner/domain/event_type.dart';
 import 'package:rmplanner/features/planner/domain/planner_date.dart';
 import 'package:uuid/uuid.dart';
@@ -664,6 +665,7 @@ final class CalendarEventDraft {
     this.activityTypeStableKeySnapshot,
     this.activityTypeLabelSnapshot,
     this.activityTypeColorValueSnapshot,
+    this.contactChannel,
     this.contributionRuleKey,
     this.goalId,
     this.isBackupAppointment = false,
@@ -687,6 +689,14 @@ final class CalendarEventDraft {
   final String? activityTypeStableKeySnapshot;
   final String? activityTypeLabelSnapshot;
   final int? activityTypeColorValueSnapshot;
+
+  /// P2-A: the INDEPENDENT Event contact channel (user-facing "Contact Type").
+  ///
+  /// Nullable and optional: an Event that never had one reads back as null,
+  /// which every surface renders as an honest unset state. It is never derived
+  /// from [activityTypeStableKeySnapshot] or [activityTypeLabelSnapshot].
+  final EventContactChannel? contactChannel;
+
   final bool requiresReport;
   final String? contributionRuleKey;
 
@@ -753,6 +763,12 @@ final class CalendarEventDraft {
         activityTypeStableKeySnapshot: normalizedActivityTypeStableKey,
         activityTypeLabelSnapshot: normalizedActivityTypeLabel,
         activityTypeColorValueSnapshot: activityTypeColorValueSnapshot,
+        // P2-A: the independent Event contact channel is carried through
+        // normalization.  Without this the field would be silently dropped on
+        // EVERY save path (`_validateDraft` normalizes before the write), so a
+        // chosen Contact Type could never be persisted nor could an existing
+        // one survive an unrelated edit.
+        contactChannel: contactChannel,
         contributionRuleKey: normalizedContribution,
         goalId: normalizedGoalId,
         isBackupAppointment: isBackupAppointment,
@@ -799,6 +815,9 @@ final class CalendarEventDraft {
       activityTypeStableKeySnapshot: normalizedActivityTypeStableKey,
       activityTypeLabelSnapshot: normalizedActivityTypeLabel,
       activityTypeColorValueSnapshot: activityTypeColorValueSnapshot,
+      // P2-A: see the all-day branch above — normalization must preserve the
+      // independent contact channel on the timed path too.
+      contactChannel: contactChannel,
       requiresReport: normalizedRequiresReport,
       status: status,
       contributionRuleKey: normalizedContribution,
@@ -830,6 +849,7 @@ final class CalendarEventDraft {
     String? activityTypeStableKeySnapshot,
     String? activityTypeLabelSnapshot,
     int? activityTypeColorValueSnapshot,
+    EventContactChannel? contactChannel,
     bool? requiresReport,
     String? contributionRuleKey,
     String? goalId,
@@ -858,6 +878,7 @@ final class CalendarEventDraft {
           activityTypeLabelSnapshot ?? this.activityTypeLabelSnapshot,
       activityTypeColorValueSnapshot:
           activityTypeColorValueSnapshot ?? this.activityTypeColorValueSnapshot,
+      contactChannel: contactChannel ?? this.contactChannel,
       requiresReport: requiresReport ?? this.requiresReport,
       contributionRuleKey: contributionRuleKey ?? this.contributionRuleKey,
       goalId: goalId ?? this.goalId,
@@ -932,6 +953,7 @@ final class CalendarEventOccurrence {
     this.activityTypeStableKey,
     this.activityTypeLabel,
     this.activityTypeColorValue,
+    this.contactChannel,
     this.contributionRuleKey,
     this.isBackupAppointment = false,
     this.backupForEventId,
@@ -964,6 +986,11 @@ final class CalendarEventOccurrence {
   final String? activityTypeStableKey;
   final String? activityTypeLabel;
   final int? activityTypeColorValue;
+
+  /// P2-A: the INDEPENDENT Event contact channel, null when unset or when a
+  /// stored value is not one of the eight canonical keys.
+  final EventContactChannel? contactChannel;
+
   final CalendarEventStatus status;
   final bool requiresReport;
   final String? contributionRuleKey;

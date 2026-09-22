@@ -34,6 +34,7 @@ import 'package:rmplanner/features/planner/application/planner_providers.dart';
 import 'package:rmplanner/features/planner/application/task_event_link_providers.dart';
 import 'package:rmplanner/features/planner/data/calendar_event_time_zones.dart';
 import 'package:rmplanner/features/planner/domain/calendar_event.dart';
+import 'package:rmplanner/features/planner/domain/event_contact_channel.dart';
 import 'package:rmplanner/features/planner/domain/event_type.dart';
 import 'package:rmplanner/features/planner/domain/event_type_creation_choice.dart';
 import 'package:rmplanner/features/planner/domain/outcome_reporting.dart';
@@ -41,6 +42,7 @@ import 'package:rmplanner/features/planner/domain/planner_date.dart';
 import 'package:rmplanner/features/planner/domain/task_event_link.dart';
 import 'package:rmplanner/features/planner/presentation/calendar_event_custom_repeat_screen.dart';
 import 'package:rmplanner/features/planner/presentation/event_type_picker_dialog.dart';
+import 'package:rmplanner/features/planner/presentation/widgets/event_contact_channel_visuals.dart';
 import 'package:rmplanner/features/planner/presentation/widgets/event_current_status_controls.dart';
 import 'package:rmplanner/features/planner/presentation/widgets/planner_slide_down_date_picker.dart';
 import 'package:rmplanner/features/planner/presentation/widgets/repeating_event_scope_choices.dart';
@@ -240,8 +242,25 @@ final class _CalendarEventFormScreenState
   late PlannerDate _date;
   CalendarEventTiming _timing = CalendarEventTiming.timed;
   CalendarEventStatus _currentStatus = CalendarEventStatus.scheduled;
+
+  /// P2-A: the INDEPENDENT Event contact channel chosen in this form. Null means
+  /// "not set" and is rendered honestly as such; it is never derived from the
+  /// Event Type and is only written when the user explicitly picks a value.
+  EventContactChannel? _contactChannel;
+
+  /// P2-B: set only when the user DELIBERATELY interacts with the Current
+  /// Status control. Opening, viewing or ordinary-editing an eligible past
+  /// Event must never arm a report, so this stays false until a real tap.
+  bool _statusSelectionTouched = false;
   CalendarEventStatus _loadedReportStatus = CalendarEventStatus.scheduled;
   bool _reportEligible = false;
+
+  /// P2-B: the occurrence-derived half of the ordinary-edit Current Status
+  /// eligibility (edit + an actual occurrence + not a backup + the owner's
+  /// END-based rule). Computed once at load, exactly like [_reportEligible], so
+  /// build/save never need the occurrence object itself; the live
+  /// `requiresReport` preference is combined with it at the use site.
+  bool _ordinaryEditOccurrenceEligible = false;
   TimeOfDay _localStart = const TimeOfDay(hour: 9, minute: 0);
   TimeOfDay _localEnd = const TimeOfDay(hour: 10, minute: 0);
   bool _requiresReport = false;
@@ -620,6 +639,17 @@ final class _CalendarEventFormScreenState
           selected.stableKey != SystemEventTypeKeys.contact) {
         _requiresReport = true;
       }
+      // Owner revision (2026-09-22): picking a Contact Event Type gives the
+      // Contact Type control its standard default, so it never presents as
+      // "Not set". Switching AWAY leaves any stored channel alone rather than
+      // silently rewriting it.
+      if (_contactChannel == null &&
+          _isContactTypeKey(
+            stableKey: selected.stableKey,
+            label: selected.label,
+          )) {
+        _contactChannel = EventContactChannel.inPerson;
+      }
     });
   }
 
@@ -770,6 +800,108 @@ final class _CalendarEventFormScreenState
     return null;
   }
 
+  /// P2-A — the INDEPENDENT "Contact Type" control (owner design D1).
+  ///
+  /// Shown only for a Contact Event, because that is the only surface the owner
+  /// specified. It reads and writes its own persisted value and never touches
+  /// the Event Type: its tap handler is [_changeContactChannel] and it calls no
+  /// Event Type setter.
+  Widget _buildContactTypeField() {
+    return Material(
+      key: const Key('contact-type-field'),
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(4),
+        onTap: _changeContactChannel,
+        child: SizedBox(
+          height: 52,
+          child: InputDecorator(
+            decoration: _measuredInputDecoration(
+              context,
+              labelText: 'Contact Type',
+              suffixIcon: const KeyedSubtree(
+                key: Key('change-contact-type-button'),
+                child: Icon(Icons.arrow_drop_down, size: 24),
+              ),
+            ),
+            child: Row(
+              children: <Widget>[
+                // P2 owner-review correction (2026-09-22): the selected value
+                // carries the same visual convention as the eight picker
+                // options. This mark is presentation only — `_contactChannel`
+                // remains the single source of the persisted value, so the
+                // indicator can never change what is stored.
+                KeyedSubtree(
+                  key: const Key('selected-contact-type-visual'),
+                  child: eventContactChannelVisual(
+                    channel: _contactChannel,
+                    color: AppTheme.onFillTextOf(context, 1.0),
+                    size: 18,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    // There is no "Not set" Contact Type: a Contact Event that
+                    // never stored a channel presents as the owner's default,
+                    // In Person.
+                    eventContactChannelDisplayLabel(_contactChannel),
+                    key: const Key('selected-contact-type-label'),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTypography.body.copyWith(
+                      color: AppTheme.onFillTextOf(context, 1.0),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Opens the canonical eight-choice Contact Type picker.
+  ///
+  /// Only the eight owner-approved channels are offered, and only an explicit
+  /// choice is persisted. There is deliberately no "derive from Event Type"
+  /// path and no silent default.
+  Future<void> _changeContactChannel() async {
+    FocusScope.of(context).unfocus();
+    final selected = await showModalBottomSheet<EventContactChannel>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: ListView(
+          key: const Key('contact-type-options'),
+          shrinkWrap: true,
+          children: <Widget>[
+            for (final channel in EventContactChannel.values)
+              ListTile(
+                key: Key('contact-type-option-${channel.stableKey}'),
+                // P2 owner-review correction (2026-09-22): every option shows
+                // its own visual cue. The cue is derived FROM the channel, so
+                // it cannot alter the stable key that the tile pops back.
+                leading: eventContactChannelVisual(
+                  channel: channel,
+                  color:
+                      Theme.of(sheetContext).iconTheme.color ??
+                      Theme.of(sheetContext).colorScheme.onSurface,
+                ),
+                title: Text(channel.label),
+                selected: channel == _contactChannel,
+                onTap: () => Navigator.of(sheetContext).pop(channel),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || selected == null) {
+      return;
+    }
+    setState(() => _contactChannel = selected);
+  }
+
   Widget _buildEventTypeField() {
     return Material(
       key: const Key('event-type-field'),
@@ -783,7 +915,12 @@ final class _CalendarEventFormScreenState
           child: InputDecorator(
             decoration: _measuredInputDecoration(
               context,
-              labelText: _isContactEvent ? 'Contact Type' : 'Event Type',
+              // P2-A: this control is the EVENT TYPE and is labelled as such at
+              // all times. The user-facing "Contact Type" is now the separate,
+              // independently persisted control below it — before P2-A the two
+              // were the same widget, which is exactly the defect that was
+              // corrected.
+              labelText: 'Event Type',
               suffixIcon: const KeyedSubtree(
                 key: Key('change-event-type-button'),
                 child: Icon(Icons.arrow_drop_down, size: 24),
@@ -995,6 +1132,27 @@ final class _CalendarEventFormScreenState
     _timing = draft.timing;
     _currentStatus = occurrence?.status ?? draft.status;
     _loadedReportStatus = _currentStatus;
+    // P2-B: a fresh load always starts UNARMED.
+    _statusSelectionTouched = false;
+    // P2-A, revised by the owner on 2026-09-22: the INDEPENDENT contact channel.
+    // It is read from the Event and never derived from the Event Type. A Contact
+    // Event with no stored channel — a legacy schema-49 NULL row — is
+    // initialised to the owner's standard default, In Person, because "Not set"
+    // is no longer a user-facing Contact Type.
+    //
+    // This writes nothing: no row is touched by loading or rendering. A legacy
+    // NULL row converges to `in_person` only if the user saves the Event through
+    // the normal edit flow below, and there is deliberately no backfill job.
+    final loadedTypeKey =
+        occurrence?.activityTypeStableKey ??
+        draft.activityTypeStableKeySnapshot;
+    final loadedTypeLabel =
+        occurrence?.activityTypeLabel ?? draft.activityTypeLabelSnapshot;
+    _contactChannel = occurrence?.contactChannel ?? draft.contactChannel;
+    if (_contactChannel == null &&
+        _isContactTypeKey(stableKey: loadedTypeKey, label: loadedTypeLabel)) {
+      _contactChannel = EventContactChannel.inPerson;
+    }
     final startWall = occurrenceStart ?? occurrence?.startDisplay;
     final endWall = occurrenceEnd ?? occurrence?.endDisplay;
     _start = startWall == null
@@ -1037,6 +1195,11 @@ final class _CalendarEventFormScreenState
         _requiresReport &&
         !_isFutureOccurrence(occurrence) &&
         !_isBackupAppointment;
+    _ordinaryEditOccurrenceEligible =
+        widget.mode == CalendarEventFormMode.edit &&
+        occurrence != null &&
+        !_isBackupAppointment &&
+        _isEndedOccurrence(occurrence);
     final statusIntent = widget.initialStatusIntent;
     if (_reportEligible &&
         statusIntent != null &&
@@ -1107,14 +1270,24 @@ final class _CalendarEventFormScreenState
     final contactMandatory =
         _selectedEventType?.stableKey == SystemEventTypeKeys.contact;
     final reportingLocked = lifeIndicatorLinked || contactMandatory;
-    // The pencil opens an ordinary Event edit.  Only the explicit Current
-    // Status action carries a reporting intent and exposes the staged status
-    // controls in this form.
-    final showStatusSection =
+    // P2-B (owner decision 2026-09-21) — VISIBILITY and SUBMISSION ARMING are
+    // now separate concepts.
+    //
+    // `explicitStatusPath` is the pre-existing explicit Current Status / report
+    // entry. It is preserved EXACTLY as it was, so that path keeps its accepted
+    // START-based eligibility and its byte-for-byte save semantics.
+    final explicitStatusPath =
         widget.initialStatusIntent != null &&
         widget.mode == CalendarEventFormMode.edit &&
         _reportEligible &&
         _requiresReport;
+    // Ordinary edit uses the owner's END-based rule: a timed Event is eligible
+    // only once it has ENDED, and an all-day Event only once its date is before
+    // today. A future or ongoing Event therefore exposes nothing, which keeps
+    // the law that time passing never fabricates an outcome.
+    final statusSectionVisible =
+        explicitStatusPath ||
+        (_ordinaryEditOccurrenceEligible && _requiresReport);
     final bottomPadding = widget.sheetPresentation
         ? 24.0 + MediaQuery.of(context).viewInsets.bottom
         : 120.0;
@@ -1179,11 +1352,15 @@ final class _CalendarEventFormScreenState
                       _ErrorBanner(message: message),
                       const SizedBox(height: 16),
                     ],
-                    if (showStatusSection) ...<Widget>[
+                    if (statusSectionVisible) ...<Widget>[
                       _buildCurrentStatusSection(),
                       const SizedBox(height: 22),
                     ],
                     _buildEventTypeField(),
+                    if (_isContactEvent) ...<Widget>[
+                      const SizedBox(height: 22),
+                      _buildContactTypeField(),
+                    ],
                     const SizedBox(height: 22),
                     TextFormField(
                       key: const Key('event-title-field'),
@@ -2164,18 +2341,25 @@ final class _CalendarEventFormScreenState
     );
   }
 
-  bool get _isContactEvent {
-    final stableKey =
-        _loadedEventTypeStableKey ?? _selectedEventType?.stableKey;
+  bool get _isContactEvent => _isContactTypeKey(
+    stableKey: _loadedEventTypeStableKey ?? _selectedEventType?.stableKey,
+    label:
+        _loadedEventTypeLabel ??
+        _selectedEventType?.label ??
+        widget.initialEventTypeLabel,
+  );
+
+  /// The ONE Contact-Event test, shared by the control's visibility and the
+  /// load-time Contact Type default so the two can never disagree.
+  static bool _isContactTypeKey({
+    required String? stableKey,
+    required String? label,
+  }) {
     if (stableKey == SystemEventTypeKeys.meaningfulConnection ||
         stableKey == SystemEventTypeKeys.contact) {
       return true;
     }
-    final value =
-        _loadedEventTypeLabel ??
-        _selectedEventType?.label ??
-        widget.initialEventTypeLabel;
-    final normalized = value?.trim().toLowerCase();
+    final normalized = label?.trim().toLowerCase();
     return normalized != null && normalized.contains('contact');
   }
 
@@ -2185,6 +2369,22 @@ final class _CalendarEventFormScreenState
     return occurrence.timing == CalendarEventTiming.allDay
         ? occurrence.displayDate.compareTo(today) > 0
         : occurrence.startUtc?.isAfter(nowUtc) ?? false;
+  }
+
+  /// P2-B: the owner's END-based eligibility for ORDINARY Event edit.
+  ///
+  /// A timed Event is eligible only once it has ENDED (so an ongoing Event
+  /// exposes no Current Status), and an all-day Event only once its date is
+  /// strictly before today. This deliberately mirrors the Unreported backlog's
+  /// "already finished" notion rather than the START-based rule the explicit
+  /// status path uses; that path is NOT changed by this helper.
+  static bool _isEndedOccurrence(CalendarEventOccurrence occurrence) {
+    if (occurrence.timing == CalendarEventTiming.allDay) {
+      final today = PlannerDate.fromDateTime(DateTime.now());
+      return occurrence.displayDate.compareTo(today) < 0;
+    }
+    final endUtc = occurrence.endUtc;
+    return endUtc != null && endUtc.isBefore(DateTime.now().toUtc());
   }
 
   bool _isSelectableStatus(CalendarEventStatus status) => switch (status) {
@@ -2208,7 +2408,11 @@ final class _CalendarEventFormScreenState
           if (!_isSelectableStatus(status)) {
             return;
           }
-          setState(() => _currentStatus = status);
+          // P2-B: this is the deliberate interaction that arms submission.
+          setState(() {
+            _currentStatus = status;
+            _statusSelectionTouched = true;
+          });
         },
       ),
     ],
@@ -2459,18 +2663,36 @@ final class _CalendarEventFormScreenState
       return;
     }
     setState(() => _saving = true);
-    final showStatusSection =
+    // P2-B: identical to the build-time split. `explicitStatusPath` keeps the
+    // accepted explicit-status save semantics untouched; ordinary edit only
+    // submits once the user has actually touched the status control.
+    final explicitStatusPath =
         widget.initialStatusIntent != null &&
         widget.mode == CalendarEventFormMode.edit &&
         _reportEligible &&
         _requiresReport;
+    final reportSubmissionArmed = explicitStatusPath || _statusSelectionTouched;
     final draft = CalendarEventDraft(
       id: _draftId,
       title: _titleController.text,
       notes: _notesController.text,
       timing: _timing,
       startDate: _date,
-      status: showStatusSection
+      // P2-A, revised by the owner on 2026-09-22: the Contact Type is never
+      // inferred from the Event Type, and it is only ever written for a Contact
+      // Event. A Contact Event that reaches save with no stored channel — a
+      // legacy schema-49 NULL row, or a brand-new Contact Event the user never
+      // touched — converges to the owner's standard default, In Person. This is
+      // the ONLY place the convergence write happens: merely reading or
+      // rendering an Event still writes nothing, and there is no backfill job.
+      contactChannel: _isContactEvent
+          ? effectiveEventContactChannel(_contactChannel)
+          : _contactChannel,
+      // P2-B: the `scheduled` coercion belongs to the EXPLICIT status/report
+      // flow only. An ordinary edit writes the effective status it loaded, so
+      // merely rendering (or saving) the section can never overwrite a stored
+      // status with `scheduled`.
+      status: explicitStatusPath
           ? CalendarEventStatus.scheduled
           : _currentStatus,
       startMinute: _timing == CalendarEventTiming.timed ? startMinute : null,
@@ -2591,7 +2813,7 @@ final class _CalendarEventFormScreenState
       // The Event field write retains the lifecycle status as `scheduled`.
       // A changed staged outcome is committed only after that canonical edit
       // succeeds, through the existing outcome-reporting transaction.
-      if (showStatusSection &&
+      if (reportSubmissionArmed &&
           _currentStatus != CalendarEventStatus.scheduled &&
           _currentStatus != _loadedReportStatus) {
         final outcome = switch (_currentStatus) {

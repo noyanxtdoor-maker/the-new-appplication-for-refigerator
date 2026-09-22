@@ -11,6 +11,7 @@ import 'package:rmplanner/features/planner/data/planner_presentation_document_st
 import 'package:rmplanner/features/planner/domain/awaiting_report_event.dart';
 import 'package:rmplanner/features/planner/domain/calendar_event.dart';
 import 'package:rmplanner/features/planner/domain/event_color_preferences.dart';
+import 'package:rmplanner/features/planner/domain/event_contact_channel.dart';
 import 'package:rmplanner/features/planner/domain/event_type.dart';
 import 'package:rmplanner/features/planner/domain/event_type_presentation.dart';
 import 'package:rmplanner/features/planner/domain/planner_date.dart';
@@ -236,6 +237,10 @@ final class DriftCalendarEventRepository
             item: _toPlannerItem(occurrence),
             goalId: row.goalId,
             activityTypeStableKey: occurrence.activityTypeStableKey,
+            // The occurrence-effective Contact Type, so the Unreported >
+            // Contacts marker can draw the Event's own contact visual. A legacy
+            // NULL stays null here and presents as In Person; nothing writes.
+            contactChannel: occurrence.contactChannel,
           ),
         );
       }
@@ -1023,6 +1028,11 @@ final class DriftCalendarEventRepository
           activityTypeStableKeySnapshot: current.activityTypeStableKey,
           activityTypeLabelSnapshot: current.activityTypeLabel,
           activityTypeColorValueSnapshot: current.activityTypeColorValue,
+          // P2-A: duplicating a Contact Event keeps its Contact Type. The
+          // channel is a descriptive fact of the Event, not an outcome or a
+          // scheduled contribution rule, so it is preserved exactly like the
+          // Event Type, notes and location are.
+          contactChannel: current.contactChannel,
           // A duplicate is a new scheduled record. It must not inherit a
           // scheduled indicator contribution rule or any factual outcome.
           contributionRuleKey: null,
@@ -1160,6 +1170,14 @@ final class DriftCalendarEventRepository
       activityTypeColorValueSnapshot: Value<int?>(
         activityTypeSnapshot?.colorValue,
       ),
+      // P2-A: the draft's explicit channel wins. A draft that carries NO
+      // channel (a partial or non-form write) preserves whatever the row
+      // already holds instead of erasing it, which is what keeps an unrelated
+      // Event edit from silently dropping a Contact Type — and it also keeps
+      // an unrecognised stored key byte-for-byte rather than destroying it.
+      contactChannel: Value<String?>(
+        draft.contactChannel?.stableKey ?? existing?.contactChannel,
+      ),
       contributionRuleKey: Value<String?>(draft.contributionRuleKey),
       goalId: Value<String?>(draft.goalId),
       isBackupAppointment: Value<bool>(draft.isBackupAppointment),
@@ -1208,6 +1226,9 @@ final class DriftCalendarEventRepository
               activityTypeColorValueSnapshot: Value<int?>(
                 activityTypeSnapshot?.colorValue,
               ),
+              // P2-A: a brand-new Event simply stores the chosen channel (or
+              // NULL when the user did not set one). Nothing is invented.
+              contactChannel: Value<String?>(draft.contactChannel?.stableKey),
               contributionRuleKey: Value<String?>(draft.contributionRuleKey),
               goalId: Value<String?>(draft.goalId),
               isBackupAppointment: Value<bool>(draft.isBackupAppointment),
@@ -1257,6 +1278,9 @@ final class DriftCalendarEventRepository
       activityTypeStableKeySnapshot: row.activityTypeStableKeySnapshot,
       activityTypeLabelSnapshot: row.activityTypeLabelSnapshot,
       activityTypeColorValueSnapshot: row.activityTypeColorValueSnapshot,
+      // P2-A: null for legacy rows and for any stored value that is not one of
+      // the eight canonical keys, so the UI shows an honest unset state.
+      contactChannel: EventContactChannel.fromStableKey(row.contactChannel),
       contributionRuleKey: row.contributionRuleKey,
       goalId: row.goalId,
       isBackupAppointment: row.isBackupAppointment,
@@ -1461,6 +1485,10 @@ final class DriftCalendarEventRepository
       activityTypeStableKey: activityTypeStableKey,
       activityTypeLabel: activityTypeLabel,
       activityTypeColorValue: activityTypeColorValue,
+      // P2-A: the channel is a series-level Event fact (design D1); occurrence
+      // exceptions carry no channel column of their own, so it always comes
+      // from the Event row.
+      contactChannel: EventContactChannel.fromStableKey(row.contactChannel),
       contributionRuleKey: exception == null
           ? row.contributionRuleKey
           : exception.contributionRuleKey,
@@ -1640,6 +1668,7 @@ final class DriftCalendarEventRepository
         activityTypeStableKeySnapshot: occurrence.activityTypeStableKey,
         activityTypeLabelSnapshot: occurrence.activityTypeLabel,
         activityTypeColorValueSnapshot: occurrence.activityTypeColorValue,
+        contactChannel: occurrence.contactChannel,
         contributionRuleKey: occurrence.contributionRuleKey,
         isBackupAppointment: occurrence.isBackupAppointment,
         backupForEventId: occurrence.backupForEventId,

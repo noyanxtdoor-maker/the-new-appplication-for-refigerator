@@ -478,6 +478,20 @@ class CalendarEvents extends Table {
   IntColumn get endMinute => integer().nullable()();
   TextColumn get timeZoneId => text().nullable()();
   TextColumn get locationText => text().nullable()();
+  // P2-A (v49) — the INDEPENDENT Event contact channel.
+  //
+  // This is deliberately NOT the Event Type. The Event Type keeps its own
+  // taxonomy and its own snapshot columns above; this column stores how the
+  // contact actually happened for this Event, using one of eight stable keys
+  // (`in_person`, `phone_call`, `text`, `email`, `whatsapp`, `social_media`,
+  // `video_call`, `other`).
+  //
+  // Nullable on purpose: the migration is additive and NEVER backfills, so a
+  // legacy Event reads back as "not set" instead of an invented channel. The
+  // UI shows an honest unset state for NULL and only ever persists a value the
+  // user explicitly chose. Unknown stored values also resolve to NULL rather
+  // than fabricating a channel.
+  TextColumn get contactChannel => text().nullable()();
   // MAPS V1 (v28): explicitly user-picked coordinates. Both-or-null pair;
   // coordinate_source records the provenance ('map_pick' in V1) and is null
   // whenever the pair is null. NEVER derived from locationText/address.
@@ -1492,7 +1506,7 @@ final class AppDatabase extends _$AppDatabase {
   final bool _injectNotificationFoundationMigrationFailure;
 
   @override
-  int get schemaVersion => _schemaVersionOverride ?? 48;
+  int get schemaVersion => _schemaVersionOverride ?? 49;
 
   @override
   MigrationStrategy get migration {
@@ -2609,6 +2623,27 @@ final class AppDatabase extends _$AppDatabase {
               await migrator.addColumn(
                 notificationPreferences,
                 notificationPreferences.detailedContentEnabled,
+              );
+            }
+          }
+          if (from < 49 && to >= 49) {
+            // v49 — the P2-A INDEPENDENT Event contact channel. Additive and
+            // nullable ONLY: one typed column on the EXISTING calendar_events
+            // row, no INSERT/UPDATE/DELETE and no backfill, so no Event field,
+            // recurrence identity, occurrence, report, ledger, Goal or Contact
+            // value can be affected by this migration.
+            //
+            // There is deliberately NO default. A legacy Event must read back as
+            // NULL ("not set") rather than be handed an invented Contact Type,
+            // which is the whole reason the column is nullable and unbackfilled.
+            //
+            // Same idempotency guard as v47/v48: a database that already carries
+            // the column (for example a v49 image restored onto v48) must not
+            // throw a duplicate-column exception and strand Startup loading.
+            if (!await _columnExists('calendar_events', 'contact_channel')) {
+              await migrator.addColumn(
+                calendarEvents,
+                calendarEvents.contactChannel,
               );
             }
           }

@@ -170,7 +170,7 @@ void main() {
         final version = await shared
             .customSelect('PRAGMA user_version')
             .getSingle();
-        expect(version.read<int>('user_version'), 48);
+        expect(version.read<int>('user_version'), 49);
         final integrity = await shared
             .customSelect('PRAGMA integrity_check')
             .getSingle();

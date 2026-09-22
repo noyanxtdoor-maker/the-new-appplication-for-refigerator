@@ -111,7 +111,7 @@ void main() {
       // M7 reconciliation (2026-09-16): the frozen product law is now schema
       // 47 (M3 projection, M4 contacts/maps, M6 starter-goal closure). The
       // assertion is the LIVE version, not a historical literal.
-      expect(version.read<int>('user_version'), 48);
+      expect(version.read<int>('user_version'), 49);
       await currentVersion.close();
     } finally {
       sqliteDatabase.close();

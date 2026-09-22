@@ -10962,6 +10962,17 @@ class $CalendarEventsTable extends CalendarEvents
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _contactChannelMeta = const VerificationMeta(
+    'contactChannel',
+  );
+  @override
+  late final GeneratedColumn<String> contactChannel = GeneratedColumn<String>(
+    'contact_channel',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _latitudeMeta = const VerificationMeta(
     'latitude',
   );
@@ -11246,6 +11257,7 @@ class $CalendarEventsTable extends CalendarEvents
     endMinute,
     timeZoneId,
     locationText,
+    contactChannel,
     latitude,
     longitude,
     coordinateSource,
@@ -11356,6 +11368,15 @@ class $CalendarEventsTable extends CalendarEvents
         locationText.isAcceptableOrUnknown(
           data['location_text']!,
           _locationTextMeta,
+        ),
+      );
+    }
+    if (data.containsKey('contact_channel')) {
+      context.handle(
+        _contactChannelMeta,
+        contactChannel.isAcceptableOrUnknown(
+          data['contact_channel']!,
+          _contactChannelMeta,
         ),
       );
     }
@@ -11616,6 +11637,10 @@ class $CalendarEventsTable extends CalendarEvents
         DriftSqlType.string,
         data['${effectivePrefix}location_text'],
       ),
+      contactChannel: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}contact_channel'],
+      ),
       latitude: attachedDatabase.typeMapping.read(
         DriftSqlType.double,
         data['${effectivePrefix}latitude'],
@@ -11733,6 +11758,7 @@ class CalendarEventRow extends DataClass
   final int? endMinute;
   final String? timeZoneId;
   final String? locationText;
+  final String? contactChannel;
   final double? latitude;
   final double? longitude;
   final String? coordinateSource;
@@ -11768,6 +11794,7 @@ class CalendarEventRow extends DataClass
     this.endMinute,
     this.timeZoneId,
     this.locationText,
+    this.contactChannel,
     this.latitude,
     this.longitude,
     this.coordinateSource,
@@ -11815,6 +11842,9 @@ class CalendarEventRow extends DataClass
     }
     if (!nullToAbsent || locationText != null) {
       map['location_text'] = Variable<String>(locationText);
+    }
+    if (!nullToAbsent || contactChannel != null) {
+      map['contact_channel'] = Variable<String>(contactChannel);
     }
     if (!nullToAbsent || latitude != null) {
       map['latitude'] = Variable<double>(latitude);
@@ -11909,6 +11939,9 @@ class CalendarEventRow extends DataClass
       locationText: locationText == null && nullToAbsent
           ? const Value.absent()
           : Value(locationText),
+      contactChannel: contactChannel == null && nullToAbsent
+          ? const Value.absent()
+          : Value(contactChannel),
       latitude: latitude == null && nullToAbsent
           ? const Value.absent()
           : Value(latitude),
@@ -11991,6 +12024,7 @@ class CalendarEventRow extends DataClass
       endMinute: serializer.fromJson<int?>(json['endMinute']),
       timeZoneId: serializer.fromJson<String?>(json['timeZoneId']),
       locationText: serializer.fromJson<String?>(json['locationText']),
+      contactChannel: serializer.fromJson<String?>(json['contactChannel']),
       latitude: serializer.fromJson<double?>(json['latitude']),
       longitude: serializer.fromJson<double?>(json['longitude']),
       coordinateSource: serializer.fromJson<String?>(json['coordinateSource']),
@@ -12053,6 +12087,7 @@ class CalendarEventRow extends DataClass
       'endMinute': serializer.toJson<int?>(endMinute),
       'timeZoneId': serializer.toJson<String?>(timeZoneId),
       'locationText': serializer.toJson<String?>(locationText),
+      'contactChannel': serializer.toJson<String?>(contactChannel),
       'latitude': serializer.toJson<double?>(latitude),
       'longitude': serializer.toJson<double?>(longitude),
       'coordinateSource': serializer.toJson<String?>(coordinateSource),
@@ -12103,6 +12138,7 @@ class CalendarEventRow extends DataClass
     Value<int?> endMinute = const Value.absent(),
     Value<String?> timeZoneId = const Value.absent(),
     Value<String?> locationText = const Value.absent(),
+    Value<String?> contactChannel = const Value.absent(),
     Value<double?> latitude = const Value.absent(),
     Value<double?> longitude = const Value.absent(),
     Value<String?> coordinateSource = const Value.absent(),
@@ -12138,6 +12174,9 @@ class CalendarEventRow extends DataClass
     endMinute: endMinute.present ? endMinute.value : this.endMinute,
     timeZoneId: timeZoneId.present ? timeZoneId.value : this.timeZoneId,
     locationText: locationText.present ? locationText.value : this.locationText,
+    contactChannel: contactChannel.present
+        ? contactChannel.value
+        : this.contactChannel,
     latitude: latitude.present ? latitude.value : this.latitude,
     longitude: longitude.present ? longitude.value : this.longitude,
     coordinateSource: coordinateSource.present
@@ -12209,6 +12248,9 @@ class CalendarEventRow extends DataClass
       locationText: data.locationText.present
           ? data.locationText.value
           : this.locationText,
+      contactChannel: data.contactChannel.present
+          ? data.contactChannel.value
+          : this.contactChannel,
       latitude: data.latitude.present ? data.latitude.value : this.latitude,
       longitude: data.longitude.present ? data.longitude.value : this.longitude,
       coordinateSource: data.coordinateSource.present
@@ -12290,6 +12332,7 @@ class CalendarEventRow extends DataClass
           ..write('endMinute: $endMinute, ')
           ..write('timeZoneId: $timeZoneId, ')
           ..write('locationText: $locationText, ')
+          ..write('contactChannel: $contactChannel, ')
           ..write('latitude: $latitude, ')
           ..write('longitude: $longitude, ')
           ..write('coordinateSource: $coordinateSource, ')
@@ -12336,6 +12379,7 @@ class CalendarEventRow extends DataClass
     endMinute,
     timeZoneId,
     locationText,
+    contactChannel,
     latitude,
     longitude,
     coordinateSource,
@@ -12375,6 +12419,7 @@ class CalendarEventRow extends DataClass
           other.endMinute == this.endMinute &&
           other.timeZoneId == this.timeZoneId &&
           other.locationText == this.locationText &&
+          other.contactChannel == this.contactChannel &&
           other.latitude == this.latitude &&
           other.longitude == this.longitude &&
           other.coordinateSource == this.coordinateSource &&
@@ -12415,6 +12460,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
   final Value<int?> endMinute;
   final Value<String?> timeZoneId;
   final Value<String?> locationText;
+  final Value<String?> contactChannel;
   final Value<double?> latitude;
   final Value<double?> longitude;
   final Value<String?> coordinateSource;
@@ -12451,6 +12497,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
     this.endMinute = const Value.absent(),
     this.timeZoneId = const Value.absent(),
     this.locationText = const Value.absent(),
+    this.contactChannel = const Value.absent(),
     this.latitude = const Value.absent(),
     this.longitude = const Value.absent(),
     this.coordinateSource = const Value.absent(),
@@ -12488,6 +12535,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
     this.endMinute = const Value.absent(),
     this.timeZoneId = const Value.absent(),
     this.locationText = const Value.absent(),
+    this.contactChannel = const Value.absent(),
     this.latitude = const Value.absent(),
     this.longitude = const Value.absent(),
     this.coordinateSource = const Value.absent(),
@@ -12531,6 +12579,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
     Expression<int>? endMinute,
     Expression<String>? timeZoneId,
     Expression<String>? locationText,
+    Expression<String>? contactChannel,
     Expression<double>? latitude,
     Expression<double>? longitude,
     Expression<String>? coordinateSource,
@@ -12568,6 +12617,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
       if (endMinute != null) 'end_minute': endMinute,
       if (timeZoneId != null) 'time_zone_id': timeZoneId,
       if (locationText != null) 'location_text': locationText,
+      if (contactChannel != null) 'contact_channel': contactChannel,
       if (latitude != null) 'latitude': latitude,
       if (longitude != null) 'longitude': longitude,
       if (coordinateSource != null) 'coordinate_source': coordinateSource,
@@ -12617,6 +12667,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
     Value<int?>? endMinute,
     Value<String?>? timeZoneId,
     Value<String?>? locationText,
+    Value<String?>? contactChannel,
     Value<double?>? latitude,
     Value<double?>? longitude,
     Value<String?>? coordinateSource,
@@ -12654,6 +12705,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
       endMinute: endMinute ?? this.endMinute,
       timeZoneId: timeZoneId ?? this.timeZoneId,
       locationText: locationText ?? this.locationText,
+      contactChannel: contactChannel ?? this.contactChannel,
       latitude: latitude ?? this.latitude,
       longitude: longitude ?? this.longitude,
       coordinateSource: coordinateSource ?? this.coordinateSource,
@@ -12720,6 +12772,9 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
     }
     if (locationText.present) {
       map['location_text'] = Variable<String>(locationText.value);
+    }
+    if (contactChannel.present) {
+      map['contact_channel'] = Variable<String>(contactChannel.value);
     }
     if (latitude.present) {
       map['latitude'] = Variable<double>(latitude.value);
@@ -12826,6 +12881,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
           ..write('endMinute: $endMinute, ')
           ..write('timeZoneId: $timeZoneId, ')
           ..write('locationText: $locationText, ')
+          ..write('contactChannel: $contactChannel, ')
           ..write('latitude: $latitude, ')
           ..write('longitude: $longitude, ')
           ..write('coordinateSource: $coordinateSource, ')
@@ -43210,6 +43266,7 @@ typedef $$CalendarEventsTableCreateCompanionBuilder =
       Value<int?> endMinute,
       Value<String?> timeZoneId,
       Value<String?> locationText,
+      Value<String?> contactChannel,
       Value<double?> latitude,
       Value<double?> longitude,
       Value<String?> coordinateSource,
@@ -43248,6 +43305,7 @@ typedef $$CalendarEventsTableUpdateCompanionBuilder =
       Value<int?> endMinute,
       Value<String?> timeZoneId,
       Value<String?> locationText,
+      Value<String?> contactChannel,
       Value<double?> latitude,
       Value<double?> longitude,
       Value<String?> coordinateSource,
@@ -43379,6 +43437,11 @@ class $$CalendarEventsTableFilterComposer
 
   ColumnFilters<String> get locationText => $composableBuilder(
     column: $table.locationText,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get contactChannel => $composableBuilder(
+    column: $table.contactChannel,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -43606,6 +43669,11 @@ class $$CalendarEventsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get contactChannel => $composableBuilder(
+    column: $table.contactChannel,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<double> get latitude => $composableBuilder(
     column: $table.latitude,
     builder: (column) => ColumnOrderings(column),
@@ -43791,6 +43859,11 @@ class $$CalendarEventsTableAnnotationComposer
 
   GeneratedColumn<String> get locationText => $composableBuilder(
     column: $table.locationText,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get contactChannel => $composableBuilder(
+    column: $table.contactChannel,
     builder: (column) => column,
   );
 
@@ -44002,6 +44075,7 @@ class $$CalendarEventsTableTableManager
                 Value<int?> endMinute = const Value.absent(),
                 Value<String?> timeZoneId = const Value.absent(),
                 Value<String?> locationText = const Value.absent(),
+                Value<String?> contactChannel = const Value.absent(),
                 Value<double?> latitude = const Value.absent(),
                 Value<double?> longitude = const Value.absent(),
                 Value<String?> coordinateSource = const Value.absent(),
@@ -44041,6 +44115,7 @@ class $$CalendarEventsTableTableManager
                 endMinute: endMinute,
                 timeZoneId: timeZoneId,
                 locationText: locationText,
+                contactChannel: contactChannel,
                 latitude: latitude,
                 longitude: longitude,
                 coordinateSource: coordinateSource,
@@ -44079,6 +44154,7 @@ class $$CalendarEventsTableTableManager
                 Value<int?> endMinute = const Value.absent(),
                 Value<String?> timeZoneId = const Value.absent(),
                 Value<String?> locationText = const Value.absent(),
+                Value<String?> contactChannel = const Value.absent(),
                 Value<double?> latitude = const Value.absent(),
                 Value<double?> longitude = const Value.absent(),
                 Value<String?> coordinateSource = const Value.absent(),
@@ -44118,6 +44194,7 @@ class $$CalendarEventsTableTableManager
                 endMinute: endMinute,
                 timeZoneId: timeZoneId,
                 locationText: locationText,
+                contactChannel: contactChannel,
                 latitude: latitude,
                 longitude: longitude,
                 coordinateSource: coordinateSource,

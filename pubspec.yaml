@@ -55,4 +55,5 @@ flutter:
     - assets/icons/filter-svgrepo-com.svg
     - assets/icons/contacts/standard_filters/
     - assets/icons/contacts/social/
+    - assets/icons/contacts/channels/
     - assets/icons/navigation/

@@ -18,6 +18,7 @@ import 'package:rmplanner/features/planner/domain/calendar_event.dart';
 import 'package:rmplanner/features/planner/domain/event_type.dart';
 import 'package:rmplanner/features/planner/domain/planner_date.dart';
 import 'package:rmplanner/features/planner/presentation/widgets/anchored_top_bar_popup.dart';
+import 'package:rmplanner/features/planner/presentation/widgets/event_contact_channel_visuals.dart';
 import 'package:rmplanner/features/planner/presentation/widgets/planner_current_status_controls.dart';
 import 'package:rmplanner/features/planner/presentation/widgets/planner_detail_primitives.dart';
 import 'package:rmplanner/features/planner/presentation/widgets/planner_event_report_status.dart';
@@ -409,10 +410,37 @@ final class _CalendarEventDetailScreenState
                 value: calendarRecurrenceRuleLabel(occurrence.recurrence),
               ),
             if (eventTypeLabel != null)
+              // P2-A: this row is the EVENT TYPE and is always labelled as such.
+              // "Contact Type" is now its own independently persisted value and
+              // is shown in the dedicated row below.
               _DetailField(
                 icon: Icons.category_outlined,
-                label: isContactEvent ? 'Contact Type' : 'Event Type',
+                label: 'Event Type',
                 value: eventTypeLabel,
+              ),
+            // P2-A, revised by the owner on 2026-09-22: the independent Contact
+            // Type. A Contact Event that never stored a channel — a legacy
+            // schema-49 NULL row — presents as the default, In Person; "Not
+            // set" is no longer a user-facing Contact Type. This is a READ-only
+            // presentation rule and writes nothing to the row.
+            if (isContactEvent)
+              _DetailField(
+                key: const Key('event-detail-contact-type'),
+                // The row uses the same channel visual convention as the form
+                // and the picker, through the one shared mapper.
+                iconWidget: KeyedSubtree(
+                  key: const Key('event-detail-contact-type-visual'),
+                  child: eventContactChannelVisual(
+                    channel: occurrence.contactChannel,
+                    color:
+                        Theme.of(context).iconTheme.color ??
+                        Theme.of(context).colorScheme.onSurface,
+                  ),
+                ),
+                label: 'Contact Type',
+                value: eventContactChannelDisplayLabel(
+                  occurrence.contactChannel,
+                ),
               ),
             if (occurrence.timing == CalendarEventTiming.allDay)
               const _DetailRow(icon: Icons.today_outlined, label: 'All day'),

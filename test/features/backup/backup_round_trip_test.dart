@@ -17,7 +17,7 @@ import 'package:rmplanner/features/backup/domain/backup_domain_registry.dart';
 import 'package:rmplanner/features/backup/domain/backup_errors.dart';
 import 'package:rmplanner/features/backup/domain/backup_manifest.dart';
 import 'package:rmplanner/features/backup/domain/restore_preview.dart';
-
+import 'package:rmplanner/features/planner/domain/event_contact_channel.dart';
 
 final class _FakeKeyStore implements CheckpointKeyStore {
   _FakeKeyStore(this.key);
@@ -510,8 +510,9 @@ Future<Map<String, List<List<Object?>>>> _snapshot(AppDatabase database) async {
         .customSelect('PRAGMA table_info("${spec.table}")')
         .get();
     final names = columns.map((row) => row.read<String>('name')).toList();
-    final result =
-        await database.customSelect('SELECT * FROM "${spec.table}"').get();
+    final result = await database
+        .customSelect('SELECT * FROM "${spec.table}"')
+        .get();
     snapshot[spec.table] = <List<Object?>>[
       for (final row in result)
         <Object?>[for (final name in names) row.data[name]],
@@ -537,7 +538,9 @@ void main() {
     database = AppDatabase.forTesting(NativeDatabase.memory());
     await _seed(database);
     gateway = _MemoryGateway();
-    keyStore = _FakeKeyStore(Uint8List.fromList(List<int>.generate(32, (i) => i)));
+    keyStore = _FakeKeyStore(
+      Uint8List.fromList(List<int>.generate(32, (i) => i)),
+    );
     final containerCodec = BackupContainerCodec();
     backupService = BackupService(
       database: database,
@@ -637,8 +640,7 @@ void main() {
     expect(await _snapshot(database), before);
   });
 
-  test('a device-bound checkpoint is refused as a restorable backup',
-      () async {
+  test('a device-bound checkpoint is refused as a restorable backup', () async {
     // The only protected container this app can produce is its own recovery
     // checkpoint. It is not a user backup and must never be restored as one.
     final key = Uint8List.fromList(List<int>.generate(32, (i) => i + 1));
@@ -665,7 +667,13 @@ void main() {
     final bytes = await makeBackup();
     // The file is readable by design, so this matters more here than anywhere:
     // exclusion must hold in the plaintext bytes too, not just logically.
-    final text = utf8.decode(bytes);
+    //
+    // Decode the BODY, not the whole file: the 8-byte little-endian body length
+    // in the container header is binary, and decoding the raw file as UTF-8 only
+    // ever worked by accident while the payload stayed under 32 KiB (above that
+    // the length's high byte stops being a valid text byte). The claim under
+    // test is about the payload's plaintext, so read exactly that.
+    final text = utf8.decode(BackupContainer.parseHeader(bytes).body);
     for (final table in <String>[
       'background_work_requests',
       'permission_audits',
@@ -690,9 +698,7 @@ void main() {
       await database.customStatement('DELETE FROM "${spec.table}"');
     }
 
-    final opened = await restoreService.open(
-      bytes: bytes,
-    );
+    final opened = await restoreService.open(bytes: bytes);
     final preview = await restoreService.preview(
       backup: opened,
       mode: BackupRestoreMode.replace,
@@ -713,9 +719,7 @@ void main() {
 
   test('the backup excludes device-bound and credential state', () async {
     final bytes = await makeBackup();
-    final opened = await restoreService.open(
-      bytes: bytes,
-    );
+    final opened = await restoreService.open(bytes: bytes);
     final payload = opened.payload;
 
     for (final table in <String>[
@@ -732,30 +736,22 @@ void main() {
     }
 
     // The platform notification id never appears anywhere in the file.
-    expect(
-      payload.exports.values.join().contains('991199'),
-      isFalse,
-    );
+    expect(payload.exports.values.join().contains('991199'), isFalse);
   });
 
   test('seeded/regenerated identities are not duplicated', () async {
     final bytes = await makeBackup();
-    final opened = await restoreService.open(
-      bytes: bytes,
-    );
-    await restoreService.apply(
-      backup: opened,
-      mode: BackupRestoreMode.replace,
-    );
+    final opened = await restoreService.open(bytes: bytes);
+    await restoreService.apply(backup: opened, mode: BackupRestoreMode.replace);
 
     final types = await database
         .customSelect('SELECT id, stable_key FROM activity_types')
         .get();
     expect(types.length, 2);
-    expect(
-      types.map((row) => row.data['stable_key']).toSet(),
-      <String>{'planner_meal', 'user_custom'},
-    );
+    expect(types.map((row) => row.data['stable_key']).toSet(), <String>{
+      'planner_meal',
+      'user_custom',
+    });
     final definitions = await database
         .customSelect('SELECT id FROM life_indicator_definitions')
         .get();
@@ -773,13 +769,8 @@ void main() {
       "WHERE id = 'type-meal'",
     );
 
-    final opened = await restoreService.open(
-      bytes: bytes,
-    );
-    await restoreService.apply(
-      backup: opened,
-      mode: BackupRestoreMode.replace,
-    );
+    final opened = await restoreService.open(bytes: bytes);
+    await restoreService.apply(backup: opened, mode: BackupRestoreMode.replace);
 
     final row = await database
         .customSelect(
@@ -843,13 +834,8 @@ void main() {
 
     await database.customStatement("DELETE FROM planner_tasks");
 
-    final opened = await restoreService.open(
-      bytes: bytes,
-    );
-    expect(
-      opened.includedDomains.contains(BackupDomain.maps),
-      isFalse,
-    );
+    final opened = await restoreService.open(bytes: bytes);
+    expect(opened.includedDomains.contains(BackupDomain.maps), isFalse);
 
     final preview = await restoreService.preview(
       backup: opened,
@@ -901,9 +887,7 @@ void main() {
       domains: payload.domains,
       exports: payload.exports,
     );
-    final bytes = backupService.encode(
-      payload: tampered,
-    );
+    final bytes = backupService.encode(payload: tampered);
 
     await expectLater(
       () => restoreService.open(bytes: bytes),
@@ -943,9 +927,7 @@ void main() {
       },
       exports: payload.exports,
     );
-    final bytes = backupService.encode(
-      payload: corrupted,
-    );
+    final bytes = backupService.encode(payload: corrupted);
 
     await expectLater(
       () => restoreService.open(bytes: bytes),
@@ -994,8 +976,9 @@ void main() {
     // A consistently produced but semantically invalid backup: the manifest
     // count matches the payload, so only commit-time foreign-key enforcement
     // can reject it. That is the fail-closed path under test.
-    final manifestDomains =
-        Map<BackupDomain, BackupDomainEntry>.from(payload.manifest.domains);
+    final manifestDomains = Map<BackupDomain, BackupDomainEntry>.from(
+      payload.manifest.domains,
+    );
     final contactsEntry = manifestDomains[BackupDomain.contacts]!;
     manifestDomains[BackupDomain.contacts] = BackupDomainEntry(
       domain: contactsEntry.domain,
@@ -1019,18 +1002,12 @@ void main() {
     );
 
     final before = await _snapshot(database);
-    final bytes = backupService.encode(
-      payload: reconciled,
-    );
+    final bytes = backupService.encode(payload: reconciled);
 
-    final opened = await restoreService.open(
-      bytes: bytes,
-    );
+    final opened = await restoreService.open(bytes: bytes);
     await expectLater(
-      () => restoreService.apply(
-        backup: opened,
-        mode: BackupRestoreMode.replace,
-      ),
+      () =>
+          restoreService.apply(backup: opened, mode: BackupRestoreMode.replace),
       throwsA(isA<BackupFailure>()),
     );
 
@@ -1047,9 +1024,7 @@ void main() {
     );
     await database.customStatement("DELETE FROM saved_places");
 
-    final opened = await restoreService.open(
-      bytes: bytes,
-    );
+    final opened = await restoreService.open(bytes: bytes);
     final preview = await restoreService.preview(
       backup: opened,
       mode: BackupRestoreMode.merge,
@@ -1082,8 +1057,9 @@ void main() {
         final columns = await database
             .customSelect('PRAGMA table_info("${spec.table}")')
             .get();
-        final hasProfileId = columns
-            .any((row) => row.read<String>('name') == 'profile_id');
+        final hasProfileId = columns.any(
+          (row) => row.read<String>('name') == 'profile_id',
+        );
         if (!hasProfileId) {
           continue;
         }
@@ -1098,15 +1074,10 @@ void main() {
       );
     });
 
-    final opened = await restoreService.open(
-      bytes: bytes,
-    );
+    final opened = await restoreService.open(bytes: bytes);
 
     await expectLater(
-      () => restoreService.apply(
-        backup: opened,
-        mode: BackupRestoreMode.merge,
-      ),
+      () => restoreService.apply(backup: opened, mode: BackupRestoreMode.merge),
       throwsA(
         isA<BackupFailure>().having(
           (failure) => failure.kind,
@@ -1117,81 +1088,77 @@ void main() {
     );
   });
 
-  test('partial restore refuses a selection with missing dependencies',
-      () async {
-    final bytes = await makeBackup(
-      domains: <BackupDomain>{
-        BackupDomain.identity,
-        BackupDomain.preferences,
-        BackupDomain.definitions,
-        BackupDomain.taxonomy,
-        BackupDomain.goals,
-        BackupDomain.planner,
-        BackupDomain.contacts,
-      },
-    );
-    final opened = await restoreService.open(
-      bytes: bytes,
-    );
+  test(
+    'partial restore refuses a selection with missing dependencies',
+    () async {
+      final bytes = await makeBackup(
+        domains: <BackupDomain>{
+          BackupDomain.identity,
+          BackupDomain.preferences,
+          BackupDomain.definitions,
+          BackupDomain.taxonomy,
+          BackupDomain.goals,
+          BackupDomain.planner,
+          BackupDomain.contacts,
+        },
+      );
+      final opened = await restoreService.open(bytes: bytes);
 
-    // planner depends on taxonomy and goals; asking for planner alone in a
-    // backup that has them is fine, so remove the dependency instead.
-    final withoutGoals = await restoreService.preview(
-      backup: opened,
-      mode: BackupRestoreMode.replace,
-      selection: <BackupDomain>{BackupDomain.planner},
-    );
-    expect(
-      withoutGoals.selectedDomains,
-      containsAll(<BackupDomain>[
-        BackupDomain.planner,
-        BackupDomain.goals,
-        BackupDomain.taxonomy,
-        BackupDomain.definitions,
-        BackupDomain.identity,
-      ]),
-    );
-    expect(
-      withoutGoals.addedDependencyDomains,
-      contains(BackupDomain.goals),
-    );
-  });
-
-  test('a selection the backup does not carry is reported, not guessed',
-      () async {
-    final bytes = await makeBackup(
-      domains: <BackupDomain>{
-        BackupDomain.identity,
-        BackupDomain.definitions,
-        BackupDomain.taxonomy,
-        BackupDomain.goals,
-        BackupDomain.planner,
-      },
-    );
-    final opened = await restoreService.open(
-      bytes: bytes,
-    );
-
-    await expectLater(
-      () => restoreService.preview(
+      // planner depends on taxonomy and goals; asking for planner alone in a
+      // backup that has them is fine, so remove the dependency instead.
+      final withoutGoals = await restoreService.preview(
         backup: opened,
         mode: BackupRestoreMode.replace,
-        selection: <BackupDomain>{BackupDomain.maps},
-      ),
-      throwsA(
-        isA<BackupFailure>().having(
-          (failure) => failure.kind,
-          'kind',
-          BackupFailureKind.missingDomain,
+        selection: <BackupDomain>{BackupDomain.planner},
+      );
+      expect(
+        withoutGoals.selectedDomains,
+        containsAll(<BackupDomain>[
+          BackupDomain.planner,
+          BackupDomain.goals,
+          BackupDomain.taxonomy,
+          BackupDomain.definitions,
+          BackupDomain.identity,
+        ]),
+      );
+      expect(withoutGoals.addedDependencyDomains, contains(BackupDomain.goals));
+    },
+  );
+
+  test(
+    'a selection the backup does not carry is reported, not guessed',
+    () async {
+      final bytes = await makeBackup(
+        domains: <BackupDomain>{
+          BackupDomain.identity,
+          BackupDomain.definitions,
+          BackupDomain.taxonomy,
+          BackupDomain.goals,
+          BackupDomain.planner,
+        },
+      );
+      final opened = await restoreService.open(bytes: bytes);
+
+      await expectLater(
+        () => restoreService.preview(
+          backup: opened,
+          mode: BackupRestoreMode.replace,
+          selection: <BackupDomain>{BackupDomain.maps},
         ),
-      ),
-    );
-  });
+        throwsA(
+          isA<BackupFailure>().having(
+            (failure) => failure.kind,
+            'kind',
+            BackupFailureKind.missingDomain,
+          ),
+        ),
+      );
+    },
+  );
 
   // Synthetic scale only: proves the S1 single-transaction restore stays
   // correct and usable at a realistic worst case. No owner data is used.
-  test('a large synthetic dataset round trips through one transaction',
-      () async {
+  test('a large synthetic dataset round trips through one transaction', () async {
     const count = 1200;
     for (var index = 0; index < count; index++) {
       await database.customInsert(
@@ -1259,9 +1226,7 @@ void main() {
     }
 
     final restoreStarted = DateTime.now();
-    final opened = await restoreService.open(
-      bytes: bytes,
-    );
+    final opened = await restoreService.open(bytes: bytes);
     final preview = await restoreService.preview(
       backup: opened,
       mode: BackupRestoreMode.replace,
@@ -1290,31 +1255,31 @@ void main() {
     expect(restoreElapsed.inSeconds, lessThan(60));
   });
 
-  test('the recovery checkpoint exists and is verified before the write',
-      () async {
-    final bytes = await makeBackup();
-    final opened = await restoreService.open(
-      bytes: bytes,
-    );
-    await restoreService.apply(
-      backup: opened,
-      mode: BackupRestoreMode.replace,
-    );
+  test(
+    'the recovery checkpoint exists and is verified before the write',
+    () async {
+      final bytes = await makeBackup();
+      final opened = await restoreService.open(bytes: bytes);
+      await restoreService.apply(
+        backup: opened,
+        mode: BackupRestoreMode.replace,
+      );
 
-    final current = File(
-      '${checkpointDirectory.path}${Platform.pathSeparator}backup_recovery'
-      '${Platform.pathSeparator}'
-      '${BackupRecoveryCheckpointStore.currentFileName}',
-    );
-    expect(current.existsSync(), isTrue);
-    expect(keyStore.reads, greaterThan(0));
+      final current = File(
+        '${checkpointDirectory.path}${Platform.pathSeparator}backup_recovery'
+        '${Platform.pathSeparator}'
+        '${BackupRecoveryCheckpointStore.currentFileName}',
+      );
+      expect(current.existsSync(), isTrue);
+      expect(keyStore.reads, greaterThan(0));
 
-    // The checkpoint is device-bound: it is not a passphrase-protected
-    // portable backup and it never leaves app-private storage.
-    final stored = await current.readAsBytes();
-    final header = BackupContainer.parseHeader(stored);
-    expect(header.protectionId, BackupFormat.deviceKeyProtectionId);
-  });
+      // The checkpoint is device-bound: it is not a passphrase-protected
+      // portable backup and it never leaves app-private storage.
+      final stored = await current.readAsBytes();
+      final header = BackupContainer.parseHeader(stored);
+      expect(header.protectionId, BackupFormat.deviceKeyProtectionId);
+    },
+  );
 
   // -------------------------------------------------------------------------
   // The owner's physical review.
@@ -1329,85 +1294,97 @@ void main() {
   // back, so the same backup only ever restored onto the install it came from.
   // -------------------------------------------------------------------------
   group('restoring onto a fresh install', () {
-    test('a backup made on another profile restores onto a fresh install',
-        () async {
-      final bytes = await makeBackup();
+    test(
+      'a backup made on another profile restores onto a fresh install',
+      () async {
+        final bytes = await makeBackup();
 
-      final fresh = AppDatabase.forTesting(NativeDatabase.memory());
-      addTearDown(fresh.close);
-      await _seedFreshInstall(fresh, profileId: 'profile-fresh-install');
+        final fresh = AppDatabase.forTesting(NativeDatabase.memory());
+        addTearDown(fresh.close);
+        await _seedFreshInstall(fresh, profileId: 'profile-fresh-install');
 
-      final restorer = restoreServiceFor(
-        fresh,
-        profileId: 'profile-fresh-install',
-      );
-      final opened = await restorer.open(bytes: bytes);
-      final preview = await restorer.preview(
-        backup: opened,
-        mode: BackupRestoreMode.replace,
-      );
-      final result = await restorer.apply(
-        backup: opened,
-        mode: BackupRestoreMode.replace,
-        selection: preview.selectedDomains,
-      );
-
-      expect(result.rolledBack, isFalse);
-      expect(result.identityAdopted, isTrue);
-      expect(result.restoredProfileId, 'profile-synthetic');
-      expect(result.postRestoreWarnings, isEmpty);
-
-      // The install now *is* the backup's profile.
-      expect(await _profileIds(fresh), <String>['profile-synthetic']);
-
-      // The backup's content is what is present, and only that: the receiving
-      // install's own regenerated rows are gone rather than left beside it.
-      expect(await _count(fresh, 'SELECT COUNT(*) c FROM goals'), 1);
-      expect(
-        await _count(
+        final restorer = restoreServiceFor(
           fresh,
-          "SELECT COUNT(*) c FROM goals WHERE profile_id = "
-              "'profile-fresh-install'",
-        ),
-        0,
-      );
-      expect(
-        await _count(fresh, 'SELECT COUNT(*) c FROM life_indicator_definitions'),
-        6,
-      );
-      expect(
-        await _count(
-          fresh,
-          'SELECT COUNT(*) c FROM life_indicator_definitions '
-              "WHERE profile_id = 'profile-fresh-install'",
-        ),
-        0,
-      );
-      expect(await _count(fresh, 'SELECT COUNT(*) c FROM activity_types'), 2);
-      expect(await _count(fresh, 'SELECT COUNT(*) c FROM calendar_events'), 1);
-      expect(await _count(fresh, 'SELECT COUNT(*) c FROM planner_tasks'), 1);
-      expect(await _count(fresh, 'SELECT COUNT(*) c FROM contacts'), 1);
-      expect(await _count(fresh, 'SELECT COUNT(*) c FROM contact_notes'), 1);
-      expect(await _count(fresh, 'SELECT COUNT(*) c FROM saved_places'), 1);
-      expect(await _count(fresh, 'SELECT COUNT(*) c FROM contact_groups'), 0);
+          profileId: 'profile-fresh-install',
+        );
+        final opened = await restorer.open(bytes: bytes);
+        final preview = await restorer.preview(
+          backup: opened,
+          mode: BackupRestoreMode.replace,
+        );
+        final result = await restorer.apply(
+          backup: opened,
+          mode: BackupRestoreMode.replace,
+          selection: preview.selectedDomains,
+        );
 
-      // Device-bound scheduling artefacts are never resurrected by a backup…
-      expect(
-        await _count(fresh, 'SELECT COUNT(*) c FROM background_work_requests'),
-        0,
-      );
-      // …while device-local permission history is not profile-scoped, so it is
-      // left exactly where it was.
-      expect(
-        await _count(fresh, 'SELECT COUNT(*) c FROM permission_audits'),
-        1,
-      );
+        expect(result.rolledBack, isFalse);
+        expect(result.identityAdopted, isTrue);
+        expect(result.restoredProfileId, 'profile-synthetic');
+        expect(result.postRestoreWarnings, isEmpty);
 
-      // Adopting an identity must not leave a single orphan behind.
-      final orphans =
-          await fresh.customSelect('PRAGMA foreign_key_check').get();
-      expect(orphans, isEmpty);
-    });
+        // The install now *is* the backup's profile.
+        expect(await _profileIds(fresh), <String>['profile-synthetic']);
+
+        // The backup's content is what is present, and only that: the receiving
+        // install's own regenerated rows are gone rather than left beside it.
+        expect(await _count(fresh, 'SELECT COUNT(*) c FROM goals'), 1);
+        expect(
+          await _count(
+            fresh,
+            "SELECT COUNT(*) c FROM goals WHERE profile_id = "
+            "'profile-fresh-install'",
+          ),
+          0,
+        );
+        expect(
+          await _count(
+            fresh,
+            'SELECT COUNT(*) c FROM life_indicator_definitions',
+          ),
+          6,
+        );
+        expect(
+          await _count(
+            fresh,
+            'SELECT COUNT(*) c FROM life_indicator_definitions '
+            "WHERE profile_id = 'profile-fresh-install'",
+          ),
+          0,
+        );
+        expect(await _count(fresh, 'SELECT COUNT(*) c FROM activity_types'), 2);
+        expect(
+          await _count(fresh, 'SELECT COUNT(*) c FROM calendar_events'),
+          1,
+        );
+        expect(await _count(fresh, 'SELECT COUNT(*) c FROM planner_tasks'), 1);
+        expect(await _count(fresh, 'SELECT COUNT(*) c FROM contacts'), 1);
+        expect(await _count(fresh, 'SELECT COUNT(*) c FROM contact_notes'), 1);
+        expect(await _count(fresh, 'SELECT COUNT(*) c FROM saved_places'), 1);
+        expect(await _count(fresh, 'SELECT COUNT(*) c FROM contact_groups'), 0);
+
+        // Device-bound scheduling artefacts are never resurrected by a backup…
+        expect(
+          await _count(
+            fresh,
+            'SELECT COUNT(*) c FROM background_work_requests',
+          ),
+          0,
+        );
+        // …while device-local permission history is not profile-scoped, so it is
+        // left exactly where it was.
+        expect(
+          await _count(fresh, 'SELECT COUNT(*) c FROM permission_audits'),
+          1,
+        );
+
+        // Adopting an identity must not leave a single orphan behind.
+        final orphans = await fresh
+            .customSelect('PRAGMA foreign_key_check')
+            .get();
+        expect(orphans, isEmpty);
+      },
+    );
 
     test('a backup made on this install does not adopt an identity', () async {
       final bytes = await makeBackup();
@@ -1421,40 +1398,42 @@ void main() {
       expect(result.restoredProfileId, 'profile-synthetic');
     });
 
-    test('a partial restore of another profile is refused, not half-applied',
-        () async {
-      final bytes = await makeBackup();
+    test(
+      'a partial restore of another profile is refused, not half-applied',
+      () async {
+        final bytes = await makeBackup();
 
-      final fresh = AppDatabase.forTesting(NativeDatabase.memory());
-      addTearDown(fresh.close);
-      await _seedFreshInstall(fresh, profileId: 'profile-fresh-install');
-      final restorer = restoreServiceFor(
-        fresh,
-        profileId: 'profile-fresh-install',
-      );
+        final fresh = AppDatabase.forTesting(NativeDatabase.memory());
+        addTearDown(fresh.close);
+        await _seedFreshInstall(fresh, profileId: 'profile-fresh-install');
+        final restorer = restoreServiceFor(
+          fresh,
+          profileId: 'profile-fresh-install',
+        );
 
-      final opened = await restorer.open(bytes: bytes);
-      // Adopting the backup's identity retires every row this install owns, so
-      // a fragment of the backup cannot be restored on its own.
-      await expectLater(
-        () => restorer.apply(
-          backup: opened,
-          mode: BackupRestoreMode.replace,
-          selection: <BackupDomain>{BackupDomain.maps},
-        ),
-        throwsA(
-          isA<BackupFailure>().having(
-            (failure) => failure.kind,
-            'kind',
-            BackupFailureKind.differentProfile,
+        final opened = await restorer.open(bytes: bytes);
+        // Adopting the backup's identity retires every row this install owns, so
+        // a fragment of the backup cannot be restored on its own.
+        await expectLater(
+          () => restorer.apply(
+            backup: opened,
+            mode: BackupRestoreMode.replace,
+            selection: <BackupDomain>{BackupDomain.maps},
           ),
-        ),
-      );
+          throwsA(
+            isA<BackupFailure>().having(
+              (failure) => failure.kind,
+              'kind',
+              BackupFailureKind.differentProfile,
+            ),
+          ),
+        );
 
-      // Nothing was written.
-      expect(await _profileIds(fresh), <String>['profile-fresh-install']);
-      expect(await _count(fresh, 'SELECT COUNT(*) c FROM goals'), 6);
-    });
+        // Nothing was written.
+        expect(await _profileIds(fresh), <String>['profile-fresh-install']);
+        expect(await _count(fresh, 'SELECT COUNT(*) c FROM goals'), 6);
+      },
+    );
 
     test('merging a backup from another profile is still refused', () async {
       final bytes = await makeBackup();
@@ -1469,10 +1448,7 @@ void main() {
 
       final opened = await restorer.open(bytes: bytes);
       await expectLater(
-        () => restorer.apply(
-          backup: opened,
-          mode: BackupRestoreMode.merge,
-        ),
+        () => restorer.apply(backup: opened, mode: BackupRestoreMode.merge),
         throwsA(
           isA<BackupFailure>().having(
             (failure) => failure.kind,
@@ -1487,15 +1463,15 @@ void main() {
 
   group('backup file names', () {
     BackupManifest manifestAt(int second) => BackupManifest(
-          containerVersion: BackupFormat.containerVersion,
-          appVersion: '0.1.0+1',
-          schemaVersion: database.schemaVersion,
-          createdAtUtc: DateTime.utc(2026, 9, 17, 12, 0, second),
-          sourcePackage: BackupFormat.sourcePackage,
-          profileId: 'profile-synthetic',
-          domains: const <BackupDomain, BackupDomainEntry>{},
-          payloadSha256: '',
-        );
+      containerVersion: BackupFormat.containerVersion,
+      appVersion: '0.1.0+1',
+      schemaVersion: database.schemaVersion,
+      createdAtUtc: DateTime.utc(2026, 9, 17, 12, 0, second),
+      sourcePackage: BackupFormat.sourcePackage,
+      profileId: 'profile-synthetic',
+      domains: const <BackupDomain, BackupDomainEntry>{},
+      payloadSha256: '',
+    );
 
     test('two backups in the same minute are two distinct files', () {
       expect(
@@ -1509,5 +1485,156 @@ void main() {
         isNot(backupService.defaultFileName(manifestAt(5))),
       );
     });
+  });
+
+  // -------------------------------------------------------------------------
+  // P2-A (owner decision 2026-09-21, design D1) — the INDEPENDENT Event contact
+  // channel and the backup contract.
+  //
+  // A backup is table-level and column-INTERSECTED: a schema-49 file carries
+  // `calendar_events.contact_channel`, while a file written by a pre-49 install
+  // simply does not mention the column at all. Restoring that older file into
+  // schema 49 must leave the new column at its default — NULL — rather than
+  // inventing a Contact Type for a historical Event.
+  // -------------------------------------------------------------------------
+  group('the independent Event contact channel survives backup and restore', () {
+    Future<Object?> storedChannel(AppDatabase target) async {
+      final row = await target
+          .customSelect(
+            "SELECT contact_channel FROM calendar_events WHERE id='event-1'",
+          )
+          .getSingle();
+      return row.data['contact_channel'];
+    }
+
+    test(
+      'a schema-49 backup carries the channel and restores it exactly',
+      () async {
+        await database.customStatement(
+          "UPDATE calendar_events SET contact_channel = 'phone_call' "
+          "WHERE id = 'event-1'",
+        );
+        final bytes = await makeBackup();
+
+        // The channel is genuinely IN the file, not merely in memory.
+        final opened = await restoreService.open(bytes: bytes);
+        final events =
+            opened.payload.domains[BackupDomain.planner]!['calendar_events']!;
+        expect(events.columns, contains('contact_channel'));
+        final columnIndex = events.columns.indexOf('contact_channel');
+        expect(events.rows.single[columnIndex], 'phone_call');
+
+        for (final spec in BackupDomainRegistry.tables.reversed) {
+          await database.customStatement('DELETE FROM "${spec.table}"');
+        }
+        final result = await restoreService.apply(
+          backup: opened,
+          mode: BackupRestoreMode.replace,
+        );
+
+        expect(result.rolledBack, isFalse);
+        expect(await storedChannel(database), 'phone_call');
+      },
+    );
+
+    test(
+      'a schema-48 backup leaves contact_channel NULL, never inventing one',
+      () async {
+        // The live install DOES hold a channel, so an incorrectly preserved or
+        // invented value would be visible rather than hidden behind a default.
+        await database.customStatement(
+          "UPDATE calendar_events SET contact_channel = 'email' "
+          "WHERE id = 'event-1'",
+        );
+
+        final payload = await backupService.buildPayload(
+          profileId: 'profile-synthetic',
+        );
+        final planner = payload.domains[BackupDomain.planner]!;
+        final events = planner['calendar_events']!;
+        final channelIndex = events.columns.indexOf('contact_channel');
+        expect(
+          channelIndex,
+          isNonNegative,
+          reason: 'a schema-49 backup must carry the column',
+        );
+
+        // Rewrite the file exactly as a pre-49 producer would have written it:
+        // the column does not exist in it at all.
+        final legacyColumns = <String>[
+          for (final column in events.columns)
+            if (column != 'contact_channel') column,
+        ];
+        final legacyRows = <List<Object?>>[
+          for (final row in events.rows)
+            <Object?>[
+              for (var index = 0; index < row.length; index++)
+                if (index != channelIndex) row[index],
+            ],
+        ];
+        final domains = <BackupDomain, Map<String, BackupTableData>>{
+          ...payload.domains,
+          BackupDomain.planner: <String, BackupTableData>{
+            ...planner,
+            'calendar_events': BackupTableData(
+              table: 'calendar_events',
+              columns: legacyColumns,
+              rows: legacyRows,
+            ),
+          },
+        };
+        final content = BackupPayloadCodec.canonicalContentJson(
+          domains: domains,
+          exports: payload.exports,
+        );
+        final legacy = BackupPayload(
+          manifest: BackupManifest(
+            containerVersion: payload.manifest.containerVersion,
+            appVersion: payload.manifest.appVersion,
+            // A file made before the column existed.
+            schemaVersion: 48,
+            createdAtUtc: payload.manifest.createdAtUtc,
+            sourcePackage: payload.manifest.sourcePackage,
+            profileId: payload.manifest.profileId,
+            domains: payload.manifest.domains,
+            payloadSha256: BackupPayloadCodec.sha256Hex(content),
+          ),
+          domains: domains,
+          exports: payload.exports,
+        );
+
+        final opened = await restoreService.open(
+          bytes: backupService.encode(payload: legacy),
+        );
+        final result = await restoreService.apply(
+          backup: opened,
+          mode: BackupRestoreMode.replace,
+        );
+        expect(result.rolledBack, isFalse);
+
+        // The historical Event keeps every field it had and has no Contact Type.
+        final row = await database
+            .customSelect(
+              'SELECT contact_channel, title, start_minute, end_minute, '
+              'status, requires_report, activity_type_stable_key_snapshot '
+              "FROM calendar_events WHERE id='event-1'",
+            )
+            .getSingle();
+        expect(row.data['contact_channel'], equals(null));
+        expect(row.data['title'], 'Dinner');
+        expect(row.data['start_minute'], 1080);
+        expect(row.data['end_minute'], 1140);
+        expect(row.data['status'], 'scheduled');
+        expect(row.data['requires_report'], 0);
+        expect(row.data['activity_type_stable_key_snapshot'], 'planner_meal');
+        // And the exact read the form performs shows the honest unset state.
+        expect(
+          EventContactChannel.fromStableKey(
+            row.data['contact_channel'] as String?,
+          ),
+          equals(null),
+        );
+      },
+    );
   });
 }

@@ -155,6 +155,40 @@ void main() {
       }
       expect(tester.takeException(), isNull);
     });
+
+    testWidgets('P2-D: 24-hour time moved into Display, in owner order', (
+      tester,
+    ) async {
+      await pumpPlannerSettings(tester);
+
+      // Exactly ONE time-format control exists. The owner deleted the idea of a
+      // second "12-hour time" toggle: OFF of this single control IS 12-hour.
+      expect(find.byKey(const Key('use-24-hour-setting')), findsOneWidget);
+      expect(find.text('24-hour time'), findsOneWidget);
+
+      double top(Finder finder) => tester.getTopLeft(finder).dy;
+
+      final timelineHeader = find.text('Timeline');
+      final displayHeader = find.text('Display');
+      final tile = find.byKey(const Key('use-24-hour-setting'));
+      final snap = find.byKey(const Key('time-snap-setting'));
+      final initialScroll = find.byKey(const Key('initial-scroll-setting'));
+      final completed = find.byKey(const Key('show-completed-setting'));
+      final cancelled = find.byKey(const Key('show-cancelled-setting'));
+
+      // Section membership proved by layout order, not by string presence: the
+      // tile now sits BELOW the Timeline section's own controls...
+      expect(top(snap), lessThan(top(tile)));
+      expect(top(initialScroll), lessThan(top(tile)));
+      // ...and below the Display heading.
+      expect(top(timelineHeader), lessThan(top(displayHeader)));
+      expect(top(displayHeader), lessThan(top(tile)));
+
+      // Owner-mandated Display order:
+      // 1. 24-hour time  2. Show completed items  3. Show cancelled items
+      expect(top(tile), lessThan(top(completed)));
+      expect(top(completed), lessThan(top(cancelled)));
+    });
   });
 
   group('effective preference normalization', () {

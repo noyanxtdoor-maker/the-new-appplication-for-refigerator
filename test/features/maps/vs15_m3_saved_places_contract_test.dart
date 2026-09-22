@@ -36,7 +36,7 @@ void main() {
     ).readAsStringSync();
 
     expect(database, contains('class SavedPlaces extends Table'));
-    expect(database, contains('schemaVersion => _schemaVersionOverride ?? 48'));
+    expect(database, contains('schemaVersion => _schemaVersionOverride ?? 49'));
     expect(database, contains('markerMode'));
     expect(database, contains('markerColor'));
     expect(providers, contains('MapFocusOwnerKind.savedPlace'));

@@ -205,7 +205,7 @@ void main() {
             .getSingle();
         // The historical v36 source must upgrade through every additive step
         // to the current application schema.
-        expect(userVersion.read<int>('user_version'), 48);
+        expect(userVersion.read<int>('user_version'), 49);
 
         final tableCount = await versionThirtySeven
             .customSelect(

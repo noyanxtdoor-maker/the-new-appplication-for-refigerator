@@ -111,9 +111,9 @@ void main() {
         ),
         diagnostics: SanitizedDiagnostics(),
         startupRepository: startupRepository,
-          plannerRepository: plannerRepository,
-          calendarEventRepository: calendarRepository,
-          contactRepository: contacts,
+        plannerRepository: plannerRepository,
+        calendarEventRepository: calendarRepository,
+        contactRepository: contacts,
         plannerDateSource: const FixedPlannerDateSource(selected),
       ),
     );
@@ -135,9 +135,16 @@ void main() {
       tester.view.devicePixelRatio = 1;
       await tester.pump();
       expect(find.byKey(const Key('event-status-control')), findsOneWidget);
-      expect(find.byKey(const Key('event-preview-contact-$contactId')), findsOneWidget);
       expect(
-        tester.getSize(find.byKey(const Key('calendar-event-existing-detail-sheet'))).width,
+        find.byKey(const Key('event-preview-contact-$contactId')),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .getSize(
+              find.byKey(const Key('calendar-event-existing-detail-sheet')),
+            )
+            .width,
         lessThanOrEqualTo(width <= 720 ? width : 720),
       );
       expect(tester.takeException(), isNull);
@@ -159,7 +166,10 @@ void main() {
       expect(find.byKey(Key(key)), findsOneWidget);
     }
     expect(find.byKey(const Key('event-status-save')), findsNothing);
-    expect(find.byKey(const Key('event-preview-contact-$contactId')), findsOneWidget);
+    expect(
+      find.byKey(const Key('event-preview-contact-$contactId')),
+      findsOneWidget,
+    );
     expect(find.byType(ContactGroupDot), findsOneWidget);
     expect(
       find.byKey(const Key('event-detail-sheet-edit-icon')),
@@ -193,7 +203,14 @@ void main() {
     await tester.tap(find.byKey(const Key('event-detail-sheet-edit-icon')));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('calendar-event-form-scroll')), findsOneWidget);
-    expect(find.byKey(const Key('event-status-section')), findsNothing);
+    // P2-B (owner decision 2026-09-21) separates VISIBILITY from SUBMISSION
+    // ARMING: this occurrence has ENDED, so ordinary edit now renders Current
+    // Status under the owner's END-based rule.  Visibility is still not a
+    // reporting session — nothing is staged, and merely opening the editor
+    // writes no report.
+    expect(find.byKey(const Key('event-status-section')), findsOneWidget);
+    expect(find.byKey(const Key('event-status-save')), findsNothing);
+    expect(await database.select(database.outcomeReports).get(), isEmpty);
     expect(
       find.text('Notes: What do you need to remember about this?'),
       findsOneWidget,
@@ -284,7 +301,10 @@ void main() {
     await tester.tap(saveEvent);
     await tester.pumpAndSettle();
     expect(find.text('Completed'), findsOneWidget);
-    expect(find.byKey(const Key('event-status-option-scheduled')), findsOneWidget);
+    expect(
+      find.byKey(const Key('event-status-option-scheduled')),
+      findsOneWidget,
+    );
     expect(
       find.byKey(const Key('event-detail-sheet-edit-icon')),
       findsOneWidget,
@@ -429,7 +449,10 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('calendar-event-form-scroll')), findsOneWidget);
     expect(find.byKey(const Key('event-status-save')), findsNothing);
-    expect(find.byKey(const Key('event-status-option-scheduled')), findsOneWidget);
+    expect(
+      find.byKey(const Key('event-status-option-scheduled')),
+      findsOneWidget,
+    );
     for (final key in <String>[
       'event-status-option-didNotHappen',
       'event-status-option-partiallyCompleted',

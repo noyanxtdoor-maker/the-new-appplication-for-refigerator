@@ -117,13 +117,26 @@ final class PlannerDetailRow extends StatelessWidget {
 /// contact, Event Type, or reporting relationship for another domain.
 final class PlannerDetailField extends StatelessWidget {
   const PlannerDetailField({
-    required this.icon,
     required this.label,
     required this.value,
+    this.icon,
+    this.iconWidget,
     super.key,
-  });
+  }) : assert(
+         icon != null || iconWidget != null,
+         'PlannerDetailField needs an icon or an iconWidget',
+       );
 
-  final IconData icon;
+  /// The leading icon. Callers that need a visual which is not an [IconData]
+  /// (such as the P2 Contact Type channel glyph) pass [iconWidget] instead.
+  /// Exactly one of the two is required, and every existing caller is
+  /// unaffected because it keeps passing [icon].
+  final IconData? icon;
+
+  /// A leading visual that is not a plain [IconData]. Takes precedence over
+  /// [icon] when both are supplied.
+  final Widget? iconWidget;
+
   final String label;
   final String value;
 
@@ -134,7 +147,7 @@ final class PlannerDetailField extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Icon(icon, size: 20),
+          iconWidget ?? Icon(icon!, size: 20),
           const SizedBox(width: 10),
           Expanded(
             child: Column(

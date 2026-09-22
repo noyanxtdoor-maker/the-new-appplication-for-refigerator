@@ -793,8 +793,10 @@ void main() {
           // typed Detailed-notification columns to the existing
           // notification_preferences row (additive, boolean-only), and the
           // owner-authorized v48 then adds the Detailed Content master as one
-          // more additive boolean column on that same row.
-          48,
+          // more additive boolean column on that same row, and the
+          // owner-authorized P2-A v49 adds the nullable, unbackfilled
+          // `contact_channel` column to `calendar_events`.
+          49,
         );
         final taskColumns = await versionTen
             .customSelect('PRAGMA table_info(planner_tasks)')
@@ -955,7 +957,7 @@ void main() {
         // VS16 M7 advances to v47 with the five typed Detailed-notification
         // columns on the existing notification_preferences row, and the
         // owner-authorized v48 adds the Detailed Content master to that row.
-        expect(version.read<int>('user_version'), 48);
+        expect(version.read<int>('user_version'), 49);
         final taskColumns = await current
             .customSelect('PRAGMA table_info(planner_tasks)')
             .get();
@@ -1069,7 +1071,7 @@ void main() {
         expect(
           (await version33.customSelect('PRAGMA user_version').getSingle())
               .read<int>('user_version'),
-          48,
+          49,
         );
         await version33.close();
       } finally {
@@ -1132,7 +1134,7 @@ void main() {
         expect(
           (await version35.customSelect('PRAGMA user_version').getSingle())
               .read<int>('user_version'),
-          48,
+          49,
         );
         final columns = await version35
             .customSelect('PRAGMA table_info(saved_places)')
@@ -1318,7 +1320,7 @@ void main() {
         expect(
           (await version45.customSelect('PRAGMA user_version').getSingle())
               .read<int>('user_version'),
-          48,
+          49,
         );
         await version45.close();
       } finally {

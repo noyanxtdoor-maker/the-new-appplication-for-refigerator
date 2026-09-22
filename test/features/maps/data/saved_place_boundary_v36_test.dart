@@ -53,7 +53,7 @@ void main() {
         expect(
           (await version37.customSelect('PRAGMA user_version').getSingle())
               .read<int>('user_version'),
-          48,
+          49,
         );
         final columns = await version37
             .customSelect("PRAGMA table_info(saved_places)")

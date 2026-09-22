@@ -55,7 +55,8 @@ void main() {
         SystemEventTypeKeys.service,
       );
       // M7 reconciliation (2026-09-16): the frozen schema law was 47 (M6), and
-      // the owner-authorized Detailed Content master moved it to 48. This
+      // the owner-authorized Detailed Content master moved it to 48. The
+      // owner-authorized P2-A contact_channel column then moved it to 49. This
       // literal previously carried the retired v46. The database stays
       // consistent.
       expect(
@@ -63,7 +64,7 @@ void main() {
             .data
             .values
             .single,
-        48,
+        49,
       );
       expect(
         (await database.customSelect('PRAGMA integrity_check').getSingle())

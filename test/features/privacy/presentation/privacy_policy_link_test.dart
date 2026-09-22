@@ -57,7 +57,7 @@ void main() {
       expect(harness.permissionGateway.requestCount, 0);
 
       // Requirement: the schema is untouched by this correction.
-      expect(harness.repository.database.schemaVersion, 48);
+      expect(harness.repository.database.schemaVersion, 49);
 
       expect(tester.takeException(), isNull);
     },

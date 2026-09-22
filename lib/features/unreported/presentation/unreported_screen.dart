@@ -5,8 +5,10 @@ import 'package:rmplanner/app/theme/app_theme.dart';
 import 'package:rmplanner/app/theme/internal_screen.dart';
 import 'package:rmplanner/features/goals/application/goal_providers.dart';
 import 'package:rmplanner/features/goals/presentation/widgets/goal_icon.dart';
+import 'package:rmplanner/features/planner/domain/event_contact_channel.dart';
 import 'package:rmplanner/features/planner/domain/planner_day.dart';
 import 'package:rmplanner/features/planner/presentation/planner_event_open.dart';
+import 'package:rmplanner/features/planner/presentation/widgets/event_contact_channel_visuals.dart';
 import 'package:rmplanner/features/planner/presentation/widgets/planner_detail_primitives.dart';
 import 'package:rmplanner/features/planner/presentation/widgets/planner_event_report_status.dart';
 import 'package:rmplanner/features/planner/presentation/widgets/planner_report_status_icons.dart';
@@ -199,6 +201,9 @@ final class _UnreportedTimelineRow extends StatelessWidget {
         // bound to the Goal that occupies that slot, so it must render THAT
         // Goal's own icon rather than a generic one shared by every row.
         goalId: entry.linkedGoalId,
+        // The occurrence-effective Contact Type, so a Contact row draws its own
+        // channel visual instead of one generic Contact glyph for every row.
+        contactChannel: entry.event.contactChannel,
         item: item,
       ),
       timeLine: _timeLine(item),
@@ -271,11 +276,17 @@ final class _UnreportedCategoryMarker extends ConsumerWidget {
   const _UnreportedCategoryMarker({
     required this.tab,
     required this.goalId,
+    required this.contactChannel,
     required this.item,
   });
 
   final UnreportedTab tab;
   final String? goalId;
+
+  /// The Event's effective Contact Type for the Contacts tab. `null` means
+  /// "never stored", which presents as In Person — never as "Not set".
+  final EventContactChannel? contactChannel;
+
   final PlannerCalendarItem item;
 
   static const double size = 22;
@@ -301,11 +312,17 @@ final class _UnreportedCategoryMarker extends ConsumerWidget {
           size: size,
         );
       case UnreportedTab.contacts:
-        return Icon(
+        // Owner revision (2026-09-22): the marker follows the Event's effective
+        // Contact Type rather than drawing one generic glyph for every Contact
+        // Event. In Person — and a legacy NULL, which IS In Person — keeps the
+        // generic Contacts/People glyph this surface has always drawn, because
+        // the visual is the same one the Contacts surfaces use. The key stays on
+        // whichever widget is built, so the landmark is unchanged.
+        return eventContactChannelVisual(
           key: Key('unreported-contact-marker-${item.id}'),
-          Icons.people_outline,
-          size: size,
+          channel: contactChannel,
           color: Theme.of(context).colorScheme.primary,
+          size: size,
         );
     }
   }

@@ -37,12 +37,16 @@ void main() {
           (await v39.customSelect('PRAGMA user_version').getSingle()).read<int>(
             'user_version',
           ),
+          // P2-A (2026-09-21): the owner-authorized nullable `contact_channel`
+          // moved the frozen schema law from 48 to 49.
+          //
           // M7 reconciliation (2026-09-16): the LIVE frozen schema law was 47
           // (M3 projection, M4 contacts/maps, M6 starter-goal closure); the
-          // owner-authorized Detailed Content master moved it to 48. The
+          // owner-authorized Detailed Content master moved it to 48, and the
+          // owner-authorized P2-A contact channel moved it to 49. The
           // assertion is "the migration lands on the CURRENT schema", so the
           // historical literal 41 is superseded.
-          48,
+          49,
         );
         final names =
             (await v39
@@ -132,7 +136,7 @@ void main() {
       addTearDown(database.close);
       // M7 reconciliation (2026-09-16): frozen schema law was 47, not 41;
       // the owner-authorized Detailed Content master made it 48.
-      expect(database.schemaVersion, 48);
+      expect(database.schemaVersion, 49);
       expect(
         await database.select(database.notificationPreferences).get(),
         isEmpty,
@@ -187,8 +191,9 @@ void main() {
             'user_version',
           ),
           // M7 reconciliation (2026-09-16): frozen schema law was 47, not
-          // 41; the owner-authorized Detailed Content master made it 48.
-          48,
+          // 41; the owner-authorized Detailed Content master made it 48, and
+          // the owner-authorized P2-A contact channel made it 49.
+          49,
         );
         await v41.close();
       } finally {

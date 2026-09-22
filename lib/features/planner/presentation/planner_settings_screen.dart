@@ -178,15 +178,17 @@ final class PlannerSettingsScreen extends ConsumerWidget {
                           settings.copyWith(snapMinutes: value),
                         ),
                       ),
-                      SwitchListTile(
-                        key: const Key('use-24-hour-setting'),
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('24-hour time'),
-                        value: settings.use24HourTime,
-                        onChanged: (value) => controller.saveSettings(
-                          settings.copyWith(use24HourTime: value),
-                        ),
-                      ),
+                      // P2-D owner-review correction (2026-09-22): the relocated
+                      // "24-hour time" tile used to sit between these two
+                      // dropdowns, and its intrinsic tile height was the only
+                      // thing keeping them apart. Once it moved to Display the
+                      // two `InputDecorator` fields became directly adjacent, so
+                      // the lower field's floating "Open timeline at" label
+                      // collided with the upper field's bottom edge. Restoring
+                      // the file's own 12 dp rhythm (every other pair on this
+                      // screen already uses it) removes the overlap without
+                      // changing either setting.
+                      const SizedBox(height: 12),
                       DropdownButtonFormField<PlannerInitialScrollBehavior>(
                         key: const Key('initial-scroll-setting'),
                         initialValue: settings.initialScrollBehavior,
@@ -221,6 +223,22 @@ final class PlannerSettingsScreen extends ConsumerWidget {
                   _Section(
                     title: 'Display',
                     children: <Widget>[
+                      // P2-D owner decision (2026-09-21): the EXISTING
+                      // "24-hour time" preference moved here from the Timeline
+                      // section. It is the SAME preference with the same
+                      // persistence, formatter and default, and it is the only
+                      // time-format control — ON is 24-hour, OFF is 12-hour
+                      // AM/PM. Display order is deliberately: 24-hour time,
+                      // Show completed items, Show cancelled items.
+                      SwitchListTile(
+                        key: const Key('use-24-hour-setting'),
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('24-hour time'),
+                        value: settings.use24HourTime,
+                        onChanged: (value) => controller.saveSettings(
+                          settings.copyWith(use24HourTime: value),
+                        ),
+                      ),
                       // P1 owner correction (2026-09-21): the "Quick edit on
                       // timeline" toggle was removed. Long-press move, edge-drag
                       // resize, commit-on-release and Undo are KEPT as STANDARD

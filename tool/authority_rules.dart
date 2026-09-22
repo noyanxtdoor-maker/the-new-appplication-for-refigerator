@@ -76,13 +76,22 @@ const Map<String, Object?> lockedToolchainValues = <String, Object?>{
 };
 
 /// Frozen product law (M6): schema 47 through v0.1.1 build 3; schema 48 from
-/// the owner-authorized Detailed Content master pass (2026-09-19, item E).
+/// the owner-authorized Detailed Content master pass (2026-09-19, item E);
+/// schema 49 from the owner-authorized P2-A independent Event contact channel
+/// (2026-09-21, design D1).
 ///
 /// v48 is additive only: one boolean column on the existing
 /// `notification_preferences` row, defaulted TRUE, with the same idempotency
 /// guard v47 established.  No table, no column removal, no data rewrite, and no
-/// new permission.  Any other value is unauthorized.
-const int approvedSchemaVersion = 48;
+/// new permission.
+///
+/// v49 is additive only: ONE nullable text column (`contact_channel`) on the
+/// EXISTING `calendar_events` row, with NO default and NO backfill, so a legacy
+/// Event reads back as NULL rather than being handed an invented Contact Type.
+/// Same idempotency guard as v47/v48.  No new table, no column removal, no data
+/// rewrite, no dependency change and no new permission.  Any other value is
+/// unauthorized.
+const int approvedSchemaVersion = 49;
 
 /// The EXACT accepted Android permission set.
 ///

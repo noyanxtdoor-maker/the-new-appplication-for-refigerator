@@ -209,14 +209,18 @@ void main() {
       expect(checkPubspec(mutated), isNotEmpty);
     });
 
+    // P2-A (2026-09-21): the mutation anchor is derived from the authority
+    // constant rather than a hard-coded literal, so a future owner-authorized
+    // schema bump keeps these negative controls meaningful instead of silently
+    // becoming no-ops.
     test('the superseded schema 47 fails', () {
-      final mutated = schema.replaceFirst('?? 48', '?? 47');
+      final mutated = schema.replaceFirst('?? $approvedSchemaVersion', '?? 47');
 
       expect(checkSchemaBoundary(mutated), isNotEmpty);
     });
 
     test('the superseded schema 10 fails', () {
-      final mutated = schema.replaceFirst('?? 48', '?? 10');
+      final mutated = schema.replaceFirst('?? $approvedSchemaVersion', '?? 10');
 
       expect(checkSchemaBoundary(mutated), isNotEmpty);
     });

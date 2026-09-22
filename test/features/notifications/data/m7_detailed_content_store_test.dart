@@ -67,7 +67,7 @@ void main() {
       final row = await database
           .customSelect('PRAGMA user_version')
           .getSingle();
-      expect(row.read<int>('user_version'), 48);
+      expect(row.read<int>('user_version'), 49);
     });
 
     test('the five detailed columns exist exactly once', () async {

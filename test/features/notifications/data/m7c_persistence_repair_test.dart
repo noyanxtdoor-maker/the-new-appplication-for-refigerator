@@ -505,10 +505,10 @@ void main() {
           (await v47.customSelect('PRAGMA user_version').getSingle()).read<int>(
             'user_version',
           ),
-          48,
+          49,
           reason:
-              'the repaired schema must report the CURRENT schema (v48 since the '
-              'owner-authorized Detailed Content master)',
+              'the repaired schema must report the CURRENT schema (v49 since the '
+              'owner-authorized P2-A contact_channel column)',
         );
 
         final row = await (v47.select(
