@@ -44,8 +44,33 @@ jobs:
           "platforms;android-36"
           "build-tools;36.0.0"
 
+      # M-7 (2026-09-22): the lockfile blind spot. `flutter pub get` silently
+      # REWRITES a structurally valid but inconsistent `pubspec.lock`, so a
+      # tampered or deleted committed lockfile was quietly repaired here and the
+      # authority gate (which only asked whether the file existed) could never
+      # see it. Resolution is now ENFORCED against the committed lockfile and
+      # the working tree is asserted unchanged immediately afterwards.
+      #
+      # There is deliberately no ordinary `flutter pub get` fallback, no
+      # `git checkout`, no `git restore` and no regeneration: a moved lockfile
+      # must be a deliberate, human-reviewed diff in a dependency PR.
       - name: Resolve locked dependencies
-        run: flutter pub get
+        run: flutter pub get --enforce-lockfile
+
+      # A paired, non-mutating assertion. `git status --porcelain` is used
+      # rather than `git diff` because the M-7 audit proved `git diff` misses a
+      # committed lockfile DELETION (a path absent from the index is not
+      # compared), while `git status` reports it as `D` plus `??`.
+      - name: Verify the locked dependency resolution was not rewritten
+        run: |
+          set -euo pipefail
+          lock_state="$(git status --porcelain -- pubspec.lock)"
+          if [ -n "$lock_state" ]; then
+            echo "::error::pubspec.lock changed during enforced dependency resolution"
+            printf '%s\n' "$lock_state"
+            exit 1
+          fi
+          echo "pubspec.lock unchanged after enforced dependency resolution."
 
       - name: Verify approved authority and slice boundary
         run: dart run tool/verify_authority.dart
@@ -163,6 +188,21 @@ jobs:
           flutter pub deps --style=compact
           flutter pub outdated --no-dev-dependencies
 
+      # M-7 (2026-09-22): `flutter pub deps` is not inert — the M-7 audit
+      # proved it resolves dependencies and REPAIRS a tampered `pubspec.lock`
+      # on its own. The lockfile must therefore still be provably unchanged
+      # after the report step, not merely after resolution.
+      - name: Verify pubspec.lock survived the dependency resolution report
+        run: |
+          set -euo pipefail
+          lock_state="$(git status --porcelain -- pubspec.lock)"
+          if [ -n "$lock_state" ]; then
+            echo "::error::pubspec.lock changed during the dependency resolution report"
+            printf '%s\n' "$lock_state"
+            exit 1
+          fi
+          echo "pubspec.lock still unchanged after the dependency report."
+
       - name: VS-01 through VS-08 unit, repository, migration, and widget tests
         run: flutter test
 
@@ -208,7 +248,13 @@ jobs:
           dart run tool/verify_merged_artifact.dart
           --apk build/app/outputs/flutter-apk/app-debug.apk
 
+      # M-7 (2026-09-22): the configuration path is explicit so that deleting
+      # or malforming `.gitleaks.toml` cannot silently drop back to the default
+      # scanner, and so the owner-approved allowlist is demonstrably the one in
+      # force. The action version is intentionally NOT pinned here — action
+      # pinning is a separate governance decision outside this milestone.
       - name: Scan repository for secrets
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml

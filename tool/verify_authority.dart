@@ -117,9 +117,16 @@ Future<void> main() async {
   // directions from `test/tool/authority_gate_test.dart`.
   _expectRules(File('tool/toolchain.json'), checkToolchain, failures);
 
-  if (!File('pubspec.lock').existsSync()) {
-    failures.add('pubspec.lock is missing');
-  }
+  // M-7 (2026-09-22): existence was never the real question. The M-7 forensic
+  // audit proved that `flutter pub get` silently REWRITES a structurally valid
+  // but inconsistent `pubspec.lock`, that `flutter pub deps` repairs it too,
+  // and that an implicit `dart run` resolution regenerates a deleted one — so
+  // the old `existsSync()` branch was unreachable in normal CI ordering and, in
+  // any case, could not see a forbidden family hiding in the resolved graph.
+  // The lockfile CONTENT is now verified structurally. `_expectRules` still
+  // reports a missing file ('Required file is missing'), which preserves the
+  // original missing-file protection.
+  _expectRules(File('pubspec.lock'), checkLockfile, failures);
 
   if (failures.isNotEmpty) {
     stderr.writeln('Authority verification failed:');
