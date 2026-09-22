@@ -769,11 +769,22 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
     PlannerSettings settings,
   ) async {
     var filters = settings.contentFilters;
+    // OWNER LAW (2026-09-22): "Completed Events" in this menu is NOT a second
+    // content filter — it is the SAME persisted preference the Planner &
+    // Calendar Display section writes (`PlannerSettings.showCompletedItems`).
+    // Staging it here and writing it through the one settings save is what keeps
+    // the menu and the Settings screen from ever diverging.
+    var showCompletedEvents = settings.showCompletedItems;
     await showAnchoredTopBarPopup(
       context: context,
       triggerKey: _filterButtonKey,
       width: 300,
-      maxHeight: 380,
+      // Owner order (2026-09-22) added the fifth row (Completed Events), which
+      // pushed the Apply / Restore defaults footer out of sight at the old 380
+      // cap on a normal phone. The popup stays scrollable, but its cap now fits
+      // all five rows plus the footer so the buttons are reachable without
+      // scrolling.
+      maxHeight: 460,
       builder: (popupContext) {
         return StatefulBuilder(
           builder: (innerContext, setSheetState) {
@@ -798,6 +809,16 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
                     value: filters.events,
                     onChanged: (value) => setSheetState(
                       () => filters = filters.copyWith(events: value),
+                    ),
+                  ),
+                  // Owner order (2026-09-22): Events, Completed Events,
+                  // Backup Events, Tasks, Completed Tasks.
+                  CheckboxListTile(
+                    key: const Key('planner-filter-completed-events'),
+                    title: const Text('Completed Events'),
+                    value: showCompletedEvents,
+                    onChanged: (value) => setSheetState(
+                      () => showCompletedEvents = value ?? showCompletedEvents,
                     ),
                   ),
                   CheckboxListTile(
@@ -835,10 +856,15 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
                       children: <Widget>[
                         Flexible(
                           child: TextButton(
-                            onPressed: () => setSheetState(
-                              () => filters =
-                                  const PlannerContentFilters.defaults(),
-                            ),
+                            onPressed: () => setSheetState(() {
+                              filters = const PlannerContentFilters.defaults();
+                              // Restoring defaults restores the SHARED completed
+                              // preference too, so the two surfaces can never
+                              // end up describing different states.
+                              showCompletedEvents =
+                                  const PlannerSettings.defaults()
+                                      .showCompletedItems;
+                            }),
                             child: const Text(
                               'Restore defaults',
                               overflow: TextOverflow.ellipsis,
@@ -851,13 +877,18 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
                           onPressed: () async {
                             anchoredTopBarPopupController.dismiss();
                             if (!mounted ||
-                                filters == settings.contentFilters) {
+                                (filters == settings.contentFilters &&
+                                    showCompletedEvents ==
+                                        settings.showCompletedItems)) {
                               return;
                             }
                             await ref
                                 .read(eventTypeControllerProvider.notifier)
                                 .saveSettings(
-                                  settings.copyWith(contentFilters: filters),
+                                  settings.copyWith(
+                                    contentFilters: filters,
+                                    showCompletedItems: showCompletedEvents,
+                                  ),
                                 );
                           },
                           child: const Text('Apply'),

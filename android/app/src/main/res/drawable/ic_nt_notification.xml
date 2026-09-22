@@ -1,41 +1,42 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Next Transfer notification small icon — owner decision (2026-09-22).
+<!-- Next Transfer notification small icon — owner decision (2026-09-22), final.
 
-     WHY THIS REPLACED THE PREVIOUS ARTWORK.  The post-P2 audit proved the
-     reported green notification glyph was a COLOUR problem (no notification
-     colour and no theme colorAccent, so Android tinted the monochrome icon with
-     `@color/material_deep_teal_500` #ff008577 — fixed separately by passing an
-     explicit brand tint), but it also confirmed the old artwork could never read
-     cleanly at notification size: it was the full traced "hand + notebook"
-     illustration at 24dp, drawn as many thin outlined strokes that collapse into
-     a blob once the system scales them down and tints them.
+     WHY THIS ARTWORK.  Android's small-icon slot is a monochrome ALPHA MASK: the
+     system discards RGB, recolours the alpha with the notification tint and never
+     draws a background.  The owner reviewed the previous simplified notebook page
+     and rejected it twice over: the left glyph read as a generic document rather
+     than as Next Transfer, and the full-colour app logo that had been attached on
+     the right of the card (as `largeIcon`) was not wanted either.  The approved
+     Next Transfer mark is HANDS HANDING OFF THE PLANNER, so this redraw carries
+     that handover INSIDE the legal small-icon form: a tilted notebook page gripped
+     at its lower corners by two mirrored hands.
 
-     Android has one hard law for a small icon: it must be a monochrome,
-     white-on-transparent silhouette whose ALPHA is the shape.  The system
-     discards RGB, recolours the alpha with the notification tint, and never
-     draws a background.  So the mark must be a few SOLID shapes, not line art.
+     HOW IT IS BUILT.  Three solid white paths on a 24x24 viewport — no strokes, no
+     line art, no gradients, no groups and no transforms (every rotation is baked
+     into the coordinates, so nothing can drift at render time):
+       1. the page  — one path filled `evenOdd`, so the binding channel and the
+                      three writing lines are transparent CUT-OUTS of the same
+                      shape rather than extra tinted shapes;
+       2. the hands — one path each, filled `nonZero`, each a union of a palm, two
+                      staggered fingers and an angled thumb.  `nonZero` is what
+                      lets those four rounded parts MERGE into a single gesture
+                      while the outline keeps the finger notches that make a hand
+                      readable once the icon is downscaled and tinted.
+     The fingertips rise just past the page's lower edge on both sides: that small
+     overlap is what reads as a grip rather than as three separate objects.
 
-     This is the approved notebook mark REDUCED to its dominant element: one
-     rounded page with a binding margin (wider left margin than right, so it
-     reads as a notebook rather than a generic document) and three transparent
-     writing lines cut out of it.  Three shapes, no outlines, no thin ribbons.
+     SCALE AND INSET.  The mark occupies roughly x 2.9..21.0 and y 2.3..21.0, i.e.
+     a margin of two units or more on every side, so no platform mask and no OEM
+     circular backdrop can clip it.  Nothing thinner than ~0.9 units is used, so no
+     detail collapses into noise at status-bar size.
 
      RESOURCE CONTRACT — all deliberately unchanged:
        * the resource NAME stays `ic_nt_notification`, because the Dart plugin
-         resolves it by name at runtime;
-       * `res/raw/keep.xml` still lists `@drawable/ic_nt_notification`, which is
-         what stops the release resource shrinker from stripping a drawable that
-         nothing in the Android build references by name;
-       * 24dp x 24dp and a transparent background stay as they were.
-
-     SAFE INSET.  The page occupies x 5..19 and y 3..21 of the 24dp canvas: a
-     3-unit margin top/bottom and 5-unit margin left/right, with a 2-unit corner
-     radius.  The previous artwork used a 1.08 group scale that spent roughly
-     1dp of edge clearance; this version needs none, so no platform mask or OEM
-     circular backdrop can visually clip the mark.
-
-     The writing lines are transparent cut-outs via `fillType="evenOdd"`, which
-     is what keeps this ONE path and therefore ONE tinted silhouette. -->
+         resolves it by name at runtime and `res/raw/keep.xml` is what stops the
+         release resource shrinker from stripping it;
+       * 24dp x 24dp, transparent background, one monochrome white fill colour.
+     NO large icon is configured anywhere (owner decision, 2026-09-22): the card
+     shows the system small icon and the notification text only. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
@@ -44,5 +45,13 @@
   <path
       android:fillColor="#FFFFFFFF"
       android:fillType="evenOdd"
-      android:pathData="M7,3 H17 A2,2 0 0 1 19,5 V19 A2,2 0 0 1 17,21 H7 A2,2 0 0 1 5,19 V5 A2,2 0 0 1 7,3 Z M9,7.5 H15.5 V9.5 H9 Z M9,11 H15.5 V13 H9 Z M9,14.5 H13.5 V16.5 H9 Z" />
+      android:pathData="M8.86,2.80 L14.03,2.26 A1.60,1.60 0 0 1 15.79,3.68 L16.56,11.04 A1.60,1.60 0 0 1 15.14,12.80 L9.97,13.34 A1.60,1.60 0 0 1 8.21,11.92 L7.44,4.56 A1.60,1.60 0 0 1 8.86,2.80 Z M9.30,3.96 L9.30,3.96 A0.35,0.35 0 0 1 9.69,4.27 L10.47,11.73 A0.35,0.35 0 0 1 10.16,12.12 L10.16,12.12 A0.35,0.35 0 0 1 9.78,11.80 L8.99,4.35 A0.35,0.35 0 0 1 9.30,3.96 Z M11.25,5.01 L14.04,4.72 A0.50,0.50 0 0 1 14.59,5.16 L14.59,5.16 A0.50,0.50 0 0 1 14.14,5.71 L11.36,6.01 A0.50,0.50 0 0 1 10.81,5.56 L10.81,5.56 A0.50,0.50 0 0 1 11.25,5.01 Z M11.46,7.00 L14.25,6.71 A0.50,0.50 0 0 1 14.80,7.15 L14.80,7.15 A0.50,0.50 0 0 1 14.35,7.70 L11.57,8.00 A0.50,0.50 0 0 1 11.02,7.55 L11.02,7.55 A0.50,0.50 0 0 1 11.46,7.00 Z M11.82,8.98 L13.31,8.82 A0.50,0.50 0 0 1 13.86,9.26 L13.86,9.26 A0.50,0.50 0 0 1 13.42,9.81 L11.93,9.97 A0.50,0.50 0 0 1 11.38,9.52 L11.38,9.52 A0.50,0.50 0 0 1 11.82,8.98 Z" />
+  <path
+      android:fillColor="#FFFFFFFF"
+      android:fillType="nonZero"
+      android:pathData="M6.50,15.61 L8.54,16.89 A1.50,1.50 0 0 1 9.01,18.95 L8.17,20.31 A1.50,1.50 0 0 1 6.10,20.79 L4.06,19.51 A1.50,1.50 0 0 1 3.59,17.45 L4.43,16.09 A1.50,1.50 0 0 1 6.50,15.61 Z M8.36,12.53 L8.37,12.54 A0.92,0.92 0 0 1 8.66,13.80 L6.78,16.82 A0.92,0.92 0 0 1 5.51,17.12 L5.50,17.11 A0.92,0.92 0 0 1 5.21,15.84 L7.09,12.82 A0.92,0.92 0 0 1 8.36,12.53 Z M9.85,13.87 L9.86,13.88 A0.92,0.92 0 0 1 10.15,15.15 L8.26,18.16 A0.92,0.92 0 0 1 6.99,18.46 L6.99,18.45 A0.92,0.92 0 0 1 6.69,17.18 L8.58,14.16 A0.92,0.92 0 0 1 9.85,13.87 Z M3.51,14.30 L3.52,14.29 A0.97,0.97 0 0 1 4.80,14.78 L5.51,16.39 A0.97,0.97 0 0 1 5.02,17.67 L5.01,17.68 A0.97,0.97 0 0 1 3.73,17.19 L3.02,15.58 A0.97,0.97 0 0 1 3.51,14.30 Z" />
+  <path
+      android:fillColor="#FFFFFFFF"
+      android:fillType="nonZero"
+      android:pathData="M17.50,15.61 L15.46,16.89 A1.50,1.50 0 0 1 14.99,18.95 L15.83,20.31 A1.50,1.50 0 0 1 17.90,20.79 L19.94,19.51 A1.50,1.50 0 0 1 20.41,17.45 L19.57,16.09 A1.50,1.50 0 0 1 17.50,15.61 Z M15.64,12.53 L15.63,12.54 A0.92,0.92 0 0 1 15.34,13.80 L17.22,16.82 A0.92,0.92 0 0 1 18.49,17.12 L18.50,17.11 A0.92,0.92 0 0 1 18.79,15.84 L16.91,12.82 A0.92,0.92 0 0 1 15.64,12.53 Z M14.15,13.87 L14.14,13.88 A0.92,0.92 0 0 1 13.85,15.15 L15.74,18.16 A0.92,0.92 0 0 1 17.01,18.46 L17.01,18.45 A0.92,0.92 0 0 1 17.31,17.18 L15.42,14.16 A0.92,0.92 0 0 1 14.15,13.87 Z M20.49,14.30 L20.48,14.29 A0.97,0.97 0 0 1 19.20,14.78 L18.49,16.39 A0.97,0.97 0 0 1 18.98,17.67 L18.99,17.68 A0.97,0.97 0 0 1 20.27,17.19 L20.98,15.58 A0.97,0.97 0 0 1 20.49,14.30 Z" />
 </vector>

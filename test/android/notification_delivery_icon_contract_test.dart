@@ -30,6 +30,14 @@ import 'package:flutter_test/flutter_test.dart';
 /// These guards are regression protection for the two independent halves of the fix:
 /// the drawable must be KEPT in the release bundle, and every notification must NAME
 /// its icon instead of depending on the startup-registered default.
+///
+/// OWNER DECISION (2026-09-22, final notification-identity restoration) — the
+/// identity named on every path is now the app icon itself (`@mipmap/ic_launcher`),
+/// not the monochrome mark: the owner rejected the mark and asked for the actual
+/// app-icon presentation, and Android derives the card's identity from the small
+/// icon, so that input is the only lever. The monochrome mark stays maintained and
+/// kept as the documented one-constant revert, and the raw launcher raster
+/// (`ic_launcher_foreground`) stays banned as an icon input.
 void main() {
   final keepFile = File('android/app/src/main/res/raw/keep.xml');
   final gateway = File(
@@ -39,39 +47,64 @@ void main() {
     'lib/core/notifications/flutter_local_notifications_launcher_badge_gateway.dart',
   );
 
-  group(
-    'D28 the notification drawable survives the release resource shrinker',
-    () {
-      test('res/raw/keep.xml keeps @drawable/ic_nt_notification', () {
-        expect(
-          keepFile.existsSync(),
-          isTrue,
-          reason:
-              'Without this file the release build strips the drawable that the '
-              'plugin resolves by name at runtime, which is the delivery crash.',
-        );
-        final source = keepFile.readAsStringSync().replaceAll('\r\n', '\n');
-        expect(
-          source.contains('tools:keep="@drawable/ic_nt_notification"'),
-          isTrue,
-          reason: 'the exact drawable the gateway names must be kept',
-        );
-      });
-    },
-  );
+  group('D28 the notification drawable survives the release resource shrinker', () {
+    test('res/raw/keep.xml keeps @drawable/ic_nt_notification', () {
+      expect(
+        keepFile.existsSync(),
+        isTrue,
+        reason:
+            'Without this file the release build strips the drawable that the '
+            'plugin resolves by name at runtime, which is the delivery crash.',
+      );
+      final source = keepFile.readAsStringSync().replaceAll('\r\n', '\n');
+      // OWNER DECISION (2026-09-22, final restoration): the card's large icon
+      // stays removed, and the identity resolved by name at runtime is now the
+      // app icon, so the keep list carries exactly those two names.
+      expect(
+        source.contains(
+          'tools:keep="@drawable/ic_nt_notification,@mipmap/ic_launcher" />',
+        ),
+        isTrue,
+        reason:
+            'both runtime-resolved names must be kept: the icon actually sent '
+            'today and the monochrome revert',
+      );
+      // Asserted on the keep VALUE, not the prose: the comment above it
+      // explains why the launcher artwork is no longer listed.
+      expect(
+        RegExp(r'tools:keep="[^"]*ic_launcher_foreground').hasMatch(source),
+        isFalse,
+        reason:
+            'nothing resolves the launcher artwork by name at runtime any '
+            'more, so a stale keep entry would be dead configuration',
+      );
+    });
+  });
 
   group('D29 every notification names its icon explicitly', () {
-    test('the shared resource constant is a bare drawable name', () {
+    test('the shared identity constant is the canonical app-icon resource', () {
       final source = gateway.readAsStringSync().replaceAll('\r\n', '\n');
+      expect(
+        source.contains(
+          "const String ntNotificationAppIconResource = '@mipmap/ic_launcher';",
+        ),
+        isTrue,
+        reason:
+            'OWNER DECISION (2026-09-22, final restoration): the notification '
+            'identity is the app icon. The plugin passes this string to '
+            'getResourceIdentifier(name, "drawable", package), and a '
+            'TYPE-PREFIXED name is what lets the launcher mipmap resolve out of '
+            'that drawable-type lookup — the plugin documents this exact value '
+            'for this purpose.',
+      );
       expect(
         source.contains(
           "const String ntNotificationIconResource = 'ic_nt_notification';",
         ),
         isTrue,
         reason:
-            'The plugin passes this string straight to '
-            'getResourceIdentifier(name, "drawable", package), so it must be the '
-            'bare resource name — no @drawable/ prefix and no slash.',
+            'the Android-compliant monochrome mark stays maintained as the '
+            'documented one-constant revert',
       );
     });
 
@@ -79,7 +112,7 @@ void main() {
       final source = gateway.readAsStringSync().replaceAll('\r\n', '\n');
       expect(
         _count(source, 'AndroidNotificationDetails('),
-        _count(source, 'icon: ntNotificationIconResource'),
+        _count(source, 'icon: ntNotificationAppIconResource,'),
         reason:
             'Every AndroidNotificationDetails must name its icon, so a missing '
             'startup default can never take the process down again.',
@@ -91,21 +124,24 @@ void main() {
       final source = badgeGateway.readAsStringSync().replaceAll('\r\n', '\n');
       expect(
         _count(source, 'AndroidNotificationDetails('),
-        _count(source, 'icon: ntNotificationIconResource'),
+        _count(source, 'icon: ntNotificationAppIconResource,'),
       );
       expect(_count(source, 'AndroidNotificationDetails('), greaterThan(0));
     });
 
-    test('the initialization still registers the same drawable by name', () {
+    test('the initialization registers the SAME identity as every send', () {
       final source = gateway.readAsStringSync().replaceAll('\r\n', '\n');
       expect(
         source.contains(
-          "AndroidInitializationSettings('@drawable/ic_nt_notification')",
+          'AndroidInitializationSettings(ntNotificationAppIconResource)',
         ),
         isTrue,
+        reason:
+            'the registered default and the per-send icon must be one resource, '
+            'or a scheduled reminder would carry a different identity from the '
+            'cards around it',
       );
-      // The full-color launcher icon must never be the notification small icon.
-      expect(source.contains('mipmap'), isFalse);
+      expect(source.contains('AndroidInitializationSettings('), isTrue);
     });
   });
 
@@ -156,6 +192,98 @@ void main() {
       expectTinted(
         badgeGateway.readAsStringSync().replaceAll('\r\n', '\n'),
         'the launcher-badge gateway',
+      );
+    });
+
+    //
+    // OWNER DECISION (2026-09-22, final restoration) — the identity lives in the
+    // SMALL icon only, and it is the app icon itself. The owner rejected the
+    // full-colour logo on the right of the card (`largeIcon`, still banned here)
+    // and then rejected the redrawn monochrome glyphs, asking for the actual
+    // app-icon presentation. So: no notification sets a large icon, and every
+    // path names the canonical launcher icon resource.
+    test('no notification sets a largeIcon any more', () {
+      for (final (label, file) in <(String, File)>[
+        ('the reminder/transient gateway', gateway),
+        ('the launcher-badge gateway', badgeGateway),
+      ]) {
+        final source = file.readAsStringSync().replaceAll('\r\n', '\n');
+        expect(
+          _count(source, 'largeIcon:'),
+          0,
+          reason:
+              'the owner asked for the logo to be REMOVED from the card, so no '
+              'AndroidNotificationDetails in $label may set a large icon',
+        );
+        expect(
+          source.contains('ntNotificationLargeIconResource'),
+          isFalse,
+          reason:
+              'the shared large-icon constant must be gone with the feature, so '
+              'it cannot be re-wired by accident',
+        );
+      }
+    });
+
+    test('the raw launcher raster is never an icon input', () {
+      for (final (label, file) in <(String, File)>[
+        ('the reminder/transient gateway', gateway),
+        ('the launcher-badge gateway', badgeGateway),
+      ]) {
+        final source = file.readAsStringSync();
+        expect(
+          source.contains('ic_launcher_foreground'),
+          isFalse,
+          reason:
+              'the identity is the canonical launcher ICON resource (the '
+              'adaptive mipmap), never the raw foreground raster: $label must not '
+              'name a bitmap that decodes to an unmasked square',
+        );
+        expect(
+          source.contains('ntNotificationAppIconResource'),
+          isTrue,
+          reason: '$label must name the one shared identity constant',
+        );
+      }
+    });
+
+    test('the app icon is the one icon input on every path', () {
+      final source = gateway.readAsStringSync().replaceAll('\r\n', '\n');
+      expect(
+        _count(source, 'icon: ntNotificationAppIconResource,'),
+        _count(source, 'AndroidNotificationDetails('),
+        reason:
+            'every AndroidNotificationDetails must name the same identity, so '
+            'no card can drift back to the rejected mark on its own',
+      );
+      // The raw raster must never be named in the icon slot.
+      expect(source.contains("icon: 'ic_launcher_foreground'"), isFalse);
+      expect(
+        source.contains(
+          'AndroidInitializationSettings(ntNotificationAppIconResource)',
+        ),
+        isTrue,
+      );
+    });
+
+    test('the release shrinker keeps every runtime-resolved name', () {
+      final source = keepFile.readAsStringSync().replaceAll('\r\n', '\n');
+      expect(
+        source.contains(
+          'tools:keep="@drawable/ic_nt_notification,@mipmap/ic_launcher" />',
+        ),
+        isTrue,
+        reason:
+            'the icon the app sends today and the monochrome revert are both '
+            'resolved by name from Dart, so both must survive the shrinker',
+      );
+      expect(
+        RegExp(r'tools:keep="[^"]*ic_launcher_foreground').hasMatch(source),
+        isFalse,
+        reason:
+            'the large-icon entry must be gone with the feature: a release '
+            'build should not keep an asset for a notification field nothing '
+            'sets any more',
       );
     });
 

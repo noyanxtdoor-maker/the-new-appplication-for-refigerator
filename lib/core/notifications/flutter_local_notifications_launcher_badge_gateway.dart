@@ -61,8 +61,13 @@ final class FlutterLocalNotificationsLauncherBadgeGateway
           channelId,
           'App status',
           channelDescription: 'Actionable Next Transfer item count.',
-          // HOTFIX: never depend on the startup-registered default icon.
-          icon: ntNotificationIconResource,
+          // NEVER depend on the startup-registered default icon: every path names
+          // the SAME identity, which is the canonical app icon (see
+          // [ntNotificationAppIconResource]).
+          icon: ntNotificationAppIconResource,
+          // NO large icon (owner decision, 2026-09-22): the identity comes from
+          // the notification icon itself — the app icon resource named above —
+          // not from a full-colour logo beside the text.
           // Owner decision (2026-09-22): the same explicit brand tint as the
           // reminder and transient paths, so no notification surface falls back
           // to the platform accent (the green-glyph defect).

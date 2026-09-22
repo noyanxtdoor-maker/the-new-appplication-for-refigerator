@@ -16,10 +16,20 @@
   icon is never persisted, and every reminder alarm then crashes the process inside
   `FlutterLocalNotificationsPlugin.setSmallIcon`, because the fallback path unboxes a
   null `iconResourceId`.  The reminder never appears and the app disappears from the
-  foreground — the reported "app closes itself at the reminder time".
+  foreground — the reported "app closes itself at the reminder time".  `tools:keep` is the documented AGP mechanism for a resource that is only
+  resolved by name at runtime.  It keeps exactly this one drawable; nothing else
+  changes.
 
-  `tools:keep` is the documented AGP mechanism for a resource that is only resolved
-  by name at runtime.  It keeps exactly this one drawable; nothing else changes.
+  OWNER DECISION (2026-09-22, final) — the notification LARGE icon was removed
+  again, so `@drawable/ic_launcher_foreground` is NOT resolved by name at
+  runtime any more and is deliberately not listed here: its only remaining
+  reference is the adaptive launcher icon in the Android resources themselves,
+  which the shrinker already honours.  This list keeps exactly the one drawable
+  that is still named from Dart.  It now lists BOTH names this app resolves at
+  runtime: the canonical app-icon resource that carries the notification identity
+  today (`@mipmap/ic_launcher`, which the plugin's own documentation tells you to
+  keep here when it is used as the notification icon) and the Android-compliant
+  monochrome mark that remains the documented one-constant revert.
 -->
 <resources xmlns:tools="http://schemas.android.com/tools"
-    tools:keep="@drawable/ic_nt_notification" />
+    tools:keep="@drawable/ic_nt_notification,@mipmap/ic_launcher" />
