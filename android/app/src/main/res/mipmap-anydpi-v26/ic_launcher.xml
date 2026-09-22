@@ -3,7 +3,19 @@
      foreground bleeds across the whole 108dp viewport, so the platform mask
      (circle, squircle, rounded square) decides the final icon shape rather
      than the asset canvas.  AndroidManifest.xml keeps pointing at
-     @mipmap/ic_launcher, which resolves here on API 26+. -->
+     @mipmap/ic_launcher, which resolves here on API 26+.
+
+     P3-M0 (owner ticket 2026-09-22): the foreground rasters were rebuilt from
+     the OWNER-SUPPLIED app logo, which is now the canonical app identity:
+       C:\Users\sherl\Documents\Next Transfer\Marketing\Marketing0.1\Logo.png
+       sha256 84fda53783f6b5e2139eb94df4f970979af9d7553110ac70fb404df97fa0b169
+     Each bucket is that 1254x1254 artwork resampled with Lanczos into the
+     existing conventions (drawable-<density>/ic_launcher_foreground.png is RGB
+     108dp: 108/162/216/324/432px; mipmap-<density>/ic_launcher.png is 48/72/96/
+     144/192px), so no new resource type and no density variant was invented.
+     The artwork itself keeps the whole mark inside the 66.7% adaptive safe
+     zone: its furthest ink sits 30.4% of the canvas from the centre, inside the
+     33.3% safe-circle radius, so a circular OEM mask cannot clip the hands. -->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@drawable/ic_launcher_background" />
     <foreground android:drawable="@drawable/ic_launcher_foreground" />

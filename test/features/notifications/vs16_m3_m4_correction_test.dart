@@ -1,7 +1,7 @@
 // VS16 M3/M4 owner-review correction — focused contract tests.
 //
 // Covers the bounded correction pass:
-//  G1 notification identity: the app icon resource + the kept monochrome revert
+//  G1 notification identity: the owner-supplied mark (P3-M0)
 //  G2 Event detailed notification content (title/displayTitle + From-To body)
 //  G3/G4 planner-first OPEN routing reusing the shared preview presenters
 //  G5 dynamic inherited reminder row wording
@@ -21,25 +21,26 @@ void main() {
     late String gatewaySource;
 
     setUpAll(() {
+      // Comments stripped: the drawable's own header discusses the `<group>` it
+      // uses, and element counts over the raw text would count that prose as
+      // markup.
       drawable = File(
         'android/app/src/main/res/drawable/ic_nt_notification.xml',
-      ).readAsStringSync();
+      ).readAsStringSync().replaceAll(RegExp(r'<!--.*?-->', dotAll: true), '');
       gatewaySource = File(
         'lib/core/notifications/flutter_local_notifications_gateway.dart',
       ).readAsStringSync();
     });
 
     //
-    // OWNER DECISION (2026-09-22, final): the artwork was REDRAWN as the handoff
-    // mark, so the previous "single simplified page path" assertions are
-    // deliberately superseded. The RESOURCE CONTRACT did not change: same name,
-    // same 24dp size, same transparent background, still purely monochrome white
-    // fills that Android tints. The mark is now three monochrome paths — the
-    // page (`evenOdd`, with its binding channel and writing lines as cut-outs)
-    // and the two mirrored hands (`nonZero` unions of palm, fingers and thumb).
-    // The detailed silhouette laws live in test/android/notification_icon_test.
-    // dart; this case guards the contract every other layer depends on.
-    test('approved VectorDrawable exists as a monochrome handoff mark', () {
+    // OWNER DECISION (2026-09-22, P3-M0): the artwork IS the owner-supplied
+    // vector mark, converted mechanically. The RESOURCE CONTRACT never changed
+    // across any round: same name, same 24dp size, same transparent background,
+    // still purely monochrome white fills that Android tints. What changed is
+    // that the eight payloads are now the supplied asset's own, verified
+    // byte-for-byte in test/android/notification_icon_test.dart; this case guards
+    // the shape of the resource every other layer depends on.
+    test('approved VectorDrawable is the owner mark, monochrome at 24dp', () {
       expect(drawable, contains('<vector'));
       expect(drawable, contains('android:viewportWidth="24"'));
       expect(drawable, contains('android:viewportHeight="24"'));
@@ -47,34 +48,43 @@ void main() {
       expect(drawable, contains('android:height="24dp"'));
       // Monochrome only: every fill is the same opaque white, which is the one
       // form Android accepts for a small icon (it recolours the alpha).
-      expect('android:fillColor'.allMatches(drawable).length, 3);
-      expect('android:fillColor="#FFFFFFFF"'.allMatches(drawable).length, 3);
-      // The page's writing lines and binding channel are cut-outs, and the hands
-      // merge their parts with non-zero fill: both laws must survive.
-      expect(drawable, contains('android:fillType="evenOdd"'));
-      expect(drawable, contains('android:fillType="nonZero"'));
-      expect(RegExp(r'<path\b').allMatches(drawable).length, 3);
+      expect('android:fillColor'.allMatches(drawable).length, 8);
+      expect('android:fillColor="#FFFFFFFF"'.allMatches(drawable).length, 8);
+      // The supplied vector relies on the default non-zero fill, so no fillType
+      // override may be introduced: that would be a restyling of the asset.
+      expect(drawable.contains('android:fillType'), isFalse);
+      expect(RegExp(r'<path\b').allMatches(drawable).length, 8);
+      // One uniform fit plus the eight original SVG translation groups.
+      expect(RegExp(r'<group\b').allMatches(drawable).length, 9);
+      expect(
+        RegExp(r'android:rotation|android:pivotX').hasMatch(drawable),
+        isFalse,
+      );
     });
 
     //
-    // OWNER DECISION (2026-09-22, final restoration): the notification identity is
-    // now the canonical app icon, so this case asserts the SUPERSEDING law — one
-    // identity, registered and sent from one shared constant — while the
-    // monochrome drawable asserted above stays maintained as the documented revert.
-    test('gateway initializes the notification identity from the app icon', () {
-      expect(
-        gatewaySource,
-        contains(
-          'AndroidInitializationSettings(ntNotificationAppIconResource)',
-        ),
-      );
-      expect(
-        gatewaySource,
-        contains(
-          "const String ntNotificationAppIconResource = '@mipmap/ic_launcher';",
-        ),
-      );
-    });
+    // OWNER DECISION (2026-09-22, P3-M0): one identity, registered and sent from
+    // one shared constant — the owner-supplied mark. The launcher-resource value
+    // from the previous round is gone, not merely unused.
+    test(
+      'gateway initializes the notification identity from the owner mark',
+      () {
+        expect(
+          gatewaySource,
+          contains('AndroidInitializationSettings(ntNotificationIconResource)'),
+        );
+        expect(
+          gatewaySource,
+          contains(
+            "const String ntNotificationIconResource = 'ic_nt_notification';",
+          ),
+        );
+        expect(
+          gatewaySource.contains('ntNotificationAppIconResource'),
+          isFalse,
+        );
+      },
+    );
   });
 
   group('G2 — Event detailed notification content', () {

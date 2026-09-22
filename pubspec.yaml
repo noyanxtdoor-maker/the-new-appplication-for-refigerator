@@ -51,6 +51,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/branding/next_transfer_splash.png
+    - assets/branding/next_transfer_notification_mark.svg
     - assets/icons/goals/
     - assets/icons/filter-svgrepo-com.svg
     - assets/icons/contacts/standard_filters/

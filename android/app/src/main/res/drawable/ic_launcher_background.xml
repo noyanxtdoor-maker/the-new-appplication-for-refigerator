@@ -2,11 +2,18 @@
 <!-- M5: adaptive launcher icon background.  A vertical gradient taken from the
      approved icon asset's own outer-margin colours, so any region a platform
      mask exposes stays continuous with the foreground artwork instead of
-     showing a flat seam.  Icon-only resource; it is not used by the splash. -->
+     showing a flat seam.  Icon-only resource; it is not used by the splash.
+
+     P3-M0 (owner ticket 2026-09-22): the endpoints were re-sampled from the
+     new canonical app-logo artwork, because the previous pair belonged to the
+     earlier icon asset and no longer matched the foreground.  #FF002C66 is the
+     supplied PNG's own top-centre margin colour and #FF011A45 its
+     bottom-centre margin colour.  The foreground is full-bleed and opaque, so
+     this gradient is only the seam-guard for an OEM mask that exposes canvas. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
     <gradient
         android:angle="270"
-        android:startColor="#FF0250BF"
-        android:endColor="#FF013997" />
+        android:startColor="#FF002C66"
+        android:endColor="#FF011A45" />
 </shape>

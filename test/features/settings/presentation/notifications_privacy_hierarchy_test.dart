@@ -33,9 +33,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:rmplanner/core/background/background_work_gateway.dart';
 import 'package:rmplanner/core/diagnostics/sanitized_diagnostics.dart';
+import 'package:rmplanner/core/notifications/flutter_local_notifications_gateway.dart';
 import 'package:rmplanner/core/notifications/notification_gateway.dart';
 import 'package:rmplanner/core/notifications/notification_payload.dart';
 import 'package:rmplanner/core/notifications/notification_preview_policy.dart';
@@ -508,6 +510,100 @@ void main() {
         expect(detailed.title, contains('Dentist'));
       },
     );
+
+    //
+    // P3-M0 OWNER DECISION (2026-09-22) — the preview shows the notification's
+    // IDENTITY, not just its text.
+    //
+    // The mark is the OWNER-SUPPLIED vector, the same artwork the Android
+    // drawable is converted from (asserted byte-for-byte in
+    // test/android/notification_icon_test.dart), so the card the user reads here
+    // cannot show a different identity from the one the shade posts. It is
+    // deliberately the monochrome SMALL icon's identity and not the app logo: the
+    // full-colour logo on the right of the card was removed by owner decision and
+    // the app logo belongs to the launcher icon.
+    //
+    // The colour is presentation-only and brightness-aware: the brand navy the
+    // real small icon is tinted with in light mode, and the app's light brand blue
+    // in dark mode, where that navy would be a near-invisible fill.
+    group('P3-M0 the preview shows the notification identity', () {
+      const String markAsset =
+          'assets/branding/next_transfer_notification_mark.svg';
+
+      Future<void> pumpThemed(
+        WidgetTester tester,
+        Brightness brightness,
+      ) async {
+        await buildContainer();
+        tester.view.physicalSize = const Size(431, 1600);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp(
+              theme: ThemeData(brightness: brightness),
+              home: const NotificationsSettingsScreen(),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+      }
+
+      SvgPicture previewMark(WidgetTester tester) {
+        final marks = find.descendant(
+          of: find.byKey(const Key('notifications-detailed-preview')),
+          matching: find.byType(SvgPicture),
+        );
+        expect(
+          marks,
+          findsOneWidget,
+          reason:
+              'the preview must render the notification identity, not text alone',
+        );
+        return tester.widget<SvgPicture>(marks);
+      }
+
+      testWidgets(
+        'the preview renders the owner-supplied mark, tinted in light',
+        (tester) async {
+          await pumpThemed(tester, Brightness.light);
+          await scrollTo(tester, const Key('notifications-detailed-preview'));
+          final mark = previewMark(tester);
+          expect(
+            mark.bytesLoader,
+            isA<SvgAssetLoader>(),
+            reason: 'the mark must be loaded from an in-repo vector asset',
+          );
+          expect((mark.bytesLoader as SvgAssetLoader).assetName, markAsset);
+          expect(
+            mark.colorFilter,
+            ColorFilter.mode(ntNotificationTint, BlendMode.srcIn),
+            reason:
+                'light mode uses the exact colour Android tints the real small '
+                'icon with, so the preview shows the same brand field as the shade',
+          );
+        },
+      );
+
+      testWidgets('dark mode keeps the mark visible on the dark card', (
+        tester,
+      ) async {
+        await pumpThemed(tester, Brightness.dark);
+        await scrollTo(tester, const Key('notifications-detailed-preview'));
+        final mark = previewMark(tester);
+        expect((mark.bytesLoader as SvgAssetLoader).assetName, markAsset);
+        // The brand navy is a near-invisible fill on the dark card surface, so the
+        // dark presentation uses the app's light brand blue. This is the one place
+        // the value is stated twice; it is asserted so a future edit cannot drop
+        // the brightness branch and ship an invisible mark.
+        expect(
+          mark.colorFilter,
+          ColorFilter.mode(const Color(0xFF7EA6D9), BlendMode.srcIn),
+        );
+      });
+    });
 
     test("the card's mode is the canonical resolver's own answer", () {
       // The card no longer re-derives the privacy condition: it is handed

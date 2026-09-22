@@ -2,8 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:rmplanner/app/theme/app_theme.dart';
 import 'package:rmplanner/app/theme/internal_screen.dart';
+import 'package:rmplanner/core/notifications/flutter_local_notifications_gateway.dart';
 import 'package:rmplanner/core/notifications/notification_preview_policy.dart';
 import 'package:rmplanner/features/notifications/application/detailed_content_providers.dart';
 import 'package:rmplanner/features/notifications/application/notification_providers.dart';
@@ -676,6 +678,43 @@ final class _DetailedPreview extends StatelessWidget {
 
   final DetailedContentPreferences options;
 
+  /// OWNER DECISION (2026-09-22, P3-M0) — the preview shows the notification's
+  /// IDENTITY, not just its text.
+  ///
+  /// The mark is rendered from the SAME owner-supplied vector the Android
+  /// drawable is generated from, so the card the user reads here and the card the
+  /// shade posts cannot drift apart: `assets/branding/
+  /// next_transfer_notification_mark.svg` is the asset
+  /// `android/app/src/main/res/drawable/ic_nt_notification.xml` is converted from,
+  /// and the icon tests assert the two carry identical path payloads.
+  ///
+  /// It is the small icon's identity, deliberately NOT the full-colour app logo:
+  /// the owner removed the large logo from the notification card, and the app logo
+  /// belongs to the launcher icon. No stored value, Android resource or delivery
+  /// input is involved — this is the preview surface only.
+  static const String markAsset =
+      'assets/branding/next_transfer_notification_mark.svg';
+
+  /// The identity mark's optical size inside the preview card, matched to the
+  /// card's text scale rather than to 24dp: the mark is a wide silhouette and
+  /// reads larger than its box at a literal notification size.
+  static const double markSize = 22;
+
+  /// The colour the preview mark is painted with.
+  ///
+  /// LIGHT: approved brand navy ([ntNotificationTint]) for the in-app preview.
+  /// The system notification leaves color unset; XOS controls its decoration.
+  ///
+  /// DARK: that navy is a near-invisible fill on the dark card surface, so the
+  /// mark uses the app's light brand blue instead. This follows the established
+  /// brightness-aware convention in [AppTheme] (dark returns a literal, light
+  /// resolves a semantic token) and is PRESENTATION ONLY — no stored value, no
+  /// `@color/nt_brand_blue` and no notification resource changes with the theme.
+  static Color markTintOf(BuildContext context) =>
+      Theme.of(context).brightness == Brightness.dark
+      ? const Color(0xFF7EA6D9)
+      : ntNotificationTint;
+
   @override
   Widget build(BuildContext context) {
     final reminder = buildNotificationPreview(
@@ -696,12 +735,39 @@ final class _DetailedPreview extends StatelessWidget {
       ),
       child: Padding(
         padding: const EdgeInsets.all(12),
-        child: Column(
+        child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            Text(reminder.title, style: Theme.of(context).textTheme.titleSmall),
-            const SizedBox(height: 4),
-            Text(reminder.body, style: Theme.of(context).textTheme.bodyMedium),
+            SvgPicture.asset(
+              markAsset,
+              width: markSize,
+              height: markSize,
+              fit: BoxFit.contain,
+              // The card's own text carries the semantics; the artwork must not
+              // add a second node (the NavigationDestination convention).
+              excludeFromSemantics: true,
+              colorFilter: ColorFilter.mode(
+                markTintOf(context),
+                BlendMode.srcIn,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    reminder.title,
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    reminder.body,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),

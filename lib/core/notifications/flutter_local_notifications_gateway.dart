@@ -11,77 +11,11 @@ import 'package:rmplanner/features/notifications/application/reminder_background
 import 'package:timezone/timezone.dart' as tz;
 import 'package:workmanager/workmanager.dart';
 
-/// OWNER DECISION (2026-09-22, final notification-identity restoration) — the
-/// notification's identity IS the app icon.
-///
-/// WHY THIS REPLACED THE MONOCHROME MARK.  The owner's correction was explicit:
-/// stop redrawing the small icon and restore the actual app-icon presentation, so
-/// the identity on the left of the card reads as Next Transfer. The audit that
-/// preceded this change is on the record too, because it explains what "restore"
-/// can and cannot mean here: every shipped Next Transfer build — nine artifacts
-/// from 2026-09-08 to 2026-09-22, debug/profile/AAB, reading both AOT snapshots and
-/// debug kernel blobs — passed `@drawable/ic_nt_notification`, a custom monochrome
-/// white vector. The app icon was NEVER the notification icon, so no historical
-/// setting can be restored. What IS true is the mechanism: Android derives the
-/// notification card's identity from the notification's small icon (drawn through
-/// the icon's ALPHA channel), so that input is the only lever, and a white mark can
-/// never read as the app icon however it is drawn.
-///
-/// `@mipmap/ic_launcher` is the canonical app-icon resource — the adaptive launcher
-/// icon the home screen shows — and is the plugin's own documented value for this
-/// purpose, used against the official monochrome guidance deliberately, on the
-/// owner's direct device evidence, as the owner-review ticket directs:
-/// "It is possible to use launcher icon/mipmap ... can be passed
-/// `AndroidInitializationSettings` constructor. However, the official Android
-/// guidance is that you should use drawable resources." (flutter_local_notifications
-/// 22.3.0 README). It resolves through the same
-/// `getIdentifier(name, "drawable", package)` lookup the plugin uses for every
-/// icon, because the name is TYPE-PREFIXED.
-///
-/// TRADE-OFF ON THE RECORD: this artwork is opaque, so the STATUS BAR draws its
-/// silhouette — a filled shape rather than a thin glyph. The shade, which is the
-/// surface the owner judges, draws the brand artwork itself.
-///
-/// REVERT: [ntNotificationIconResource] below is the Android-compliant monochrome
-/// mark. It stays maintained, stays kept by `res/raw/keep.xml`, and stays guarded
-/// by tests, so reverting is this constant plus the initialization value beside it.
-const String ntNotificationAppIconResource = '@mipmap/ic_launcher';
-
-/// The Android-compliant monochrome notification small icon, kept as the
-/// documented fallback (owner decision, 2026-09-22 — see
-/// [ntNotificationAppIconResource]).
-///
-/// WHY ANY ICON MUST BE NAMED EXPLICITLY.  The plugin resolves an icon by NAME at
-/// runtime, so every `AndroidNotificationDetails` this app builds names its icon
-/// instead of relying on the default registered by `initialize()`.
-///
-/// That reliance was the HOTFIX defect (2026-09-19): if `initialize()`
-/// does not persist a default icon (which is what happened in release builds, where
-/// the drawable was stripped as unreferenced), then the plugin's
-/// `setSmallIcon` fallback unboxes a null `iconResourceId` and **crashes the whole
-/// process** when a scheduled reminder alarm fires. Naming the icon per send keeps
-/// every notification path on the resolved-resource branch, so a missing default can
-/// never take the process down again. `res/raw/keep.xml` keeps every resource this
-/// app resolves by name.
+/// Owner SVG converted with its eight source translations preserved.
+/// Every send names this resource; keep.xml protects runtime lookup from shrinking.
 const String ntNotificationIconResource = 'ic_nt_notification';
 
-/// The ONE derivation of the notification tint (post-P2 owner decision,
-/// 2026-09-22).
-///
-/// The audit proved the reported green notification glyph was a COLOUR
-/// problem, not a debug artefact: nothing supplied a notification colour and no
-/// `colorAccent`/`colorPrimary` is declared in any Android theme, so Android
-/// tinted the monochrome small icon with the platform/AppCompat fallback —
-/// `@color/material_deep_teal_500` (#ff008577) in light mode, which the shipped
-/// profile APK still resolves. That is the green the owner saw.
-///
-/// The approved brand field is the same #FF002161 the launch window and the
-/// adaptive launcher icon background already use (`nt_brand_blue`). Setting it
-/// explicitly means the tint no longer depends on which theme the process
-/// happens to resolve, or on the OEM presenter's defaults.
-///
-/// `colorized: false` keeps the icon itself untinted artwork and lets Android
-/// apply the colour the canonical way for the small icon.
+/// Brand navy for the in-app preview. Posted notifications leave color unset.
 const Color ntNotificationTint = Color(0xFF002161);
 
 final class FlutterLocalNotificationsGateway
@@ -109,12 +43,12 @@ final class FlutterLocalNotificationsGateway
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
     await _plugin.initialize(
       settings: const InitializationSettings(
-        // OWNER DECISION (2026-09-22, final restoration): the notification
-        // identity is the app icon itself — see [ntNotificationAppIconResource]
-        // for the audit trail and the trade-off. The value registered here and the
-        // per-send `icon:` must stay the SAME resource, or a scheduled reminder
-        // would carry a different identity from the cards around it.
-        android: AndroidInitializationSettings(ntNotificationAppIconResource),
+        // OWNER DECISION (2026-09-22, P3-M0): the notification identity is the
+        // owner-supplied mark — see [ntNotificationIconResource] for the source
+        // and the history. The value registered here and the per-send `icon:` must
+        // stay the SAME resource, or a scheduled reminder would carry a different
+        // identity from the cards around it.
+        android: AndroidInitializationSettings(ntNotificationIconResource),
       ),
       onDidReceiveBackgroundNotificationResponse: nextTransferReminderAction,
       onDidReceiveNotificationResponse: (response) {
@@ -237,30 +171,24 @@ final class FlutterLocalNotificationsGateway
   // shows — including the M7 source-title amendment.  This is presentation
   // only: channel identity, importance, permissions, platform IDs, transport
   // ownership and scheduling semantics are all untouched.
-  NotificationDetails _detailsFor(LocalNotificationRequest request) =>
-      NotificationDetails(
-        android: AndroidNotificationDetails(
-          request.channel.id,
-          request.channel.label,
-          channelDescription: request.channel.description,
-          // NEVER depend on the startup-registered default icon: name the
-          // identity explicitly on every path (see
-          // [ntNotificationAppIconResource]).
-          icon: ntNotificationAppIconResource,
-          // NO large icon (owner decision, 2026-09-22): the owner judged the
-          // full-colour logo on the right of the card unwanted, so the card
-          // carries the notification identity and the text only — and that
-          // identity is now the app icon itself, named above.
-          // Owner decision (2026-09-22): an explicit brand tint instead of the
-          // platform accent fallback that produced the green glyph.
-          color: ntNotificationTint,
-          colorized: false,
-          styleInformation: BigTextStyleInformation(
-            request.body,
-            contentTitle: request.title,
-          ),
-        ),
-      );
+  NotificationDetails _detailsFor(
+    LocalNotificationRequest request,
+  ) => NotificationDetails(
+    android: AndroidNotificationDetails(
+      request.channel.id,
+      request.channel.label,
+      channelDescription: request.channel.description,
+      // NEVER depend on the startup-registered default icon: name the
+      // identity explicitly on every path (see [ntNotificationIconResource]).
+      icon: ntNotificationIconResource,
+      // No custom right-side logo (owner correction, 2026-09-22).
+      colorized: false,
+      styleInformation: BigTextStyleInformation(
+        request.body,
+        contentTitle: request.title,
+      ),
+    ),
+  );
 
   // OWNER correction #3. This is NOT a reminder transport: no payload, no
   // action buttons, no schedule, no WorkManager tag, and never a place in the
@@ -285,15 +213,9 @@ final class FlutterLocalNotificationsGateway
           transientNotificationsChannelLabel,
           channelDescription: transientNotificationsChannelDescription,
           // NEVER depend on the startup-registered default icon: name the
-          // identity explicitly on every path (see
-          // [ntNotificationAppIconResource]).
-          icon: ntNotificationAppIconResource,
-          // No large icon here either (owner decision, 2026-09-22): one
-          // identity across every surface, and it is the small icon's — now the
-          // canonical app icon resource named above.
-          // Same explicit brand tint as the reminder path (owner decision
-          // 2026-09-22): one notification identity across the whole app.
-          color: ntNotificationTint,
+          // identity explicitly on every path (see [ntNotificationIconResource]).
+          icon: ntNotificationIconResource,
+          // No custom right-side logo (owner correction, 2026-09-22).
           colorized: false,
           importance: Importance.low,
           priority: Priority.low,
