@@ -783,12 +783,22 @@ final class CalendarEventDraft {
     }
     final start = startMinute;
     final end = endMinute;
+    // P3 OVERNIGHT LAW (2026-09-22): an end above 1440 is the canonical
+    // NEXT-DAY offset, so an Event may run past midnight and keep its duration
+    // instead of being clipped or split.  The encoding is exactly the one the
+    // repository already resolves — `CalendarEventTimeZones.wallTimeToUtc`
+    // builds a `TZDateTime` from `minuteOfDay ~/ 60`, and 1500 normalizes to
+    // 01:00 the following day — and no stored row can be affected by widening
+    // it, because the form rejected a same-day end before the start and so no
+    // Event could previously cross midnight except at the 1440 boundary.
+    // `end <= start` still rejects a broken interval: with the offset applied a
+    // genuinely later end is always the larger number.
     if (start == null ||
         end == null ||
         start < 0 ||
         start > 1439 ||
         end < 1 ||
-        end > 1440 ||
+        end > 2880 ||
         end <= start) {
       throw const CalendarEventValidationException(
         'Timed events need a valid end time after the start time.',
@@ -1171,7 +1181,12 @@ String calendarEventStatusLabel(
 }) {
   return switch (status) {
     CalendarEventStatus.scheduled => 'Unreported',
-    CalendarEventStatus.completedHappened => 'Completed',
+    // Owner law (2026-09-22): a CONTACT Event's successful outcome reads
+    // 'Contacted'. This is PRESENTATION ONLY — the canonical stored value is
+    // still `completed`, so persistence, reports, filters and history are
+    // untouched; an ordinary Event keeps 'Completed'.
+    CalendarEventStatus.completedHappened =>
+      isContactEvent ? 'Contacted' : 'Completed',
     // NX-03: the user-facing partial outcome is 'Missed' for Contact and
     // generic Events alike; the stored MISSED_ATTEMPTED value is internal.
     CalendarEventStatus.partiallyCompleted => 'Missed',
@@ -1187,9 +1202,11 @@ String calendarEventOutcomeLabel({
 }) {
   return switch (status) {
     CalendarEventStatus.scheduled => 'Unreported',
-    // Planner Polish Delta 2 final matrix: the success state reads
-    // 'Completed' for BOTH Contact and generic Events.
-    CalendarEventStatus.completedHappened => 'Completed',
+    // Owner law (2026-09-22): the success state reads 'Contacted' for CONTACT
+    // Events and 'Completed' for ordinary Events. The stored canonical value
+    // stays `completed` on both; only the label differs.
+    CalendarEventStatus.completedHappened =>
+      isContactEvent ? 'Contacted' : 'Completed',
     // NX-03: the internal partial outcome stores as MISSED_ATTEMPTED; the
     // user-facing label is 'Missed' for Contact and generic Events alike.
     // Storage never changes, so historical reports stay readable.

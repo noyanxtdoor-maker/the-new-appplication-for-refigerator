@@ -596,12 +596,46 @@ abstract final class PlannerTimelineLayout {
 /// minute 0 (which would render as a zero-height block at the top of the
 /// canvas).  A valid timed Event always ends after it starts, so a midnight
 /// end is unambiguous even for a full-day Event from 00:00 to 24:00.
+///
+/// P3 OVERNIGHT LAW (2026-09-22): an end that falls on a LATER calendar day
+/// returns its minute plus 1440 per crossed day, so a 90-minute Event starting
+/// at 11:30 PM reports 1500 rather than 60.  Before P3 this case was
+/// unreachable — the form rejected a same-day end earlier than the start, so no
+/// stored Event could cross midnight except at the 24:00 boundary — which is
+/// why widening it here cannot change any existing row's arithmetic.  The
+/// value is the canonical next-day offset the repository already understands:
+/// `CalendarEventTimeZones.wallTimeToUtc` builds a `TZDateTime` from
+/// `minuteOfDay ~/ 60` hours, and 1500 normalizes to 01:00 the following day, so
+/// the stored `endUtc` and the preserved duration are both exact.
 int plannerEndMinuteOfDay(DateTime start, DateTime end) {
   final endMinute = end.hour * 60 + end.minute;
   if (endMinute == 0 && end.isAfter(start)) {
     return 1440;
   }
-  return endMinute;
+  final crossedDays = _plannerCrossedCalendarDays(start, end);
+  return crossedDays == 0 ? endMinute : endMinute + 1440 * crossedDays;
+}
+
+/// Whole calendar days [end] sits after [start], comparing the two wall-clock
+/// dates only.  Both instants are display-wall values, so this is a date
+/// comparison rather than a duration comparison and it stays correct across a
+/// DST transition.
+int _plannerCrossedCalendarDays(DateTime start, DateTime end) {
+  final startDay = DateTime(start.year, start.month, start.day);
+  final endDay = DateTime(end.year, end.month, end.day);
+  return endDay.difference(startDay).inDays;
+}
+
+/// The END minute a SINGLE-DAY canvas can actually paint.
+///
+/// The Planner's timeline is one day tall, so an Event that crosses midnight
+/// (minute > 1440 from [plannerEndMinuteOfDay]) is clamped to the 24:00
+/// boundary for LAYOUT and painting.  Persistence, the form, duration
+/// arithmetic and drag math keep using the unclamped value; only the geometry
+/// seam uses this, so an overnight Event renders as a full-length block that
+/// reaches the end of its column instead of a negative-height one.
+int plannerRenderEndMinuteOfDay(DateTime start, DateTime end) {
+  return plannerEndMinuteOfDay(start, end).clamp(0, 1440).toInt();
 }
 
 int snapPlannerMinute(int minute, int snapMinutes) {

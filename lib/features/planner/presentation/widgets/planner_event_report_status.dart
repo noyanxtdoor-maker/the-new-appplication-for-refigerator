@@ -81,7 +81,10 @@ abstract final class PlannerEventReportStatus {
   /// resolves darker readable semantic equivalents so the muted amber/
   /// coral/green never wash out on the Light surface.  The display disc
   /// colors ([colorFor]) are unchanged for block badges.
-  static Color labelColorFor(BuildContext context, PlannerReportStatusKind kind) {
+  static Color labelColorFor(
+    BuildContext context,
+    PlannerReportStatusKind kind,
+  ) {
     if (Theme.of(context).brightness == Brightness.dark) {
       return colorFor(kind);
     }
@@ -105,11 +108,13 @@ abstract final class PlannerEventReportStatus {
       PlannerReportStatusKind.didNotAttempt => 'Did Not Attempt',
       // NX-03: the user-facing label for the partial outcome is 'Missed' for
       // Contact and generic Events alike (the stored MISSED_ATTEMPTED value
-      // stays internal, so history is untouched).  The completed outcome is
-      // 'Completed' for BOTH Contact and generic Events (Delta 2 final
-      // status matrix); there is no separate 'Contacted' label.
+      // stays internal, so history is untouched).  Owner law (2026-09-22):
+      // the completed outcome now reads 'Contacted' for CONTACT Events and
+      // 'Completed' for ordinary Events — presentation only, the canonical
+      // stored status is still `completed`.
       PlannerReportStatusKind.missedAttempted => 'Missed',
-      PlannerReportStatusKind.completed => 'Completed',
+      PlannerReportStatusKind.completed =>
+        isContactEvent ? 'Contacted' : 'Completed',
       PlannerReportStatusKind.backup => 'Backup Appointment',
       PlannerReportStatusKind.linked => 'Linked Tasks',
     };

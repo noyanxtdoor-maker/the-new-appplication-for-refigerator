@@ -39,9 +39,11 @@ import 'package:rmplanner/features/planner/domain/event_type.dart';
 import 'package:rmplanner/features/planner/domain/event_type_creation_choice.dart';
 import 'package:rmplanner/features/planner/domain/outcome_reporting.dart';
 import 'package:rmplanner/features/planner/domain/planner_date.dart';
+import 'package:rmplanner/features/planner/domain/planner_schedule_session.dart';
 import 'package:rmplanner/features/planner/domain/task_event_link.dart';
 import 'package:rmplanner/features/planner/presentation/calendar_event_custom_repeat_screen.dart';
 import 'package:rmplanner/features/planner/presentation/event_type_picker_dialog.dart';
+import 'package:rmplanner/features/planner/presentation/planner_schedule_session_screen.dart';
 import 'package:rmplanner/features/planner/presentation/widgets/event_contact_channel_visuals.dart';
 import 'package:rmplanner/features/planner/presentation/widgets/event_current_status_controls.dart';
 import 'package:rmplanner/features/planner/presentation/widgets/planner_slide_down_date_picker.dart';
@@ -263,6 +265,21 @@ final class _CalendarEventFormScreenState
   bool _ordinaryEditOccurrenceEligible = false;
   TimeOfDay _localStart = const TimeOfDay(hour: 9, minute: 0);
   TimeOfDay _localEnd = const TimeOfDay(hour: 10, minute: 0);
+
+  /// P3 OVERNIGHT LAW (2026-09-22): true when this draft's END falls on the DAY
+  /// AFTER [_date].
+  ///
+  /// A cross-midnight Event is preserved rather than clipped, shortened or
+  /// split: the draft keeps the next-day offset and the stored `endMinute`
+  /// carries it as the canonical offset above 1440, which the repository's own
+  /// `wallTimeToUtc` already resolves to the following day.  A same-day draft is
+  /// byte-identical to before P3 because this flag stays false.
+  bool _endsNextDay = false;
+
+  /// P3 one-level Undo for `Set Time to Now`: the schedule exactly as it stood
+  /// when the action was first pressed.  Null means there is nothing to undo,
+  /// which is also what every manual schedule edit restores it to.
+  _ScheduleTimeSnapshot? _nowUndoSnapshot;
   bool _requiresReport = false;
   ReminderPolicyMode _reminderMode = ReminderPolicyMode.inherit;
   int? _reminderOffsetMinutes;
@@ -1158,15 +1175,20 @@ final class _CalendarEventFormScreenState
     _start = startWall == null
         ? _timeFromMinute(draft.startMinute ?? 9 * 60)
         : TimeOfDay.fromDateTime(startWall);
+    // P3 OVERNIGHT LAW: a stored end minute above 1440 is the canonical
+    // next-day offset, so its CLOCK time is the remainder of that minute and the
+    // draft records that it ends the following day.  The accepted 1440 boundary
+    // (a final-hour 11 PM-12 AM slot, displayed as 12:00 AM and saved back as
+    // 1440) keeps its exact meaning, and a same-day Event is untouched.
+    final storedEndMinute = draft.endMinute ?? 10 * 60;
     _end = endWall == null
-        // A stored 24:00 end (final-hour 11 PM-12 AM slot) displays as
-        // 12:00 AM; it is saved back as minute 1440 via [_endMinuteOfDay].
-        ? _timeFromMinute(
-            (draft.endMinute ?? 10 * 60) == 1440
-                ? 0
-                : draft.endMinute ?? 10 * 60,
-          )
+        ? _timeFromMinute(storedEndMinute % 1440)
         : TimeOfDay.fromDateTime(endWall);
+    _endsNextDay = startWall != null && endWall != null
+        // The repository derives BOTH instants from the Event's own date, so an
+        // end landing on a later calendar day is precisely a next-day end.
+        ? _isLaterCalendarDay(startWall, endWall)
+        : storedEndMinute > 1440;
     _durationWasEntered = true;
     _requiresReport = draft.requiresReport;
     _loadedEventTypeStableKey =
@@ -1412,6 +1434,23 @@ final class _CalendarEventFormScreenState
                         onSelected: _setEventDate,
                       ),
                     ),
+                    // P3 owner-review correction (2026-09-22): this action
+                    // sits BETWEEN the Date field and the Time fields,
+                    // left-aligned, as a small plain action link — never a
+                    // filled button and never a pill.
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton(
+                        key: const Key('event-set-time-to-now'),
+                        style: _scheduleActionLinkStyle(),
+                        onPressed: _nowUndoSnapshot == null
+                            ? _setTimeToNow
+                            : _undoSetTimeToNow,
+                        child: Text(
+                          _nowUndoSnapshot == null ? 'Set Time to Now' : 'Undo',
+                        ),
+                      ),
+                    ),
                     if (_timing == CalendarEventTiming.timed) ...<Widget>[
                       const SizedBox(height: 8),
                       Row(
@@ -1441,6 +1480,18 @@ final class _CalendarEventFormScreenState
                           ),
                         ],
                       ),
+                      // P3 OVERNIGHT LAW: an Event that crosses midnight says so
+                      // in words, so "11:30 PM - 1:00 AM" can never be misread as
+                      // a same-day interval with a negative duration.
+                      if (_endsNextDay)
+                        Padding(
+                          key: const Key('event-ends-next-day'),
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Text(
+                            'Ends the next day',
+                            style: AppTypography.secondary,
+                          ),
+                        ),
                       const SizedBox(height: 12),
                       ListTile(
                         key: const Key('event-reminder-policy'),
@@ -1456,6 +1507,25 @@ final class _CalendarEventFormScreenState
                         child: Text(
                           'All day event',
                           style: AppTypography.secondary,
+                        ),
+                      ),
+                    // P3 owner-review correction (2026-09-22): the Planner
+                    // action is for EDITING an existing Event — it sits BELOW
+                    // the Time fields, right-aligned, as the same small plain
+                    // action link.  A brand-new Event is never offered it: the
+                    // Planner's own provisional-draft creation flow already owns
+                    // new-Event scheduling, so the action is withheld there and
+                    // no second draft can appear.
+                    if (widget.mode != CalendarEventFormMode.create)
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton(
+                          key: const Key('event-schedule-from-planner'),
+                          style: _scheduleActionLinkStyle(),
+                          onPressed: () {
+                            unawaited(_openScheduleSession());
+                          },
+                          child: const Text('Reschedule from Planner'),
                         ),
                       ),
                     const SizedBox(height: 16),
@@ -3176,6 +3246,8 @@ final class _CalendarEventFormScreenState
   void _setEventDate(PlannerDate value) {
     setState(() {
       _date = value;
+      // A manual schedule edit clears the one-level `Set Time to Now` Undo.
+      _nowUndoSnapshot = null;
       if (_frequency != CalendarRecurrenceFrequency.none &&
           !_legacyRecurrenceEndControls &&
           !_recurrenceEndDateCustomized) {
@@ -3291,7 +3363,10 @@ final class _CalendarEventFormScreenState
       _start = value;
       if (endMinute < startMinute + 15) {
         _end = _timeFromMinute((startMinute + 15).clamp(1, 1439));
+        _endsNextDay = false;
       }
+      // A manual schedule edit clears the one-level `Set Time to Now` Undo.
+      _nowUndoSnapshot = null;
     });
   }
 
@@ -3303,11 +3378,20 @@ final class _CalendarEventFormScreenState
     // the Event never collapses or disappears.
     final isMidnightEnd =
         value.hour == 0 && value.minute == 0 && startMinute > 0;
-    final resolvedEnd = isMidnightEnd ? 1440 : value.hour * 60 + value.minute;
+    final localEndMinute = value.hour * 60 + value.minute;
+    // P3 OVERNIGHT LAW: an Event that already ends on the next day keeps that
+    // offset when its end time is edited, so re-picking 1:00 AM on a
+    // 11:30 PM Event preserves the 90-minute duration instead of collapsing the
+    // interval to a same-day one that would then fail validation.
+    final keepsNextDay = _endsNextDay || isMidnightEnd;
+    final absoluteEnd = keepsNextDay ? localEndMinute + 1440 : localEndMinute;
+    final resolvedEnd = absoluteEnd < startMinute + 15
+        ? startMinute + 15
+        : absoluteEnd;
     setState(() {
-      _end = resolvedEnd < startMinute + 15
-          ? _timeFromMinute((startMinute + 15).clamp(1, 1439))
-          : value;
+      _nowUndoSnapshot = null;
+      _endsNextDay = keepsNextDay && localEndMinute != 0;
+      _end = _timeFromMinute(resolvedEnd % 1440);
       _durationWasEntered = true;
     });
   }
@@ -3320,10 +3404,170 @@ final class _CalendarEventFormScreenState
   int get _endMinuteOfDay {
     final startMinute = _start.hour * 60 + _start.minute;
     final endMinute = _end.hour * 60 + _end.minute;
+    // P3: an explicit next-day end keeps its day offset, so 1:00 AM the
+    // following morning is 1500 rather than 60.  A next-day 12:00 AM resolves to
+    // the same 1440 boundary the same-day rule below would produce.
+    if (_endsNextDay) {
+      return endMinute + 1440;
+    }
     if (endMinute == 0 && startMinute > 0) {
       return 1440;
     }
     return endMinute;
+  }
+
+  /// Whole calendar days [end] sits after [start].  Both are display-wall
+  /// instants, so this compares dates rather than elapsed time and stays
+  /// correct across a DST transition.
+  static bool _isLaterCalendarDay(DateTime start, DateTime end) {
+    final startDay = DateTime(start.year, start.month, start.day);
+    final endDay = DateTime(end.year, end.month, end.day);
+    return endDay.isAfter(startDay);
+  }
+
+  /// The canonical DEFAULT EVENT DURATION for a new timed Event: the Planner's
+  /// configured default, falling back to the selected Event Type's own default
+  /// and finally to the shipped default that [PlannerSettings.defaults] seeds.
+  int _defaultEventDurationMinutes() {
+    final configured = ref
+        .read(eventTypeControllerProvider)
+        .settings
+        .defaultDurationMinutes;
+    if (configured > 0) {
+      return configured;
+    }
+    final typeDefault = _selectedEventType?.defaultDurationMinutes;
+    if (typeDefault != null && typeDefault > 0) {
+      return typeDefault;
+    }
+    return 30;
+  }
+
+  /// P3 owner-review correction (2026-09-22) — the ONE small action-link style
+  /// both direct schedule actions use.
+  ///
+  /// The owner's positional reference is plain text in the app's smallest
+  /// action scale, so this is a flat `TextButton` in the existing theme
+  /// foreground: no filled surface, no pill, no circle, no custom colour.
+  ButtonStyle _scheduleActionLinkStyle() {
+    return TextButton.styleFrom(
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      minimumSize: const Size(0, 30),
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      visualDensity: VisualDensity.compact,
+      textStyle: AppTypography.micro.copyWith(fontWeight: FontWeight.w600),
+    );
+  }
+
+  /// P3 (2026-09-22) — `Set Time to Now`.
+  ///
+  /// It is a DRAFT action: it snapshots the current schedule for one-level
+  /// Undo, then moves the start to the current local minute, preserving the
+  /// Event's duration even when that carries the end past midnight.  A date-only
+  /// draft becomes timed using the canonical default duration.  Nothing is
+  /// persisted, no report is submitted, and recurrence identity is untouched —
+  /// the ordinary form Save remains the only writer.
+  void _setTimeToNow() {
+    final now = DateTime.now();
+    // Minute precision, exactly as the rest of Event scheduling.
+    final nowMinute = now.hour * 60 + now.minute;
+    final isTimed = _timing == CalendarEventTiming.timed;
+    final previousStart = _start.hour * 60 + _start.minute;
+    final duration = isTimed
+        ? _endMinuteOfDay - previousStart
+        : _defaultEventDurationMinutes();
+    final snapshot = _ScheduleTimeSnapshot(
+      date: _date,
+      timing: _timing,
+      start: _start,
+      end: _end,
+      endsNextDay: _endsNextDay,
+      durationWasEntered: _durationWasEntered,
+    );
+    final absoluteEnd = nowMinute + (duration > 0 ? duration : 30);
+    setState(() {
+      // ONE level: a second press never overwrites the original schedule, so
+      // Undo always returns to the state the owner left before the first press.
+      _nowUndoSnapshot ??= snapshot;
+      _timing = CalendarEventTiming.timed;
+      _date = PlannerDate.fromDateTime(now);
+      _start = _timeFromMinute(nowMinute);
+      _end = _timeFromMinute(absoluteEnd % 1440);
+      // A midnight end of 1440 stays the accepted same-day boundary; only a
+      // genuinely later clock time becomes a next-day end.
+      _endsNextDay = absoluteEnd > 1440;
+      _durationWasEntered = true;
+    });
+  }
+
+  /// Restores the exact pre-`Set Time to Now` schedule, including a date-only
+  /// draft's timing and its honest all-day presentation.
+  void _undoSetTimeToNow() {
+    final snapshot = _nowUndoSnapshot;
+    if (snapshot == null) {
+      return;
+    }
+    setState(() {
+      _date = snapshot.date;
+      _timing = snapshot.timing;
+      _start = snapshot.start;
+      _end = snapshot.end;
+      _endsNextDay = snapshot.endsNextDay;
+      _durationWasEntered = snapshot.durationWasEntered;
+      _nowUndoSnapshot = null;
+    });
+  }
+
+  /// P3 (2026-09-22) — opens the Planner's temporary scheduling session.
+  ///
+  /// The form stays open beneath it and keeps ownership of the draft.  The
+  /// session returns a schedule only; a Cancel (or Android back) returns null
+  /// and leaves every field exactly as it was.
+  ///
+  /// Owner-review correction: the action is offered for an EXISTING Event only,
+  /// so the session always stands in for a saved occurrence and suppresses it —
+  /// exactly one target block is ever on the timeline.
+  Future<void> _openScheduleSession() async {
+    final isTimed = _timing == CalendarEventTiming.timed;
+    final startMinute = _start.hour * 60 + _start.minute;
+    final endMinute = isTimed
+        ? _endMinuteOfDay
+        : startMinute + _defaultEventDurationMinutes();
+    final label = _formTypeDisplayLabel();
+    final title = _titleController.text.trim();
+    final session = PlannerScheduleSession(
+      id: ref.read(plannerIdentifierSourceProvider).nextUuid(),
+      date: _date,
+      startMinute: startMinute,
+      endMinute: endMinute,
+      title: title.isEmpty ? label : title,
+      eventTypeId: _selectedEventType?.id,
+      eventTypeLabel: label,
+      eventTypeColorValue: _selectedEventType?.colorValue,
+      // Only an Event that already exists has an occurrence to stand in for.
+      suppressedEventId: widget.mode == CalendarEventFormMode.create
+          ? null
+          : widget.eventId ?? _draftId,
+      suppressedOriginalDate: widget.mode == CalendarEventFormMode.create
+          ? null
+          : widget.originalDate ?? _date,
+    );
+    final result = await openPlannerScheduleSession(context, ref, session);
+    if (result == null || !mounted) {
+      return;
+    }
+    setState(() {
+      _date = result.date;
+      _timing = CalendarEventTiming.timed;
+      _start = _timeFromMinute(result.startMinute);
+      _end = _timeFromMinute(result.endMinute % 1440);
+      _endsNextDay = result.endMinute > 1440;
+      _durationWasEntered = true;
+      // Confirming a new schedule is a manual schedule edit: it clears the
+      // one-level Undo snapshot rather than leaving a stale pre-Now schedule
+      // behind for the user to trip over.
+      _nowUndoSnapshot = null;
+    });
   }
 
   static int _snapMinute(int minute) {
@@ -3665,4 +3909,28 @@ InputDecoration _measuredInputDecoration(
     enabledBorder: border,
     focusedBorder: border,
   );
+}
+
+/// P3 (2026-09-22) — the single in-memory Undo slot behind `Set Time to Now`.
+///
+/// It captures the schedule fields a press of that action changes, so Undo
+/// restores the EXACT prior state (including a date-only draft's timing and
+/// honest all-day presentation) without touching anything the action never
+/// changed, such as the title, notes, People, Contact Type or recurrence.
+final class _ScheduleTimeSnapshot {
+  const _ScheduleTimeSnapshot({
+    required this.date,
+    required this.timing,
+    required this.start,
+    required this.end,
+    required this.endsNextDay,
+    required this.durationWasEntered,
+  });
+
+  final PlannerDate date;
+  final CalendarEventTiming timing;
+  final TimeOfDay start;
+  final TimeOfDay end;
+  final bool endsNextDay;
+  final bool durationWasEntered;
 }

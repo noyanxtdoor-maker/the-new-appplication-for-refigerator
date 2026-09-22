@@ -14,6 +14,7 @@ import 'package:rmplanner/features/planner/application/calendar_event_creation_d
 import 'package:rmplanner/features/planner/application/calendar_event_providers.dart';
 import 'package:rmplanner/features/planner/application/event_type_providers.dart';
 import 'package:rmplanner/features/planner/application/planner_providers.dart';
+import 'package:rmplanner/features/planner/application/planner_schedule_session_provider.dart';
 import 'package:rmplanner/features/planner/application/planner_tap_marker_provider.dart';
 import 'package:rmplanner/features/planner/application/planner_task_creation_draft_provider.dart';
 import 'package:rmplanner/features/planner/domain/calendar_event.dart';
@@ -22,6 +23,7 @@ import 'package:rmplanner/features/planner/domain/outcome_reporting.dart';
 import 'package:rmplanner/features/planner/domain/planner_date.dart';
 import 'package:rmplanner/features/planner/domain/planner_day.dart';
 import 'package:rmplanner/features/planner/domain/planner_display_geometry.dart';
+import 'package:rmplanner/features/planner/domain/planner_schedule_session.dart';
 import 'package:rmplanner/features/planner/domain/planner_settings.dart';
 import 'package:rmplanner/features/planner/domain/planner_task.dart';
 import 'package:rmplanner/features/planner/domain/planner_timeline_layout.dart';
@@ -52,7 +54,19 @@ import 'package:rmplanner/features/planner/presentation/widgets/planner_top_bar_
 import 'package:rmplanner/features/planner/presentation/widgets/repeating_event_scope_choices.dart';
 
 final class PlannerScreen extends ConsumerStatefulWidget {
-  const PlannerScreen({super.key, this.currentTimeListenable});
+  const PlannerScreen({
+    super.key,
+    this.currentTimeListenable,
+    this.schedulingMode = false,
+  });
+
+  /// P3 owner correction (2026-09-22): the Event form's TEMPORARY DRAFT-EDIT
+  /// MODE. It is not a second scheduler and not a second Planner context: the
+  /// very same screen, controller and projection paint it, with the Planner's
+  /// normal creation affordances switched off so exactly ONE target draft block
+  /// can be moved or resized. Only `planner_schedule_session_screen.dart` sets
+  /// this.
+  final bool schedulingMode;
 
   /// Optional current-time source used by the exact current-time
   /// indicator. When omitted, the screen owns a [ValueNotifier] of
@@ -466,9 +480,23 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
         ref.watch(plannerTapMarkerProvider) != null ||
         ref.watch(plannerEventCreationDraftProvider) != null ||
         ref.watch(plannerTaskCreationDraftProvider) != null;
+    // P3 owner correction: a scheduling session is adjustment-only, so the "+"
+    // FAB must never float above it (owner-observed regression). The Planner's
+    // creation affordances stay hidden for the whole session.
+    final schedulingSessionActive =
+        widget.schedulingMode &&
+        ref.watch(plannerScheduleSessionProvider) != null;
 
     final scaffold = Scaffold(
-      appBar: _buildAppBar(context, ref, state, plannerSettings, controller),
+      // P3 owner correction (2026-09-22): a scheduling session is ONE
+      // temporary draft-edit mode on the existing Planner, so the Planner's
+      // own chrome (global-navigation hamburger, filter, bulk-selection mode,
+      // overflow navigation) is withheld while it is active. The session host
+      // supplies the only AppBar — Cancel / Confirm — and the timeline, date
+      // strip and projection beneath stay exactly the canonical ones.
+      appBar: widget.schedulingMode
+          ? null
+          : _buildAppBar(context, ref, state, plannerSettings, controller),
       body: SafeArea(
         top: false,
         bottom: false,
@@ -492,7 +520,7 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
           ],
         ),
       ),
-      floatingActionButton: creationSessionActive
+      floatingActionButton: creationSessionActive || schedulingSessionActive
           ? null
           : ContextualCreateFab(
               buttonKey: const Key('planner-create-button'),
@@ -1227,6 +1255,11 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
     final day = state.day;
     final provisionalDraft = ref.watch(plannerEventCreationDraftProvider);
     final taskDraft = ref.watch(plannerTaskCreationDraftProvider);
+    // P3 (2026-09-22): the Event form's temporary scheduling session. When one
+    // is active the timeline paints its provisional block and hides the
+    // occurrence it stands in for — see [applyPlannerScheduleSessionProjection].
+    // The session never touches a repository; only its own provider changes.
+    final scheduleSession = ref.watch(plannerScheduleSessionProvider);
     final tapMarker = ref.watch(plannerTapMarkerProvider);
     final canonicalDayCacheRevision = ref
         .read(plannerControllerProvider.notifier)
@@ -1632,7 +1665,11 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
                                     // paint a deleted Event, even for one frame.
                                     ..._visibleEvents(
                                       _applyPendingMoveProjection(
-                                        day.timedEvents,
+                                        applyPlannerScheduleSessionProjection(
+                                          day.timedEvents,
+                                          scheduleSession,
+                                          state.selectedDate,
+                                        ),
                                         state.selectedDate,
                                       ),
                                       settings,
@@ -1649,12 +1686,23 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
                                               )
                                               .isPendingEventDeletion(event),
                                     ),
-                                    if (provisionalDraft?.date ==
-                                        state.selectedDate)
+                                    // P3 owner correction (2026-09-22): while a
+                                    // scheduling session is active it is the ONE
+                                    // draft representation of its Event, so every
+                                    // creation-draft block is withheld — in the
+                                    // session AND in the Planner beneath it.
+                                    // Without this an unsaved creation draft and
+                                    // the session block paint the same Event
+                                    // twice (and, being two provisional blocks,
+                                    // under one duplicate local key).
+                                    if (scheduleSession == null &&
+                                        provisionalDraft?.date ==
+                                            state.selectedDate)
                                       _provisionalPlannerItem(
                                         provisionalDraft!,
                                       ),
-                                    if (taskDraft?.date == state.selectedDate)
+                                    if (scheduleSession == null &&
+                                        taskDraft?.date == state.selectedDate)
                                       _provisionalTaskPlannerItem(taskDraft!),
                                   ],
                                   selectedDate: state.selectedDate,
@@ -1662,14 +1710,20 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
                                   visibleRange: timelineRange,
                                   eventColorsByTypeId: eventColorsByTypeId,
                                   scrollController: _dayScrollController,
-                                  onCreate: (minute) => _createTimedEvent(
-                                    context,
-                                    ref,
-                                    state.selectedDate,
-                                    minute,
-                                    defaultDurationMinutes:
-                                        settings.defaultDurationMinutes,
-                                  ),
+                                  // A scheduling session is adjustment-only:
+                                  // tapping empty timeline space must NOT start
+                                  // a new Event, so the creation callback is
+                                  // withheld entirely.
+                                  onCreate: widget.schedulingMode
+                                      ? null
+                                      : (minute) => _createTimedEvent(
+                                          context,
+                                          ref,
+                                          state.selectedDate,
+                                          minute,
+                                          defaultDurationMinutes:
+                                              settings.defaultDurationMinutes,
+                                        ),
                                   onMove: (event, targetDate, startMinute) =>
                                       _moveEvent(
                                         ref,
@@ -1687,6 +1741,12 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
                                   selectionMode: _selectionMode,
                                   selectedItems: _selectedItems,
                                   onToggleSelection: _toggleEventSelection,
+                                  // Only the target draft block may be adjusted
+                                  // during a scheduling session; unrelated saved
+                                  // Events stay visible for context but inert.
+                                  lockedEditingExceptId: widget.schedulingMode
+                                      ? scheduleSession?.itemId
+                                      : null,
                                   dragSession: dragSession,
                                   moveCompletionRevision:
                                       _savedMoveCompletionRevision,
@@ -1712,7 +1772,8 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
                                   timelineKey: _timelineKey,
                                   tasks: _visibleTimelineTasks(day, settings),
                                   taskDraft:
-                                      taskDraft?.date == state.selectedDate
+                                      !widget.schedulingMode &&
+                                          taskDraft?.date == state.selectedDate
                                       ? taskDraft
                                       : null,
                                   onTaskTap: (task) => showTaskPreview<void>(
@@ -2499,6 +2560,11 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
     int startMinute, {
     required int defaultDurationMinutes,
   }) {
+    // P3 owner correction (2026-09-22): a scheduling session is
+    // adjustment-only, so no creation path may start an Event during it.
+    if (widget.schedulingMode) {
+      return;
+    }
     if (ref.read(plannerEventCreationDraftProvider) != null) {
       return;
     }
@@ -2928,6 +2994,22 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
     PlannerDate targetDate,
     int startMinute,
   ) async {
+    // P3: a scheduling-session block is draft-only. Moving it rewrites the
+    // session and nothing else — no repository, no CalendarEventDraft, no row.
+    if (event.id.startsWith(PlannerScheduleSession.itemPrefix)) {
+      final session = ref.read(plannerScheduleSessionProvider);
+      if (session == null || event.id != session.itemId) {
+        return null;
+      }
+      ref
+          .read(plannerScheduleSessionProvider.notifier)
+          .updateSchedule(
+            date: targetDate,
+            startMinute: startMinute,
+            endMinute: startMinute + session.durationMinutes,
+          );
+      return const _TimelineMoveCommit(undo: _noopTimelineUndo);
+    }
     if (event.id.startsWith('task-draft:')) {
       final draftId = event.id.substring('task-draft:'.length);
       final draft = ref.read(plannerTaskCreationDraftProvider);
@@ -3336,6 +3418,21 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
     required int startMinute,
     required int endMinute,
   }) async {
+    // P3: same draft-only law for the scheduling-session block's edges.
+    if (event.id.startsWith(PlannerScheduleSession.itemPrefix)) {
+      final session = ref.read(plannerScheduleSessionProvider);
+      if (session == null || event.id != session.itemId) {
+        return null;
+      }
+      ref
+          .read(plannerScheduleSessionProvider.notifier)
+          .updateSchedule(
+            date: session.date,
+            startMinute: startMinute,
+            endMinute: endMinute,
+          );
+      return const _TimelineMoveCommit(undo: _noopTimelineUndo);
+    }
     if (event.eventId == null && event.id.startsWith('provisional:')) {
       final draft = ref.read(plannerEventCreationDraftProvider);
       if (draft == null || event.id != 'provisional:${draft.id}') {
@@ -4291,7 +4388,8 @@ final class _TimedEventTimeline extends StatefulWidget {
     this.visibleRange,
     required this.eventColorsByTypeId,
     required this.scrollController,
-    required this.onCreate,
+    this.onCreate,
+    this.lockedEditingExceptId,
     required this.onMove,
     required this.onResize,
     required this.selectionMode,
@@ -4336,7 +4434,17 @@ final class _TimedEventTimeline extends StatefulWidget {
   // preservation while pinching. Held here by reference so pinch
   // updates can reposition the viewport without rebuilding the screen.
   final ScrollController scrollController;
-  final void Function(int minute) onCreate;
+
+  /// P3 owner correction: null while a scheduling session is active, so empty
+  /// timeline space can never start a new Event during an adjustment-only
+  /// session.
+  final void Function(int minute)? onCreate;
+
+  /// P3 owner correction: the ONE timeline item a scheduling session may
+  /// adjust. When null every item keeps its normal interaction law; when set,
+  /// every other block is painted for context but is not draggable, resizable
+  /// or tappable.
+  final String? lockedEditingExceptId;
   final Future<_TimelineMoveCommit?> Function(
     PlannerCalendarItem event,
     PlannerDate targetDate,
@@ -4587,6 +4695,12 @@ final class _TimedEventTimelineState extends State<_TimedEventTimeline> {
 
   bool _isProvisionalEvent(PlannerCalendarItem event) =>
       (event.eventId == null && event.id.startsWith('provisional:')) ||
+      // P3 owner correction (2026-09-22): the scheduling session's block is a
+      // DRAFT, so it must present as one — same provisional surface and grips,
+      // never tappable into the saved-Event editor. Because it is provisional,
+      // the drag/resize completion path also stops offering the saved-event
+      // Undo card ("Event move could not be undone") for it.
+      event.id.startsWith(PlannerScheduleSession.itemPrefix) ||
       _isTaskDraft(event);
 
   bool _isTaskFootprint(PlannerCalendarItem event) =>
@@ -4662,7 +4776,7 @@ final class _TimedEventTimelineState extends State<_TimedEventTimeline> {
     if (_deselectDirectManipulation()) {
       return;
     }
-    widget.onCreate(minute);
+    widget.onCreate?.call(minute);
   }
 
   void _handleEventTap(PlannerCalendarItem event) {
@@ -5499,7 +5613,12 @@ final class _TimedEventTimelineState extends State<_TimedEventTimeline> {
                               widget.activeMoveEventId != placement.event.id &&
                               !widget.selectionMode &&
                               widget.settings.effectiveQuickEditEnabled &&
-                              !_persisting.contains(placement.event.id),
+                              !_persisting.contains(placement.event.id) &&
+                              // P3 owner correction: during a scheduling session
+                              // no other block offers endpoint handles.
+                              (widget.lockedEditingExceptId == null ||
+                                  placement.event.id ==
+                                      widget.lockedEditingExceptId),
                         )
                         .expand(
                           (placement) => _positionedEndpointHandles(
@@ -5550,7 +5669,14 @@ final class _TimedEventTimelineState extends State<_TimedEventTimeline> {
         sourceDrag?.ghostActive == true &&
         sourceDrag?.sourceDate == widget.selectedDate &&
         sourceDrag?.event.id == event.id;
+    // P3 owner correction (2026-09-22): a scheduling session may adjust ONLY
+    // its own target draft block. Every other block stays on screen for context
+    // and is inert — no drag, no resize, no tap into the saved-Event editor.
+    final editingLocked =
+        widget.lockedEditingExceptId != null &&
+        event.id != widget.lockedEditingExceptId;
     final interactive =
+        !editingLocked &&
         !widget.selectionMode &&
         widget.settings.effectiveQuickEditEnabled &&
         !_persisting.contains(event.id);
@@ -5572,7 +5698,9 @@ final class _TimedEventTimelineState extends State<_TimedEventTimeline> {
           Positioned.fill(
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
-              onTap: provisional ? null : () => _handleEventTap(event),
+              onTap: (provisional || editingLocked)
+                  ? null
+                  : () => _handleEventTap(event),
               child: const SizedBox.expand(),
             ),
           ),
@@ -5677,7 +5805,9 @@ final class _TimedEventTimelineState extends State<_TimedEventTimeline> {
                       selectedForDirectManipulation: _isDirectlySelected(event),
                       onToggleSelection: () => widget.onToggleSelection(event),
                       interactive: interactive,
-                      onTap: () => _handleEventTap(event),
+                      onTap: editingLocked
+                          ? null
+                          : () => _handleEventTap(event),
                       onDirectPointerDown: (pointer) {
                         _movePointerIds[event.id] = pointer.pointer;
                         if (_isDirectlySelected(event)) {
@@ -6754,7 +6884,7 @@ final class _TimelineEventBlock extends StatefulWidget {
     required this.selectedForDirectManipulation,
     required this.onToggleSelection,
     required this.interactive,
-    required this.onTap,
+    this.onTap,
     required this.onDirectPointerDown,
     required this.onMoveStart,
     required this.onMoveUpdate,
@@ -6777,7 +6907,7 @@ final class _TimelineEventBlock extends StatefulWidget {
   final bool selectedForDirectManipulation;
   final VoidCallback onToggleSelection;
   final bool interactive;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
   final ValueChanged<PointerDownEvent> onDirectPointerDown;
   final ValueChanged<Offset> onMoveStart;
   final ValueChanged<Offset> onMoveUpdate;

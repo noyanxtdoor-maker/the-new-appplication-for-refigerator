@@ -153,7 +153,13 @@ abstract final class PlannerDisplayGeometry {
       for (final event in layoutEvents)
         event.id: _displayInterval(
           startMinute: event.startLocal!.hour * 60 + event.startLocal!.minute,
-          endMinute: plannerEndMinuteOfDay(event.startLocal!, event.endLocal!),
+          // P3: a cross-midnight Event is painted to the end of its own day
+          // column by [plannerRenderEndMinuteOfDay]; the unclamped minute stays
+          // the property of the data, the form and the drag arithmetic.
+          endMinute: plannerRenderEndMinuteOfDay(
+            event.startLocal!,
+            event.endLocal!,
+          ),
           hourHeight: hourHeight,
         ),
     };
@@ -242,7 +248,10 @@ abstract final class PlannerDisplayGeometry {
     int? endMinute,
   }) {
     final eventStart = event.startLocal!.hour * 60 + event.startLocal!.minute;
-    final eventEnd = plannerEndMinuteOfDay(event.startLocal!, event.endLocal!);
+    final eventEnd = plannerRenderEndMinuteOfDay(
+      event.startLocal!,
+      event.endLocal!,
+    );
     final previewStart = startMinute ?? eventStart;
     final previewEnd = endMinute ?? eventEnd;
     if (previewStart == eventStart && previewEnd == eventEnd) {

@@ -59,10 +59,12 @@ void main() {
 
     testWidgets(
       'Contact events resolve the completed status to the same green-check '
-      'completed kind and label',
+      'completed kind, under the Contacted label',
       (tester) async {
-        // Delta 2 final matrix: the success state is 'Completed' for both
-        // Contact and generic Events; there is no separate 'Contacted' kind.
+        // OWNER LAW (2026-09-22), superseding the Delta 2 matrix: a Contact
+        // Event's success state still resolves to the SAME canonical completed
+        // KIND (the green check, unchanged), while its user-facing LABEL is now
+        // 'Contacted'. The stored status remains `completedHappened` for both.
         final contactKind = PlannerEventReportStatus.kindForStatus(
           CalendarEventStatus.completedHappened,
           isContactEvent: true,
@@ -70,7 +72,12 @@ void main() {
         expect(contactKind, PlannerReportStatusKind.completed);
         expect(
           PlannerEventReportStatus.labelFor(contactKind, isContactEvent: true),
+          'Contacted',
+        );
+        expect(
+          PlannerEventReportStatus.labelFor(contactKind),
           'Completed',
+          reason: 'an ordinary Event keeps the canonical Completed label',
         );
         await tester.pumpWidget(
           const MaterialApp(

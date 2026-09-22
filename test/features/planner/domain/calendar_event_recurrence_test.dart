@@ -348,14 +348,16 @@ void main() {
       ),
       'Unreported',
     );
-    // Delta 2 final matrix: the success state reads 'Completed' for BOTH
-    // Contact and generic Events.
+    // OWNER LAW (2026-09-22), superseding the Delta 2 matrix: the success
+    // state reads 'Contacted' for a CONTACT Event and 'Completed' for an
+    // ordinary Event. This is PRESENTATION ONLY — the canonical stored status
+    // is still `completedHappened`.
     expect(
       calendarEventOutcomeLabel(
         status: CalendarEventStatus.completedHappened,
         isContactEvent: true,
       ),
-      'Completed',
+      'Contacted',
     );
     expect(
       calendarEventOutcomeLabel(
