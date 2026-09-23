@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:rmplanner/app/m5_app_splash.dart';
 import 'package:rmplanner/app/notification_open_presentation.dart';
 import 'package:rmplanner/app/router/app_router.dart';
@@ -27,6 +28,9 @@ import 'package:rmplanner/features/settings/application/appearance_repository.da
 import 'package:rmplanner/features/settings/application/start_of_week_providers.dart';
 import 'package:rmplanner/features/startup/application/startup_providers.dart';
 import 'package:rmplanner/features/startup/domain/startup_state.dart';
+import 'package:rmplanner/features/unreported/application/unreported_providers.dart';
+import 'package:rmplanner/features/unreported/application/unreported_summary_routing.dart';
+import 'package:rmplanner/features/unreported/domain/unreported_entry.dart';
 import 'package:rmplanner/features/weekly_planning/application/weekly_planning_providers.dart';
 import 'package:rmplanner/features/weekly_planning/domain/weekly_plan.dart';
 
@@ -56,6 +60,17 @@ final class _NextTransferAppState extends ConsumerState<NextTransferApp>
   bool _splashImageReady = false;
   bool _splashImageFailed = false;
   bool _splashReadinessStarted = false;
+
+  /// P4 (2026-09-22) — summary-tap routing generation.
+  ///
+  /// Every accepted summary tap takes the next generation; a completion only
+  /// routes while it still owns the latest one, so a stale slow read can never
+  /// override a later tap, a later manual navigation or a profile switch.
+  int _unreportedSummaryGeneration = 0;
+
+  /// The in-flight fresh canonical backlog read, shared by concurrent summary
+  /// taps so identical work is coalesced into ONE projection.
+  Future<List<UnreportedEntry>>? _unreportedSummaryRead;
 
   @override
   void initState() {
@@ -277,14 +292,73 @@ final class _NextTransferAppState extends ConsumerState<NextTransferApp>
         );
       case NotificationSourceKind.unreportedSummary:
         // Owner law (2026-09-19): the persistent app-status/summary
-        // notification opens the canonical Unreported hub.  There is nothing
-        // to re-validate beyond profile readiness (already checked above): the
-        // hub re-reads canonical truth itself and shows an honest empty state
-        // when the backlog has drained since the notification was posted.
-        router.go(RoutePaths.unreported);
+        // notification opens the canonical Unreported hub.
+        //
+        // P4 (2026-09-22): the hub opens on the tab that owns the MOST CURRENT
+        // actionable backlog at TAP time.  The count comes from ONE fresh
+        // re-evaluation of the existing canonical projection — never from the
+        // notification-time counts, and never from a second repository or a
+        // per-tab query.
+        await _routeUnreportedSummary(intent, router);
       default:
         return;
     }
+  }
+
+  /// P4 (2026-09-22) — resolve the summary tap's tab from FRESH truth, then
+  /// hand the hub ONE typed one-shot tab request.
+  ///
+  /// Any failure or a [unreportedSummaryRoutingTimeout] overrun is NOT a zero
+  /// backlog: it falls back to the canonical hub's first tab, which keeps its
+  /// own honest loading/error state, and the late completion cannot hijack
+  /// navigation because the generation has already been superseded (or the
+  /// request was never issued).
+  Future<void> _routeUnreportedSummary(
+    NotificationResponseIntent intent,
+    GoRouter router,
+  ) async {
+    final generation = ++_unreportedSummaryGeneration;
+    final tab = await _unreportedSummaryTab(intent.profileId);
+    if (!_notificationProfileReady(intent.profileId)) return;
+    if (generation != _unreportedSummaryGeneration) return;
+    ref
+        .read(unreportedSummaryTabRequestProvider.notifier)
+        .request(tab, generation: generation);
+    router.go(RoutePaths.unreported);
+  }
+
+  Future<UnreportedTab> _unreportedSummaryTab(String profileId) async {
+    final inFlight = _unreportedSummaryRead;
+    final read = inFlight ?? _startUnreportedSummaryRead();
+    try {
+      final entries = await read.timeout(unreportedSummaryRoutingTimeout);
+      return unreportedSummaryTabFor(entries);
+    } on Object {
+      // Not a zero backlog: fall back to the hub's canonical first tab, and do
+      // not let a hung read pin the coalescing slot for the next tap.
+      if (identical(_unreportedSummaryRead, read)) {
+        _unreportedSummaryRead = null;
+      }
+      return UnreportedTab.lifeGoals;
+    }
+  }
+
+  /// Re-evaluates the EXISTING canonical entries provider ONCE and shares the
+  /// resulting future with any concurrent summary tap.
+  Future<List<UnreportedEntry>> _startUnreportedSummaryRead() {
+    ref.invalidate(unreportedEntriesProvider);
+    final read = ref.read(unreportedEntriesProvider.future);
+    _unreportedSummaryRead = read;
+    unawaited(
+      read
+          .then<void>((_) {}, onError: (Object _, StackTrace _) {})
+          .whenComplete(() {
+            if (identical(_unreportedSummaryRead, read)) {
+              _unreportedSummaryRead = null;
+            }
+          }),
+    );
+    return read;
   }
 
   /// Post-await readiness recheck (contract section 19, forensic F06).

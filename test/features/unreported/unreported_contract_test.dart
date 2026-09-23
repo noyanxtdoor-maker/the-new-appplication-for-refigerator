@@ -180,7 +180,10 @@ void main() {
         expect(source, contains("Tab(key: Key('unreported-tab-life-goals')"));
         expect(source, contains("Tab(key: Key('unreported-tab-events')"));
         expect(source, contains("Tab(key: Key('unreported-tab-contacts')"));
-        expect(source, contains('length: 3'));
+        // P4 (2026-09-22): the hub's tab count now comes from the ONE canonical
+        // routing priority list, so the visible tabs and the summary-tap
+        // routing law can never disagree about how many tabs exist.
+        expect(source, contains('length: unreportedSummaryTabPriority.length'));
         expect(source, isNot(contains("'Tasks'")));
         // The row opens the SAME canonical Event detail flow as the Planner.
         expect(source, contains('openPlannerCalendarEvent('));

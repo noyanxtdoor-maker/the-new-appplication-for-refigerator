@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:rmplanner/app/router/app_router.dart';
 import 'package:rmplanner/app/shell/planning_navigation.dart';
 import 'package:rmplanner/app/theme/app_theme.dart';
 import 'package:rmplanner/app/theme/internal_screen.dart';
@@ -14,6 +15,7 @@ import 'package:rmplanner/features/planner/presentation/widgets/planner_event_re
 import 'package:rmplanner/features/planner/presentation/widgets/planner_report_status_icons.dart';
 import 'package:rmplanner/features/planner/presentation/widgets/planning_timeline.dart';
 import 'package:rmplanner/features/unreported/application/unreported_providers.dart';
+import 'package:rmplanner/features/unreported/application/unreported_summary_routing.dart';
 import 'package:rmplanner/features/unreported/domain/unreported_entry.dart';
 
 /// The canonical UNREPORTED hub (owner law, 2026-09-19).
@@ -32,7 +34,13 @@ import 'package:rmplanner/features/unreported/domain/unreported_entry.dart';
 /// the Goal's own icon for Life Goals, the app's real Report-Progress
 /// "Unreported" disc for Events, and the canonical People icon for Contacts.
 /// The stale Material flag is gone.
-final class UnreportedScreen extends ConsumerWidget {
+///
+/// P4 (2026-09-22): the hub also consumes the ONE typed one-shot tab request
+/// the summary-notification route leaves behind, so a summary tap opens the tab
+/// that then owned the backlog.  It is consumed exactly once — afterwards the
+/// user's own tab selection is authoritative and later backlog changes never
+/// seize the current tab.
+final class UnreportedScreen extends ConsumerStatefulWidget {
   const UnreportedScreen({super.key});
 
   /// The owner's exact single-line explanation for the Events tab.
@@ -40,47 +48,99 @@ final class UnreportedScreen extends ConsumerWidget {
       'Only events with Report Progress enabled are shown.';
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<UnreportedScreen> createState() => _UnreportedScreenState();
+}
+
+final class _UnreportedScreenState extends ConsumerState<UnreportedScreen>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabs = TabController(
+    length: unreportedSummaryTabPriority.length,
+    vsync: this,
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    // The request can already be pending before the hub is first built (cold
+    // start, or the hub was not mounted yet), so consume it once here as well
+    // as listening for one that arrives while the hub is already mounted.
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _applyPendingTabRequest(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _tabs.dispose();
+    super.dispose();
+  }
+
+  /// Applies AND consumes the pending request, exactly once.
+  void _applyPendingTabRequest() {
+    if (!mounted) return;
+    final request = ref.read(unreportedSummaryTabRequestProvider);
+    if (request == null) return;
+    ref.read(unreportedSummaryTabRequestProvider.notifier).consume();
+    final index = unreportedTabIndex(request.tab);
+    if (_tabs.index == index) return;
+    _tabs.animateTo(index);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // A request that arrives while the hub is already mounted (warm app, or a
+    // second summary tap from another tab) takes the same one-shot path.
+    ref.listen<UnreportedSummaryTabRequest?>(
+      unreportedSummaryTabRequestProvider,
+      (
+        UnreportedSummaryTabRequest? previous,
+        UnreportedSummaryTabRequest? next,
+      ) {
+        if (next == null) return;
+        WidgetsBinding.instance.addPostFrameCallback(
+          (_) => _applyPendingTabRequest(),
+        );
+      },
+    );
     final backlog = ref.watch(unreportedEntriesProvider);
     final origin = planningRouteOriginOf(context);
-    return DefaultTabController(
-      length: 3,
-      child: Scaffold(
-        appBar: InternalAppBar(
-          automaticallyImplyLeading: false,
-          leading: PlanningBackButton(
-            key: const Key('unreported-back'),
-            origin: origin,
-          ),
-          title: const Text('Unreported'),
-          bottom: const TabBar(
-            tabs: <Widget>[
-              Tab(key: Key('unreported-tab-life-goals'), text: 'Life Goals'),
-              Tab(key: Key('unreported-tab-events'), text: 'Events'),
-              Tab(key: Key('unreported-tab-contacts'), text: 'Contacts'),
-            ],
-          ),
+    return Scaffold(
+      appBar: InternalAppBar(
+        automaticallyImplyLeading: false,
+        leading: PlanningBackButton(
+          key: const Key('unreported-back'),
+          origin: origin,
         ),
-        body: backlog.when(
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (Object error, StackTrace stackTrace) =>
-              const _UnreportedMessage('Unreported items could not be loaded.'),
-          data: (List<UnreportedEntry> entries) => const TabBarView(
-            children: <Widget>[
-              _UnreportedTimeline(
-                tab: UnreportedTab.lifeGoals,
-                emptyMessage: 'No Life Goal events are awaiting a report.',
-              ),
-              _UnreportedTimeline(
-                tab: UnreportedTab.events,
-                emptyMessage: 'No Events are awaiting a report.',
-              ),
-              _UnreportedTimeline(
-                tab: UnreportedTab.contacts,
-                emptyMessage: 'No Contact events are awaiting a report.',
-              ),
-            ],
-          ),
+        title: const Text('Unreported'),
+        bottom: TabBar(
+          controller: _tabs,
+          tabs: const <Widget>[
+            Tab(key: Key('unreported-tab-life-goals'), text: 'Life Goals'),
+            Tab(key: Key('unreported-tab-events'), text: 'Events'),
+            Tab(key: Key('unreported-tab-contacts'), text: 'Contacts'),
+          ],
+        ),
+      ),
+      body: backlog.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (Object error, StackTrace stackTrace) =>
+            const _UnreportedMessage('Unreported items could not be loaded.'),
+        data: (List<UnreportedEntry> entries) => TabBarView(
+          controller: _tabs,
+          children: const <Widget>[
+            _UnreportedTimeline(
+              tab: UnreportedTab.lifeGoals,
+              emptyMessage: 'No Life Goal events are awaiting a report.',
+            ),
+            _UnreportedTimeline(
+              tab: UnreportedTab.events,
+              emptyMessage: 'No Events are awaiting a report.',
+            ),
+            _UnreportedTimeline(
+              tab: UnreportedTab.contacts,
+              emptyMessage: 'No Contact events are awaiting a report.',
+            ),
+          ],
         ),
       ),
     );

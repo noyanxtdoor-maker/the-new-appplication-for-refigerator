@@ -71,6 +71,7 @@ import 'package:rmplanner/features/startup/presentation/onboarding_screen.dart';
 import 'package:rmplanner/features/startup/presentation/protected_content_screen.dart';
 import 'package:rmplanner/features/startup/presentation/recovery_screen.dart';
 import 'package:rmplanner/features/startup/presentation/startup_screen.dart';
+import 'package:rmplanner/features/unreported/domain/unreported_entry.dart';
 import 'package:rmplanner/features/unreported/presentation/unreported_screen.dart';
 import 'package:rmplanner/features/weekly_planning/presentation/weekly_plan_history_screen.dart';
 import 'package:rmplanner/features/weekly_planning/presentation/weekly_planning_screen.dart';
@@ -82,6 +83,51 @@ final GlobalKey<NavigatorState> appRootNavigatorKey = GlobalKey<NavigatorState>(
 );
 final _rootNavigatorKey = appRootNavigatorKey;
 final _shellNavigatorKey = GlobalKey<NavigatorState>(debugLabel: 'shell');
+
+/// P4 (2026-09-22) — ONE typed, one-shot Unreported tab request.
+///
+/// The summary notification route only ever names a canonical [UnreportedTab]
+/// (plus the routing generation that produced it).  No title, contact name or
+/// any private detail travels through the router, and nothing is encoded in a
+/// URL or a payload.
+final class UnreportedSummaryTabRequest {
+  const UnreportedSummaryTabRequest({
+    required this.tab,
+    required this.generation,
+  });
+
+  final UnreportedTab tab;
+
+  /// The summary-tap generation that resolved this tab.  A later tap or a
+  /// profile switch bumps the generation, so a stale completion can never
+  /// claim routing.
+  final int generation;
+}
+
+/// Holds the pending one-shot tab request for the Unreported hub, or `null`.
+///
+/// The hub consumes it exactly once; afterwards the user's own tab selection
+/// is authoritative and later backlog changes never seize the current tab.
+final unreportedSummaryTabRequestProvider =
+    NotifierProvider<
+      UnreportedSummaryTabRequestController,
+      UnreportedSummaryTabRequest?
+    >(UnreportedSummaryTabRequestController.new);
+
+final class UnreportedSummaryTabRequestController
+    extends Notifier<UnreportedSummaryTabRequest?> {
+  @override
+  UnreportedSummaryTabRequest? build() => null;
+
+  void request(UnreportedTab tab, {required int generation}) {
+    state = UnreportedSummaryTabRequest(tab: tab, generation: generation);
+  }
+
+  /// Consumes the request ONCE (the hub calls this as it applies it).
+  void consume() {
+    if (state != null) state = null;
+  }
+}
 
 final appRouterProvider = Provider<GoRouter>((ref) {
   late final GoRouter router;
