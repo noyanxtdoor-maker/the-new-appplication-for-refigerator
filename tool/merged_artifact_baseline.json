@@ -2,7 +2,7 @@
   "baselineFormat": 1,
   "applicationId": "com.nexttransfer.rmplanner",
   "versionName": "0.1.1",
-  "versionCode": 4,
+  "versionCode": 5,
   "minSdk": 24,
   "targetSdk": 36,
   "usesPermissions": [

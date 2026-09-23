@@ -106,7 +106,7 @@ MergedArtifactModel _acceptedArtifact({
   int indentWidth = 2,
   String applicationId = 'com.nexttransfer.rmplanner',
   String versionName = '0.1.1',
-  String versionCode = '4',
+  String versionCode = '5',
   String minSdk = '24',
   String targetSdk = '36',
   List<String>? usesPermissions,
@@ -145,7 +145,7 @@ String _manifestDump({
   int indentWidth = 2,
   String applicationId = 'com.nexttransfer.rmplanner',
   String versionName = '0.1.1',
-  String versionCode = '4',
+  String versionCode = '5',
   String minSdk = '24',
   String targetSdk = '36',
   List<String>? usesPermissions,
@@ -338,7 +338,7 @@ void main() {
 
       expect(artifact.identity.applicationId, 'com.nexttransfer.rmplanner');
       expect(artifact.identity.versionName, '0.1.1');
-      expect(artifact.identity.versionCode, 4);
+      expect(artifact.identity.versionCode, 5);
       expect(artifact.identity.minSdk, 24);
       expect(artifact.identity.targetSdk, 36);
       expect(artifact.usesPermissions.toSet(), _acceptedPermissions.toSet());
@@ -454,7 +454,7 @@ void main() {
     test('typed-hex integers decode like bare integers', () {
       final typed = _acceptedArtifact(typedHexIntegers: true);
 
-      expect(typed.identity.versionCode, 4);
+      expect(typed.identity.versionCode, 5);
       expect(typed.identity.minSdk, 24);
       expect(typed.identity.targetSdk, 36);
       expect(typed.toSanitizedJson(), _acceptedArtifact().toSanitizedJson());
@@ -613,7 +613,7 @@ void main() {
       'F-2: an unrecognised value FORM is named structurally, never echoed',
       () {
         final dump = _manifestDump().replaceFirst(
-          'versionCode(0x0101021b)=4',
+          'versionCode(0x0101021b)=5',
           'versionCode(0x0101021b)=@ref/0x7f0a0000',
         );
 
@@ -645,7 +645,7 @@ void main() {
       () {
         expect(valid.identity.applicationId, 'com.nexttransfer.rmplanner');
         expect(valid.identity.versionName, '0.1.1');
-        expect(valid.identity.versionCode, 4);
+        expect(valid.identity.versionCode, 5);
         expect(valid.identity.minSdk, 24);
         expect(valid.identity.targetSdk, 36);
       },
@@ -886,8 +886,8 @@ void main() {
 
     test('N-18b: a changed versionCode fails', () {
       expect(
-        differencesFor(_acceptedArtifact(versionCode: '5')),
-        contains('versionCode is 5; baseline expects 4'),
+        differencesFor(_acceptedArtifact(versionCode: '4')),
+        contains('versionCode is 4; baseline expects 5'),
       );
     });
 
