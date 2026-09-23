@@ -58,6 +58,8 @@ void main() {
   const releaseId = 'next-transfer-0-1-1-beta';
   // The Build 4 notice: a NEW message with its OWN stable id.
   const buildFourId = 'next-transfer-0-1-1-build-4-beta';
+  // Build 5 also needs a distinct receipt identity.
+  const buildFiveId = 'next-transfer-0-1-1-build-5-beta';
   const unreadDot = Key('home-messages-unread-dot');
 
   Future<void> pumpHome(
@@ -134,15 +136,12 @@ void main() {
       expect(message, isNotNull, reason: 'the 0.1.1 notice must ship.');
       expect(message!.title, "What's New in Next Transfer");
       expect(message.actionLabel, 'Got it');
-      // Owner law (2026-09-20): Build 4 ships a SEPARATE notice with its own id,
-      // so the 0.1.1 entry is no longer the newest row. What must still hold is
-      // that the new build's notice is the newest entry, the catalog stays
-      // ordered newest-first, and the accepted 0.1.1 entry is never dropped or
-      // re-identified.
+      // Every release build gets a distinct notice id. Build 5 is newest;
+      // earlier receipts remain attached to the unchanged Build 4/0.1.1 ids.
       expect(
         BundledMessages.all.first.id,
-        buildFourId,
-        reason: 'the Build 4 notice is the newest entry.',
+        buildFiveId,
+        reason: 'the Build 5 notice is the newest entry.',
       );
       final published = <DateTime>[
         for (final entry in BundledMessages.all) entry.publishedAtLocal,
@@ -809,6 +808,111 @@ void main() {
         expect(find.byKey(const Key('message-detail-not-found')), findsNothing);
         await revealDetailAction(tester);
         expect(find.byKey(const Key('message-detail-action')), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  });
+
+  group('Build 5 update notice', () {
+    Set<String> readEverythingBeforeBuildFive() => <String>{
+      for (final message in BundledMessages.all)
+        if (message.id != buildFiveId) message.id,
+    };
+
+    ProviderContainer containerFor(_MemoryReadStateStore store) {
+      final container = ProviderContainer(
+        overrides: <Override>[
+          messageReadStateStoreProvider.overrideWithValue(store),
+        ],
+      );
+      addTearDown(container.dispose);
+      return container;
+    }
+
+    test('RMSG-13 uses a new build-scoped id and approved title', () {
+      final message = BundledMessages.byId(buildFiveId);
+      expect(message, isNotNull);
+      expect(message!.id, 'next-transfer-0-1-1-build-5-beta');
+      expect(message.title, "What's New in Next Transfer");
+      expect(BundledMessages.all.first, same(message));
+      expect(message.publishedAtLocal, DateTime(2026, 9, 23, 9));
+    });
+
+    test('RMSG-14 contains the exact owner-approved body', () {
+      final message = BundledMessages.byId(buildFiveId)!;
+      expect(
+        message.blocks.whereType<MessageParagraph>().map((block) => block.text),
+        <String>[
+          'We’ve made a major round of Planner, Event, Contact, and notification improvements based on beta feedback.',
+          'Plus: additional reliability, performance, layout, and regression improvements throughout Planner and beta workflows.',
+        ],
+      );
+      expect(message.blocks.whereType<MessageBulletList>().single.items, <
+        String
+      >[
+        'Smarter Planner experience — improved visible-hour controls, scrolling, zooming, timeline spacing, and easier access to the full day.',
+        'Better Contact Events — Contact Type is now independent from Event Type, with options such as In Person, Phone Call, Text, Email, WhatsApp, Social Media, Video Call, and Other.',
+        'Clearer Event statuses — Contact Events now use Contacted where appropriate, while regular Events continue to use Completed.',
+        'Completed Events controls — choose whether completed Events appear in Planner, including quick access from Planner filters.',
+        'Cleaner Settings & Permissions — improved Settings surfaces, permission explanations, and notification privacy controls.',
+        'Improved notification privacy — simplified generic vs. detailed notification previews and settings.',
+        'Set Time to Now — quickly set an Event to the current time, with one-level Undo.',
+        'Schedule from Planner — adjust an existing Event directly on the Planner before saving it. Changes remain a draft until you save the Event.',
+        'Better time handling — minute-level scheduling and support for Events that continue past midnight.',
+        'Smarter Unreported notifications — tapping the summary notification now opens the Unreported category with the most current actionable items.',
+        'Contact Type icons in Planner — Contact Events now show their communication type beside the Event title for quicker identification.',
+        'Conflict awareness — when a timed Event overlaps another applicable Event, the form now shows “Conflicting event” without preventing you from saving.',
+      ]);
+      expect(message.actionLabel, 'Got it');
+    });
+
+    test(
+      'RMSG-15 only Build 5 is unread; acknowledging it preserves prior receipts',
+      () async {
+        final store = _MemoryReadStateStore(readEverythingBeforeBuildFive());
+        final priorReceipts = <String>{...store.acknowledged};
+        final container = containerFor(store);
+        await container.read(storedMessageAcknowledgementsProvider.future);
+
+        expect(
+          container.read(unreadMessagesProvider).map((message) => message.id),
+          <String>[buildFiveId],
+        );
+        final acknowledgements = container.read(messageAcknowledgementProvider);
+        expect(await acknowledgements.acknowledge(buildFiveId), isTrue);
+        expect(store.acknowledged, <String>{...priorReceipts, buildFiveId});
+        expect(store.writeCount, 1);
+        expect(container.read(unreadMessagesProvider), isEmpty);
+
+        // Reopening or acknowledging again must not create another receipt.
+        expect(await acknowledgements.acknowledge(buildFiveId), isTrue);
+        expect(store.writeCount, 1);
+        expect(container.read(unreadMessagesProvider), isEmpty);
+      },
+    );
+
+    testWidgets(
+      'RMSG-16 the canonical Messages screen acknowledges Build 5 once',
+      (tester) async {
+        final store = _MemoryReadStateStore(readEverythingBeforeBuildFive());
+        await pumpHome(tester, store: store);
+        expect(find.byKey(unreadDot), findsOneWidget);
+
+        await tester.tap(find.byKey(const Key('home-messages')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(Key('message-row-$buildFiveId')));
+        await tester.pumpAndSettle();
+        expect(find.byType(MessageDetailScreen), findsOneWidget);
+        expect(find.byKey(const Key('message-detail-not-found')), findsNothing);
+        await revealDetailAction(tester);
+        await tester.tap(find.byKey(const Key('message-detail-action')));
+        await tester.pumpAndSettle();
+        expect(store.acknowledged, contains(buildFiveId));
+        expect(store.writeCount, 1);
+
+        await backToHome(tester);
+        expect(find.byType(HomeScreen), findsOneWidget);
+        expect(find.byKey(unreadDot), findsNothing);
         expect(tester.takeException(), isNull);
       },
     );

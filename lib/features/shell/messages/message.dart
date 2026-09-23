@@ -251,6 +251,60 @@ abstract final class BundledMessages {
     ],
   );
 
+  /// The approved closed-beta Build 5 update notice.
+  ///
+  /// Build 5 has its own stable acknowledgement identity so testers who read
+  /// Build 4 see only this new notice as unread. The copy is the owner-approved
+  /// Planner/Event/Contact/notification release summary for P1-P5/Post-P2.
+  static final Message versionZeroOneOneBuildFive = Message(
+    id: 'next-transfer-0-1-1-build-5-beta',
+    title: "What's New in Next Transfer",
+    publishedAtLocal: DateTime(2026, 9, 23, 9),
+    actionLabel: 'Got it',
+    blocks: const <MessageBlock>[
+      MessageParagraph(
+        'We’ve made a major round of Planner, Event, Contact, and notification '
+        'improvements based on beta feedback.',
+      ),
+      MessageBulletList(<String>[
+        'Smarter Planner experience — improved visible-hour controls, '
+            'scrolling, zooming, timeline spacing, and easier access to the '
+            'full day.',
+        'Better Contact Events — Contact Type is now independent from Event '
+            'Type, with options such as In Person, Phone Call, Text, Email, '
+            'WhatsApp, Social Media, Video Call, and Other.',
+        'Clearer Event statuses — Contact Events now use Contacted where '
+            'appropriate, while regular Events continue to use Completed.',
+        'Completed Events controls — choose whether completed Events appear '
+            'in Planner, including quick access from Planner filters.',
+        'Cleaner Settings & Permissions — improved Settings surfaces, '
+            'permission explanations, and notification privacy controls.',
+        'Improved notification privacy — simplified generic vs. detailed '
+            'notification previews and settings.',
+        'Set Time to Now — quickly set an Event to the current time, with '
+            'one-level Undo.',
+        'Schedule from Planner — adjust an existing Event directly on the '
+            'Planner before saving it. Changes remain a draft until you save '
+            'the Event.',
+        'Better time handling — minute-level scheduling and support for '
+            'Events that continue past midnight.',
+        'Smarter Unreported notifications — tapping the summary notification '
+            'now opens the Unreported category with the most current '
+            'actionable items.',
+        'Contact Type icons in Planner — Contact Events now show their '
+            'communication type beside the Event title for quicker '
+            'identification.',
+        'Conflict awareness — when a timed Event overlaps another applicable '
+            'Event, the form now shows “Conflicting event” without preventing '
+            'you from saving.',
+      ]),
+      MessageParagraph(
+        'Plus: additional reliability, performance, layout, and regression '
+        'improvements throughout Planner and beta workflows.',
+      ),
+    ],
+  );
+
   /// The welcome note that introduced the closed beta.
   static final Message welcome = Message(
     id: 'welcome-to-next-transfer-beta',
@@ -276,6 +330,7 @@ abstract final class BundledMessages {
   /// All bundled messages, newest first.
   static final List<Message> all = List<Message>.unmodifiable(
     <Message>[
+      versionZeroOneOneBuildFive,
       versionZeroOneOneBuildFour,
       versionZeroOneOne,
       versionZeroOneZero,

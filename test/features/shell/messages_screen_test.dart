@@ -25,6 +25,8 @@ import 'package:rmplanner/features/startup/presentation/home_screen.dart';
 import '../../support/test_dependencies.dart';
 
 void main() {
+  const buildFiveId = 'next-transfer-0-1-1-build-5-beta';
+
   Future<void> pumpApp(
     WidgetTester tester, {
     Size size = const Size(431, 912),
@@ -102,6 +104,14 @@ void main() {
         expect(BundledMessages.byId(message.id), same(message));
       }
       expect(BundledMessages.byId('does-not-exist'), isNull);
+    });
+
+    test('the Build 5 release notice is the newest bundled message', () {
+      final release = BundledMessages.byId(buildFiveId);
+      expect(release, isNotNull);
+      expect(release!.title, "What's New in Next Transfer");
+      expect(release.id, 'next-transfer-0-1-1-build-5-beta');
+      expect(BundledMessages.all.first, same(release));
     });
 
     test('every message is well formed', () {
@@ -267,9 +277,13 @@ void main() {
     await pumpApp(tester);
     await tester.tap(find.byKey(const Key('home-messages')));
     await tester.pumpAndSettle();
-    await openNewestDetail(tester);
-
-    final release = BundledMessages.all.first;
+    // Build 5 uses the approved plain intro + bullet structure. Select the
+    // newest message that has a section heading for this structured-block law.
+    final release = BundledMessages.all.firstWhere(
+      (message) => message.blocks.whereType<MessageSectionHeading>().isNotEmpty,
+    );
+    await tester.tap(find.byKey(Key('message-row-${release.id}')));
+    await tester.pumpAndSettle();
     expect(find.byType(MessageDetailScreen), findsOneWidget);
     expect(find.byKey(const Key('message-detail-scroll')), findsOneWidget);
     // The app bar title equals the message title.
