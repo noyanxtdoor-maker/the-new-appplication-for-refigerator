@@ -1,0 +1,49 @@
+{
+  "baselineFormat": 1,
+  "applicationId": "com.nexttransfer.rmplanner",
+  "versionName": "0.1.1",
+  "versionCode": 4,
+  "minSdk": 24,
+  "targetSdk": 36,
+  "usesPermissions": [
+    "android.permission.ACCESS_COARSE_LOCATION",
+    "android.permission.ACCESS_FINE_LOCATION",
+    "android.permission.ACCESS_NETWORK_STATE",
+    "android.permission.ACCESS_WIFI_STATE",
+    "android.permission.FOREGROUND_SERVICE",
+    "android.permission.FOREGROUND_SERVICE_SHORT_SERVICE",
+    "android.permission.INTERNET",
+    "android.permission.POST_NOTIFICATIONS",
+    "android.permission.READ_CONTACTS",
+    "android.permission.RECEIVE_BOOT_COMPLETED",
+    "android.permission.USE_BIOMETRIC",
+    "android.permission.USE_FINGERPRINT",
+    "android.permission.VIBRATE",
+    "android.permission.WAKE_LOCK",
+    "com.nexttransfer.rmplanner.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+  ],
+  "declaredPermissions": [
+    "com.nexttransfer.rmplanner.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+  ],
+  "activities": [
+    {"name": "com.google.android.gms.common.api.GoogleApiActivity", "exported": false},
+    {"name": "com.nexttransfer.rmplanner.MainActivity", "exported": true},
+    {"name": "io.flutter.plugins.urllauncher.WebViewActivity", "exported": false}
+  ],
+  "receivers": [
+    {"name": "androidx.profileinstaller.ProfileInstallReceiver", "exported": true},
+    {"name": "androidx.work.impl.background.systemalarm.RescheduleReceiver", "exported": false},
+    {"name": "androidx.work.impl.diagnostics.DiagnosticsReceiver", "exported": true},
+    {"name": "androidx.work.impl.utils.ForceStopRunnable$BroadcastReceiver", "exported": false},
+    {"name": "com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver", "exported": false},
+    {"name": "com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver", "exported": false},
+    {"name": "com.nexttransfer.rmplanner.ReminderRecoveryReceiver", "exported": false}
+  ],
+  "services": [
+    {"name": "androidx.room.MultiInstanceInvalidationService", "exported": false},
+    {"name": "androidx.work.impl.background.systemjob.SystemJobService", "exported": true},
+    {"name": "androidx.work.impl.foreground.SystemForegroundService", "exported": false},
+    {"name": "com.baseflow.geolocator.GeolocatorLocationService", "exported": false},
+    {"name": "org.maplibre.android.plugins.offline.offline.OfflineDownloadService", "exported": false}
+  ]
+}

@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("com.google.android.libraries.mapsplatform.secrets-gradle-plugin")
@@ -39,38 +41,27 @@ val mapsKeyRequested = gradle.startParameter.taskNames.any {
         it.contains("Profile", ignoreCase = true)
 }
 
+// M-6 parity repair. The pinned secrets-gradle-plugin (2.0.1) reads
+// `project.rootProject.file(propertiesFileName)` and falls back, key by key, to
+// `project.rootProject.file(defaultPropertiesFileName)`, parsing both with
+// java.util.Properties (see ExtensionsKt.loadPropertiesFile). Module-level files,
+// Gradle properties and environment variables are NOT part of that substitution
+// law. Accepting a source the plugin ignores is a false negative: the guard would
+// approve a profile/release build that still packages the placeholder.
 fun readMapsApiKeyOrNull(file: File): String? {
     if (!file.exists()) return null
-    return file.readLines()
-        .asSequence()
-        .map { it.trim() }
-        .filter { it.isNotEmpty() && !it.startsWith("#") && !it.startsWith("!") }
-        .mapNotNull { line ->
-            val separators = listOf(line.indexOf('='), line.indexOf(':'))
-                .filter { it >= 0 }
-            val separator = separators.minOrNull() ?: return@mapNotNull null
-            if (line.substring(0, separator).trim() != mapsApiKeyProperty) {
-                null
-            } else {
-                line.substring(separator + 1).trim()
-            }
-        }
-        .firstOrNull()
+    val properties = Properties()
+    file.inputStream().use { properties.load(it) }
+    return properties.getProperty(mapsApiKeyProperty)
 }
 
-// Precedence is deliberately permissive in the SAFE direction: any local
-// secrets file wins over any defaults file, and a Gradle property or environment
-// variable is accepted too, so a valid configuration can never be blocked.
-val resolvedMapsApiKey: String? = sequenceOf(
-    rootProject.file("secrets.properties"),
-    project.file("secrets.properties"),
-    rootProject.file("secrets.defaults.properties"),
-    project.file("secrets.defaults.properties"),
-)
-    .mapNotNull { readMapsApiKeyOrNull(it) }
-    .firstOrNull()
-    ?: providers.gradleProperty(mapsApiKeyProperty).orNull
-    ?: providers.environmentVariable(mapsApiKeyProperty).orNull
+val mapsSecretsFile = rootProject.file("secrets.properties")
+val mapsDefaultsFile = rootProject.file("secrets.defaults.properties")
+
+// Only the two root-project files the plugin can actually substitute from.
+val resolvedMapsApiKey: String? =
+    readMapsApiKeyOrNull(mapsSecretsFile)
+        ?: readMapsApiKeyOrNull(mapsDefaultsFile)
 
 if (
     mapsKeyRequested &&

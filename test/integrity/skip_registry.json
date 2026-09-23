@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "skips": [
+    {
+      "id": "SKIP-001",
+      "kind": "test",
+      "file": "test/features/planner/presentation/goal_event_type_picker_visibility_test.dart",
+      "testName": "snapshot exposes only occupied canonical slots and preserves normal/custom order and geometry",
+      "expression": "fixtureSkip",
+      "reason": "Fixture-gated: requires the operator-provided LINKAGE_REPAIRED_COPY repaired v46 SQLite copy; CI does not provision it. Owner-accepted skip (M-5 decision, 2026-09-21); fixture provisioning is a separate future task.",
+      "introducedBy": "2c89793"
+    },
+    {
+      "id": "SKIP-002",
+      "kind": "test",
+      "file": "test/features/planner/presentation/goal_event_type_picker_visibility_test.dart",
+      "testName": "recommendation and allowed keys cannot resurrect an inactive slot",
+      "expression": "fixtureSkip",
+      "reason": "Fixture-gated: requires the operator-provided LINKAGE_REPAIRED_COPY repaired v46 SQLite copy; CI does not provision it. Owner-accepted skip (M-5 decision, 2026-09-21); fixture provisioning is a separate future task.",
+      "introducedBy": "2c89793"
+    },
+    {
+      "id": "SKIP-003",
+      "kind": "test",
+      "file": "test/features/planner/presentation/goal_event_type_picker_visibility_test.dart",
+      "testName": "open modal refreshes on archive and reoccupation and returns the new binding",
+      "expression": "fixtureSkip",
+      "reason": "Fixture-gated: requires the operator-provided LINKAGE_REPAIRED_COPY repaired v46 SQLite copy; CI does not provision it. Owner-accepted skip (M-5 decision, 2026-09-21); fixture provisioning is a separate future task.",
+      "introducedBy": "2c89793"
+    },
+    {
+      "id": "SKIP-004",
+      "kind": "test",
+      "file": "test/features/planner/presentation/goal_event_type_picker_visibility_test.dart",
+      "testName": "dropdown refreshes with the same occupancy/alias law and returns the raw ID",
+      "expression": "fixtureSkip",
+      "reason": "Fixture-gated: requires the operator-provided LINKAGE_REPAIRED_COPY repaired v46 SQLite copy; CI does not provision it. Owner-accepted skip (M-5 decision, 2026-09-21); fixture provisioning is a separate future task.",
+      "introducedBy": "2c89793"
+    },
+    {
+      "id": "SKIP-005",
+      "kind": "test",
+      "file": "test/features/planner/presentation/goal_event_type_picker_visibility_test.dart",
+      "testName": "long alias keeps one-line ellipsis and full semantics at supported widths and scales",
+      "expression": "fixtureSkip",
+      "reason": "Fixture-gated: requires the operator-provided LINKAGE_REPAIRED_COPY repaired v46 SQLite copy; CI does not provision it. Owner-accepted skip (M-5 decision, 2026-09-21); fixture provisioning is a separate future task.",
+      "introducedBy": "2c89793"
+    },
+    {
+      "id": "SKIP-006",
+      "kind": "test",
+      "file": "test/recovery/normal_event_type_linkage_test.dart",
+      "testName": "repaired v46 exact IDs resolve normal colors and picker hides retired duplicates without rewriting history",
+      "expression": "fixture == null",
+      "reason": "Fixture-gated: requires the operator-provided LINKAGE_REPAIRED_COPY repaired v46 SQLite copy; CI does not provision it. Owner-accepted skip (M-5 decision, 2026-09-21); fixture provisioning is a separate future task.",
+      "introducedBy": "e25d0c9"
+    },
+    {
+      "id": "SKIP-007",
+      "kind": "test",
+      "file": "test/recovery/normal_event_type_linkage_test.dart",
+      "testName": "save and new Goal creation use normal slot types and never generate per-Goal Event Types",
+      "expression": "fixture == null",
+      "reason": "Fixture-gated: requires the operator-provided LINKAGE_REPAIRED_COPY repaired v46 SQLite copy; CI does not provision it. Owner-accepted skip (M-5 decision, 2026-09-21); fixture provisioning is a separate future task.",
+      "introducedBy": "e25d0c9"
+    },
+    {
+      "id": "SKIP-008",
+      "kind": "test",
+      "file": "test/recovery/phase_a_recovery_test.dart",
+      "testName": "saved v46 disposable copy initializes without a schema downgrade",
+      "expression": "Platform.environment['PHASE_A_DISPOSABLE_DB'] == null ? 'Requires an explicit disposable v46 recovery fixture' : false",
+      "reason": "Fixture-gated: requires an explicit disposable v46 recovery fixture via PHASE_A_DISPOSABLE_DB (the test's own inline reason); CI does not provision it. Owner-accepted skip (M-5 decision, 2026-09-21).",
+      "introducedBy": "d94ce65"
+    }
+  ]
+}

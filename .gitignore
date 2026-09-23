@@ -21,6 +21,7 @@ supabase/.branches/
 **/local.properties
 key.properties
 android/secrets.properties
+android/app/secrets.properties
 
 # ─────────────────────────────────────────────────────────────
 # Flutter / Dart

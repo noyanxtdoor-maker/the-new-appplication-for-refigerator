@@ -86,11 +86,32 @@ bool mapsKeyIsUsable(String value) {
 bool packagedManifestHasPlaceholder(String decodedManifest) =>
     decodedManifest.contains(mapsKeyPlaceholder);
 
-/// The value a FAILING gate reports. Never the real key.
-String redacted(String value) {
+/// The only value classes the gate is allowed to report.
+///
+/// SECRET OUTPUT — FULL OPACITY (M-6 owner decision). A configured value is
+/// secret in every respect: its characters, its prefix, its suffix and its
+/// length. Output therefore carries a classification token and nothing else —
+/// never a prefix, never a length, never a hash or encoded form.
+enum MapsKeyClass {
+  /// Nothing usable was declared anywhere.
+  empty('<empty>'),
+
+  /// The tracked fallback value, which the SDK cannot authorize against.
+  placeholder('<placeholder>'),
+
+  /// A value the SDK could use. Its contents and size stay secret.
+  configured('<configured>');
+
+  const MapsKeyClass(this.label);
+
+  /// The safe, opaque label safe to print in any failure message.
+  final String label;
+}
+
+/// Classifies [value] without exposing anything derived from it.
+MapsKeyClass classifyMapsKey(String value) {
   final trimmed = value.trim();
-  if (trimmed.isEmpty) return '<empty>';
-  if (trimmed == mapsKeyPlaceholder) return mapsKeyPlaceholder;
-  if (trimmed.length <= 6) return '<${trimmed.length} chars>';
-  return '${trimmed.substring(0, 6)}…<${trimmed.length} chars>';
+  if (trimmed.isEmpty) return MapsKeyClass.empty;
+  if (trimmed == mapsKeyPlaceholder) return MapsKeyClass.placeholder;
+  return MapsKeyClass.configured;
 }

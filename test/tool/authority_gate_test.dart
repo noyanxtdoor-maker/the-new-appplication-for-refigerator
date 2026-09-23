@@ -544,4 +544,442 @@ void main() {
       expect(checkProductionManifest(reordered), isEmpty);
     });
   });
+
+  // M-7 (2026-09-22): the dependency law became structurally parsed. The M-7
+  // forensic audit re-proved that the old raw-text rule had BOTH failure
+  // directions at once — a quoted forbidden key evaded it, and a comment
+  // mentioning a forbidden family failed it anywhere in the file. This group
+  // pins the corrected behaviour, and the accepted tree, in both directions.
+  group('authority gate — M-7 structural pubspec dependency law', () {
+    late String pubspec;
+
+    setUpAll(() => pubspec = _read(_pubspecPath));
+
+    /// A synthetic pubspec satisfying every approved pin, so the only possible
+    /// failure source is the rule under test.
+    String approvedPins() {
+      final buffer = StringBuffer('dependencies:\n');
+      for (final entry in approvedDependencyPins.entries) {
+        buffer.writeln('  ${entry.key}: ${entry.value}');
+      }
+      return buffer.toString();
+    }
+
+    test('LOCK-P1 the accepted pubspec parses cleanly and passes', () {
+      final scan = scanPubspecDependencies(pubspec);
+
+      expect(scan.failures, isEmpty);
+      expect(scan.declarations, isNotEmpty);
+      expect(checkPubspec(pubspec), isEmpty);
+    });
+
+    test('the synthetic baseline itself is clean', () {
+      expect(checkPubspec(approvedPins()), isEmpty);
+    });
+
+    test('LF-N31A a double-quoted forbidden dependency fails', () {
+      final mutated = '${approvedPins()}  "supabase_flutter": 1.0.0\n';
+
+      expect(checkPubspec(mutated), isNotEmpty);
+    });
+
+    test('LF-N31B a single-quoted forbidden dependency fails', () {
+      final mutated = "${approvedPins()}  'sentry_flutter': 8.0.0\n";
+
+      expect(checkPubspec(mutated), isNotEmpty);
+    });
+
+    test('LF-N31C a quoted forbidden direct dev dependency fails', () {
+      final mutated =
+          '${approvedPins()}\ndev_dependencies:\n'
+          '  "posthog_flutter": 4.0.0\n';
+
+      expect(checkPubspec(mutated), isNotEmpty);
+    });
+
+    test('an unquoted forbidden dependency still fails (control)', () {
+      final mutated = '${approvedPins()}  file_picker: 10.0.0\n';
+
+      expect(checkPubspec(mutated), isNotEmpty);
+    });
+
+    test('LF-N32A a forbidden family only inside a dependency-block comment '
+        'passes', () {
+      final mutated =
+          '${approvedPins()}  # supabase_flutter: forbidden by product policy\n';
+
+      expect(checkPubspec(mutated), isEmpty);
+    });
+
+    test('LF-N32B a forbidden family only in a file-level comment passes', () {
+      final mutated =
+          '${approvedPins()}\n'
+          '# do not add sentry_flutter: or firebase_analytics: here\n';
+
+      expect(checkPubspec(mutated), isEmpty);
+    });
+
+    test('a forbidden family outside a dependency section is not a '
+        'dependency', () {
+      final mutated =
+          '${approvedPins()}\nflutter:\n'
+          '  # supabase_flutter: mentioned while documenting assets\n'
+          '  uses-material-design: true\n';
+
+      expect(checkPubspec(mutated), isEmpty);
+    });
+
+    test('an @insforge source marker in a dependency value fails', () {
+      final mutated =
+          '${approvedPins()}  custom_pkg:\n    git:\n'
+          '      url: git@insforge.example.com:team/custom_pkg.git\n';
+
+      expect(checkPubspec(mutated), isNotEmpty);
+    });
+
+    test('an @insforge mention inside a comment passes', () {
+      final mutated = '${approvedPins()}  # never use @insforge sources\n';
+
+      expect(checkPubspec(mutated), isEmpty);
+    });
+
+    test('nested map keys are not mistaken for package names', () {
+      final scan = scanPubspecDependencies(
+        'dependencies:\n  flutter:\n    sdk: flutter\n',
+      );
+
+      expect(scan.declarations.map((d) => d.name), ['flutter']);
+      expect(scan.declarations.single.nestedKeys, ['sdk']);
+      expect(scan.declarations.single.inlineVersion, isNull);
+    });
+
+    test('quoted, inline-commented and plain pins all resolve exactly', () {
+      expect(
+        pinnedVersionOf('dependencies:\n  intl: 0.20.3\n', 'intl'),
+        '0.20.3',
+      );
+      expect(
+        pinnedVersionOf('dependencies:\n  "intl": 0.20.3\n', 'intl'),
+        '0.20.3',
+      );
+      expect(
+        pinnedVersionOf('dependencies:\n  intl: 0.20.3 # pinned\n', 'intl'),
+        '0.20.3',
+      );
+      // A git/map form carries no inline version; it must return null rather
+      // than the old literal `git:` misparse.
+      expect(
+        pinnedVersionOf(
+          'dependencies:\n  intl:\n    git:\n      url: x\n',
+          'intl',
+        ),
+        isNull,
+      );
+    });
+
+    test('a quoted approved pin still satisfies the exact pin law', () {
+      final quoted = approvedPins().replaceFirst(
+        '  local_auth: 3.0.2',
+        '  "local_auth": 3.0.2',
+      );
+
+      expect(checkPubspec(quoted), isEmpty);
+    });
+
+    test('a large indentation delta still parses and is not silently '
+        'dropped', () {
+      final indented = approvedPins().replaceAll('\n  ', '\n    ');
+
+      expect(checkPubspec(indented), isEmpty);
+    });
+
+    test('malformed dependency structure fails closed', () {
+      final malformed = 'dependencies:\n  "unterminated: 1.0.0\n';
+
+      expect(checkPubspec(malformed), isNotEmpty);
+    });
+  });
+
+  // M-7: the RESOLVED graph. `pubspec.yaml` alone was never sufficient —
+  // `flutter pub get`, `flutter pub deps` and an implicit `dart run`
+  // resolution can each silently repair or regenerate `pubspec.lock` before any
+  // gate observes it.
+  group('authority gate — M-7 structural lockfile law', () {
+    late String lockfile;
+
+    setUpAll(() => lockfile = _read('pubspec.lock'));
+
+    String entry(String name, String classification) =>
+        '  $name:\n'
+        '    dependency: $classification\n'
+        '    description:\n'
+        '      name: $name\n'
+        '      sha256: "${'0' * 64}"\n'
+        '      url: "https://pub.dev"\n'
+        '    source: hosted\n'
+        '    version: "1.0.0"\n';
+
+    String lockOf(List<String> entries) => 'packages:\n${entries.join()}';
+
+    test('LOCK-P1 the accepted lockfile parses cleanly and passes', () {
+      final scan = scanLockfilePackages(lockfile);
+
+      expect(scan.failures, isEmpty);
+      expect(scan.packages, isNotEmpty);
+      expect(checkLockfile(lockfile), isEmpty);
+      expect(scan.packages.map((p) => p.name), contains('crypto'));
+      expect(
+        scan.packages.every((p) => p.classification.isNotEmpty),
+        isTrue,
+        reason: 'every resolved package must carry a classification',
+      );
+    });
+
+    test('LF-N30 a forbidden family resolved only in the lockfile fails', () {
+      final candidate = lockOf([
+        entry('crypto', 'transitive'),
+        entry('supabase_flutter', 'transitive'),
+      ]);
+
+      expect(checkLockfile(candidate), isNotEmpty);
+    });
+
+    test('a forbidden direct dev family fails and reports its '
+        'classification', () {
+      final failures = checkLockfile(
+        lockOf([entry('sentry_flutter', '"direct dev"')]),
+      );
+
+      expect(failures, isNotEmpty);
+      expect(failures.single, contains('direct dev'));
+    });
+
+    test('an insforge-sourced package fails', () {
+      expect(
+        checkLockfile(lockOf([entry('insforge_core', 'transitive')])),
+        isNotEmpty,
+      );
+    });
+
+    test('LF-F2 a duplicate package key fails', () {
+      final failures = checkLockfile(
+        lockOf([entry('crypto', 'transitive'), entry('crypto', 'transitive')]),
+      );
+
+      expect(failures, isNotEmpty);
+      expect(failures.any((f) => f.contains('more than once')), isTrue);
+    });
+
+    test('LF-F1 a malformed lockfile fails closed instead of throwing', () {
+      const malformed =
+          'packages:\n  good:\n    dependency: transitive\n  broken\n';
+
+      expect(() => checkLockfile(malformed), returnsNormally);
+      expect(checkLockfile(malformed), isNotEmpty);
+    });
+
+    test('a lockfile with no packages map fails closed', () {
+      expect(checkLockfile('not a lockfile'), isNotEmpty);
+      expect(checkLockfile(''), isNotEmpty);
+    });
+
+    test('a package without a dependency classification fails', () {
+      expect(
+        checkLockfile('packages:\n  good:\n    source: hosted\n'),
+        isNotEmpty,
+      );
+    });
+
+    test('an empty resolution fails closed', () {
+      expect(checkLockfile('packages:\n'), isNotEmpty);
+    });
+
+    test('lockfile failures never quote hashes, urls or description '
+        'content', () {
+      const canary = 'ZZ_M7_LEAK_CANARY';
+      final candidate =
+          'packages:\n'
+          '  supabase_flutter:\n'
+          '    dependency: transitive\n'
+          '    description:\n'
+          '      name: supabase_flutter\n'
+          '      sha256: "${'a' * 64}"\n'
+          '      url: "https://$canary.example.com"\n'
+          '    source: hosted\n'
+          '    version: "9.9.9"\n';
+
+      final failures = checkLockfile(candidate).join('\n');
+
+      expect(failures, contains('supabase_flutter'));
+      expect(failures.contains(canary), isFalse);
+      expect(failures.contains('https://'), isFalse);
+      expect(failures.contains('a' * 64), isFalse);
+      expect(failures.contains('9.9.9'), isFalse);
+    });
+  });
+
+  // M-7: the workflow law. Detection only survives if the CI steps that
+  // establish it cannot be quietly removed, replaced by the non-enforcing
+  // command, or suppressed.
+  group('authority gate — M-7 workflow lockfile law', () {
+    late String workflow;
+
+    setUpAll(() => workflow = _read('.github/workflows/quality.yml'));
+
+    String stepBlock(String name) {
+      final start = workflow.indexOf('- name: $name');
+      expect(start, isNonNegative, reason: 'step not found: $name');
+      final next = workflow.indexOf('- name:', start + 8);
+      return workflow.substring(start, next == -1 ? workflow.length : next);
+    }
+
+    test(
+      'dependency resolution is enforced against the committed lockfile',
+      () {
+        expect(workflow.contains('flutter pub get --enforce-lockfile'), isTrue);
+      },
+    );
+
+    test(
+      'ordinary non-enforced resolution is not substituted in its place',
+      () {
+        final bare = RegExp(r'^\s*flutter pub get\s*$', multiLine: true);
+
+        expect(bare.hasMatch(workflow), isFalse);
+        expect(
+          stepBlock(
+            'Resolve locked dependencies',
+          ).contains('flutter pub get --enforce-lockfile'),
+          isTrue,
+        );
+      },
+    );
+
+    test('the lockfile tree is asserted after enforced resolution', () {
+      final block = stepBlock(
+        'Verify the locked dependency resolution was not rewritten',
+      );
+
+      expect(block.contains('git status --porcelain -- pubspec.lock'), isTrue);
+      expect(block.contains('exit 1'), isTrue);
+    });
+
+    test('the lockfile tree is asserted again after the dependency report', () {
+      final assertion = workflow.indexOf(
+        '- name: Verify pubspec.lock survived the dependency resolution report',
+      );
+      final report = workflow.indexOf('- name: Dependency resolution report');
+      final tests = workflow.indexOf(
+        '- name: VS-01 through VS-08 unit, repository, migration, and widget '
+        'tests',
+      );
+
+      expect(assertion, isNonNegative);
+      expect(report, isNonNegative);
+      expect(assertion, greaterThan(report));
+      if (tests != -1) expect(assertion, lessThan(tests));
+      expect(
+        stepBlock(
+          'Verify pubspec.lock survived the dependency resolution report',
+        ).contains('git status --porcelain -- pubspec.lock'),
+        isTrue,
+      );
+    });
+
+    test('the assertion uses git status, not git diff, for deletion safety', () {
+      final block = stepBlock(
+        'Verify the locked dependency resolution was not rewritten',
+      );
+
+      // `git diff -- pubspec.lock` misses a committed deletion, so it must not
+      // be the assertion used here.
+      expect(block.contains('git diff'), isFalse);
+    });
+
+    test('the lockfile steps cannot be suppressed or self-healed', () {
+      for (final name in [
+        'Verify the locked dependency resolution was not rewritten',
+        'Verify pubspec.lock survived the dependency resolution report',
+      ]) {
+        final block = stepBlock(name);
+        expect(block.contains('continue-on-error'), isFalse, reason: name);
+        expect(block.contains('|| true'), isFalse, reason: name);
+        expect(block.contains('git checkout'), isFalse, reason: name);
+        expect(block.contains('git restore'), isFalse, reason: name);
+        // The assertion steps observe; they must never resolve again.
+        expect(block.contains('flutter pub'), isFalse, reason: name);
+      }
+    });
+  });
+
+  // M-7: the gitleaks configuration must stay demonstrably explicit and
+  // maximally narrow, so the one proven historical false positive is retired
+  // without disabling detection anywhere else.
+  group('authority gate — M-7 gitleaks configuration', () {
+    const sha = '25663c219e911608add8d05c2bcf024ef98c2b8c';
+    const path = 'test/features/goals/domain/goal_icon_registry_test.dart';
+    late String workflow;
+    late String config;
+
+    setUpAll(() {
+      workflow = _read('.github/workflows/quality.yml');
+      config = _read('.gitleaks.toml');
+    });
+
+    test(
+      'the gitleaks step still exists and pins the explicit config path',
+      () {
+        expect(workflow.contains('gitleaks/gitleaks-action@v2'), isTrue);
+        expect(workflow.contains('GITLEAKS_CONFIG: .gitleaks.toml'), isTrue);
+      },
+    );
+
+    test('default rules are extended, never replaced', () {
+      expect(config.contains('[extend]'), isTrue);
+      expect(config.contains('useDefault = true'), isTrue);
+    });
+
+    test('the allowlist is scoped to generic-api-key only', () {
+      expect(config.contains('id = "generic-api-key"'), isTrue);
+      expect(
+        RegExp(
+          r'^\s*\[\[rules\]\]\s*$',
+          multiLine: true,
+        ).allMatches(config).length,
+        1,
+      );
+      expect(
+        RegExp(
+          r'^\s*\[\[rules\.allowlists\]\]\s*$',
+          multiLine: true,
+        ).allMatches(config).length,
+        1,
+      );
+    });
+
+    test('the exact historical commit appears exactly once', () {
+      expect(RegExp(sha).allMatches(config).length, 1);
+    });
+
+    test('the exact historical path is allowlisted', () {
+      expect(config.contains(path.replaceAll('.', r'\.')), isTrue);
+    });
+
+    test('the allowlist requires BOTH the commit and the path', () {
+      expect(config.contains('condition = "AND"'), isTrue);
+    });
+
+    test('no rule is disabled and no blanket path is exempted', () {
+      expect(config.contains('disabled = '), isFalse);
+      expect(config.contains('test/**'), isFalse);
+      expect(config.contains('_test.dart'), isFalse);
+      expect(config.contains('regexes'), isFalse);
+      expect(config.contains('regexTarget'), isFalse);
+      expect(config.contains('stopwords'), isFalse);
+    });
+
+    test('the matched value is not reproduced in the configuration', () {
+      expect(RegExp(r'\b[0-9a-f]{64}\b').hasMatch(config), isFalse);
+    });
+  });
 }
