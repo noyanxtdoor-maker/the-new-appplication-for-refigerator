@@ -26,6 +26,7 @@ import 'package:rmplanner/features/notifications/domain/reminder_policy_label.da
 import 'package:rmplanner/features/notifications/presentation/reminder_time_picker.dart';
 import 'package:rmplanner/features/planner/application/calendar_event_creation_draft_provider.dart';
 import 'package:rmplanner/features/planner/application/calendar_event_providers.dart';
+import 'package:rmplanner/features/planner/application/event_schedule_conflict_provider.dart';
 import 'package:rmplanner/features/planner/application/event_type_creation_providers.dart';
 import 'package:rmplanner/features/planner/application/event_type_providers.dart';
 import 'package:rmplanner/features/planner/application/outcome_reporting_providers.dart';
@@ -35,6 +36,7 @@ import 'package:rmplanner/features/planner/application/task_event_link_providers
 import 'package:rmplanner/features/planner/data/calendar_event_time_zones.dart';
 import 'package:rmplanner/features/planner/domain/calendar_event.dart';
 import 'package:rmplanner/features/planner/domain/event_contact_channel.dart';
+import 'package:rmplanner/features/planner/domain/event_schedule_conflict.dart';
 import 'package:rmplanner/features/planner/domain/event_type.dart';
 import 'package:rmplanner/features/planner/domain/event_type_creation_choice.dart';
 import 'package:rmplanner/features/planner/domain/outcome_reporting.dart';
@@ -1310,6 +1312,7 @@ final class _CalendarEventFormScreenState
     final statusSectionVisible =
         explicitStatusPath ||
         (_ordinaryEditOccurrenceEligible && _requiresReport);
+    final hasScheduleConflict = _hasScheduleConflict();
     final bottomPadding = widget.sheetPresentation
         ? 24.0 + MediaQuery.of(context).viewInsets.bottom
         : 120.0;
@@ -1480,6 +1483,18 @@ final class _CalendarEventFormScreenState
                           ),
                         ],
                       ),
+                      if (hasScheduleConflict)
+                        const Align(
+                          alignment: Alignment.centerLeft,
+                          child: Padding(
+                            key: Key('event-schedule-conflict-warning'),
+                            padding: EdgeInsets.only(top: 6),
+                            child: Text(
+                              'Conflicting event',
+                              style: AppTypography.secondary,
+                            ),
+                          ),
+                        ),
                       // P3 OVERNIGHT LAW: an Event that crosses midnight says so
                       // in words, so "11:30 PM - 1:00 AM" can never be misread as
                       // a same-day interval with a negative duration.
@@ -3368,6 +3383,73 @@ final class _CalendarEventFormScreenState
       // A manual schedule edit clears the one-level `Set Time to Now` Undo.
       _nowUndoSnapshot = null;
     });
+  }
+
+  bool _hasScheduleConflict() {
+    if (_timing != CalendarEventTiming.timed) {
+      return false;
+    }
+    final startMinute = _start.hour * 60 + _start.minute;
+    final endMinute = _endMinuteOfDay;
+    if (endMinute <= startMinute) {
+      return false;
+    }
+    final startup = ref.watch(startupControllerProvider);
+    if (startup is! StartupReady) {
+      return false;
+    }
+    try {
+      final displayTimeZoneId = ref
+          .read(calendarEventControllerProvider.notifier)
+          .displayTimeZoneId;
+      final sourceTimeZoneId = _timeZoneController.text.trim();
+      final timeZones = IanaCalendarEventTimeZones(
+        displayTimeZoneId: displayTimeZoneId,
+      );
+      final startUtc = timeZones.wallTimeToUtc(
+        date: _date,
+        minuteOfDay: startMinute,
+        timeZoneId: sourceTimeZoneId,
+      );
+      final endUtc = timeZones.wallTimeToUtc(
+        date: _date,
+        minuteOfDay: endMinute,
+        timeZoneId: sourceTimeZoneId,
+      );
+      if (!endUtc.isAfter(startUtc)) {
+        return false;
+      }
+      final displayStartDate = timeZones.utcToDisplayDate(startUtc);
+      final displayEndDate = timeZones.utcToDisplayDate(endUtc);
+      final candidates = ref.watch(
+        eventScheduleConflictCandidatesProvider(
+          EventScheduleConflictRangeKey(
+            profileId: startup.profile.id,
+            startDate: displayStartDate.addDays(-3),
+            endDate: displayEndDate,
+            displayTimeZoneId: displayTimeZoneId,
+          ),
+        ),
+      );
+      return candidates.maybeWhen(
+        data: (items) => hasActionableEventScheduleConflict(
+          EventScheduleConflictDraft(
+            startUtc: startUtc,
+            endUtc: endUtc,
+            eventId: widget.mode == CalendarEventFormMode.create
+                ? null
+                : widget.eventId,
+            originalDate: widget.mode == CalendarEventFormMode.create
+                ? null
+                : widget.originalDate,
+          ),
+          items,
+        ),
+        orElse: () => false,
+      );
+    } on Object {
+      return false;
+    }
   }
 
   void _setEndTime(TimeOfDay value) {

@@ -513,8 +513,10 @@ abstract final class PlannerDisplayGeometry {
       timeZoneId: event.timeZoneId,
       displayTimeZoneId: event.displayTimeZoneId,
       activityTypeId: event.activityTypeId,
+      activityTypeStableKey: event.activityTypeStableKey,
       activityTypeLabel: event.activityTypeLabel,
       activityTypeColorValue: event.activityTypeColorValue,
+      contactChannel: event.contactChannel,
       isBackupAppointment: event.isBackupAppointment,
       backupForEventId: event.backupForEventId,
     );

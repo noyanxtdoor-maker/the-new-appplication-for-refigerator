@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:rmplanner/features/planner/domain/planner_day.dart';
+import 'package:rmplanner/features/planner/presentation/widgets/event_contact_channel_visuals.dart';
 import 'package:rmplanner/features/planner/presentation/widgets/planner_event_block_layout_policy.dart';
 import 'package:rmplanner/features/planner/presentation/widgets/planner_event_report_status.dart';
 
@@ -203,6 +204,21 @@ final class PlannerEventBlockContentView extends StatelessWidget {
         // and produced the owner-observed 2-4 px RenderFlex overflow.
         final nonReportStatusFits =
             nonReportText != null && availableHeight >= 54;
+        final contactIconSize = PlannerEventBlockLayoutPolicy.titleFontSize(
+          density,
+        );
+        final showContactIcon =
+            event.isContactCapable &&
+            availableWidth >=
+                contactIconSize + PlannerEventBlockLayoutPolicy.rowGap + 4;
+        final title = Text(
+          content.showTimeInline ? inlineText : event.displayTitle,
+          key: titleKey,
+          style: titleStyle,
+          maxLines: content.titleMaxLines,
+          overflow: TextOverflow.ellipsis,
+          softWrap: false,
+        );
 
         return Stack(
           clipBehavior: Clip.hardEdge,
@@ -226,16 +242,27 @@ final class PlannerEventBlockContentView extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: <Widget>[
                     if (content.showTitle)
-                      Text(
-                        content.showTimeInline
-                            ? inlineText
-                            : event.displayTitle,
-                        key: titleKey,
-                        style: titleStyle,
-                        maxLines: content.titleMaxLines,
-                        overflow: TextOverflow.ellipsis,
-                        softWrap: false,
-                      ),
+                      if (showContactIcon)
+                        Row(
+                          mainAxisSize: MainAxisSize.max,
+                          children: <Widget>[
+                            SizedBox.square(
+                              key: const Key('planner-event-contact-type-icon'),
+                              dimension: contactIconSize,
+                              child: eventContactChannelVisual(
+                                channel: event.contactChannel,
+                                color: textColor,
+                                size: contactIconSize,
+                              ),
+                            ),
+                            const SizedBox(
+                              width: PlannerEventBlockLayoutPolicy.rowGap,
+                            ),
+                            Expanded(child: title),
+                          ],
+                        )
+                      else
+                        title,
                     if (content.showTime && !content.showTimeInline)
                       Padding(
                         padding: EdgeInsets.only(
@@ -312,9 +339,10 @@ final class PlannerEventBlockContentView extends StatelessWidget {
                 right: PlannerEventBlockLayoutPolicy.recurrenceRightInset,
                 child: Icon(
                   Icons.repeat,
-                  size: PlannerEventBlockLayoutPolicy.recurrenceIconSizeForHeight(
-                    content.liveHeight,
-                  ),
+                  size:
+                      PlannerEventBlockLayoutPolicy.recurrenceIconSizeForHeight(
+                        content.liveHeight,
+                      ),
                   color: accent.withValues(alpha: 0.92),
                 ),
               ),

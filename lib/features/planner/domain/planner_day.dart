@@ -1,4 +1,6 @@
 import 'package:rmplanner/features/planner/domain/calendar_event.dart';
+import 'package:rmplanner/features/planner/domain/event_contact_channel.dart';
+import 'package:rmplanner/features/planner/domain/event_type.dart';
 import 'package:rmplanner/features/planner/domain/planner_date.dart';
 import 'package:rmplanner/features/planner/domain/planner_task.dart';
 
@@ -35,8 +37,10 @@ final class PlannerCalendarItem {
     this.timeZoneId,
     this.displayTimeZoneId,
     this.activityTypeId,
+    this.activityTypeStableKey,
     this.activityTypeLabel,
     this.activityTypeColorValue,
+    this.contactChannel,
     this.isBackupAppointment = false,
     this.backupForEventId,
   });
@@ -61,10 +65,25 @@ final class PlannerCalendarItem {
   final String? timeZoneId;
   final String? displayTimeZoneId;
   final String? activityTypeId;
+  final String? activityTypeStableKey;
   final String? activityTypeLabel;
   final int? activityTypeColorValue;
+  final EventContactChannel? contactChannel;
   final bool isBackupAppointment;
   final String? backupForEventId;
+
+  /// Mirrors the Event form's single Contact-capable decision. A retained
+  /// channel on an ordinary Event is not enough to make it a Contact Event.
+  bool get isContactCapable {
+    if (isBackupAppointment) {
+      return false;
+    }
+    if (activityTypeStableKey == SystemEventTypeKeys.meaningfulConnection ||
+        activityTypeStableKey == SystemEventTypeKeys.contact) {
+      return true;
+    }
+    return activityTypeLabel?.trim().toLowerCase().contains('contact') == true;
+  }
 
   /// Human-visible title with the Event Type label fallback.
   String get displayTitle => plannerItemDisplayTitle(

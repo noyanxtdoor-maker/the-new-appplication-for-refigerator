@@ -1237,8 +1237,10 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
       timeZoneId: pending.event.timeZoneId,
       displayTimeZoneId: pending.event.displayTimeZoneId,
       activityTypeId: pending.event.activityTypeId,
+      activityTypeStableKey: pending.event.activityTypeStableKey,
       activityTypeLabel: pending.event.activityTypeLabel,
       activityTypeColorValue: pending.event.activityTypeColorValue,
+      contactChannel: pending.event.contactChannel,
       isBackupAppointment: pending.event.isBackupAppointment,
       backupForEventId: pending.event.backupForEventId,
     );
@@ -2168,7 +2170,8 @@ final class _PlannerScreenState extends ConsumerState<PlannerScreen> {
         ...day.allDayEvents,
         ...day.timedEvents,
       ])
-        '${event.id}:${event.state.name}:${event.hasOutcomeReport}',
+        '${event.id}:${event.state.name}:${event.hasOutcomeReport}:'
+            '${event.activityTypeStableKey}:${event.contactChannel?.stableKey}',
       for (final task in <PlannerTask>[
         ...day.overdueTasks,
         ...day.tasks,
@@ -6955,7 +6958,9 @@ final class _TimelineEventBlockState extends State<_TimelineEventBlock> {
       widget.event.id,
       widget.event.displayTitle,
       widget.event.activityTypeLabel,
+      widget.event.activityTypeStableKey,
       widget.event.activityTypeColorValue,
+      widget.event.contactChannel,
       widget.event.isBackupAppointment,
       widget.event.requiresReport,
       widget.event.state,

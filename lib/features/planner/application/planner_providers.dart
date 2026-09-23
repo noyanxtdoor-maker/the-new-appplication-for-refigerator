@@ -1491,8 +1491,10 @@ final class PlannerController extends Notifier<PlannerState> {
           x.timeZoneId != y.timeZoneId ||
           x.displayTimeZoneId != y.displayTimeZoneId ||
           x.activityTypeId != y.activityTypeId ||
+          x.activityTypeStableKey != y.activityTypeStableKey ||
           x.activityTypeLabel != y.activityTypeLabel ||
           x.activityTypeColorValue != y.activityTypeColorValue ||
+          x.contactChannel != y.contactChannel ||
           x.isBackupAppointment != y.isBackupAppointment ||
           x.backupForEventId != y.backupForEventId ||
           !_stringListsEqual(x.linkedTaskIds, y.linkedTaskIds)) {

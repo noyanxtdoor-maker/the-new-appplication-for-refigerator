@@ -1555,8 +1555,10 @@ final class DriftCalendarEventRepository
       timeZoneId: occurrence.timeZoneId,
       displayTimeZoneId: occurrence.displayTimeZoneId,
       activityTypeId: occurrence.activityTypeId,
+      activityTypeStableKey: occurrence.activityTypeStableKey,
       activityTypeLabel: occurrence.activityTypeLabel,
       activityTypeColorValue: occurrence.activityTypeColorValue,
+      contactChannel: occurrence.contactChannel,
       isBackupAppointment: occurrence.isBackupAppointment,
       backupForEventId: occurrence.backupForEventId,
     );
